@@ -62,8 +62,6 @@ private:
     typedef struct {
         /* index to find this buffer */
         uint32_t       index;
-        /* index to find surface */
-        uint32_t       generation;
         /* mpp buffer */
         MppBuffer      mppBuffer;
         /* who own this buffer */
@@ -100,7 +98,6 @@ private:
     uint32_t mProfile;
     uint32_t mHalPixelFormat;
     int64_t  mLastPts;
-    uint32_t mGeneration;
 
     bool mStarted;
     bool mFlushed;
@@ -205,23 +202,6 @@ private:
                 delete buffer;
             }
             mOutBuffers.removeAt(0);
-        }
-    }
-
-    void clearOldGenerationOutBuffers(uint32_t generation) {
-        Vector<OutBuffer*>::iterator it = mOutBuffers.begin();
-        for (; it != mOutBuffers.end(); ) {
-            OutBuffer *buffer = static_cast<OutBuffer*>(*it);
-            if (buffer && buffer->generation != generation) {
-                if (buffer->site != BUFFER_SITE_BY_MPI) {
-                    mpp_buffer_put(buffer->mppBuffer);
-                }
-                buffer->block.reset();
-                delete buffer;
-                it = mOutBuffers.erase(it);
-            } else {
-                it++;
-            }
         }
     }
 

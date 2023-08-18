@@ -575,7 +575,6 @@ C2RKMpiDec::C2RKMpiDec(
       mVerStride(0),
       mGrallocVersion(C2RKChipCapDef::get()->getGrallocVersion()),
       mLastPts(-1),
-      mGeneration(0),
       mStarted(false),
       mFlushed(true),
       mOutputEos(false),
@@ -666,7 +665,6 @@ c2_status_t C2RKMpiDec::onFlush_sm() {
         mOutputEos = false;
         mSignalledInputEos = false;
         mSignalledError = false;
-        mGeneration = 0;
 
         clearOutBuffers();
 
@@ -1508,23 +1506,11 @@ REDO:
             outblock = mOutBlock;
         } else {
             OutBuffer *outBuffer = findOutBuffer(mppBuffer);
-            if (!outBuffer) {
-                // new surface generation means all output buffers need to be reset, but
-                // outdated buffer still work in mpp decoder. in this case, we use new
-                // generation buffer to store outdated decode output.
-                c2_warn("get outdated mppBuffer %p, drain it.", mppBuffer);
-                MppBuffer newBuffer = nullptr;
-                mpp_buffer_get(mFrmGrp, &newBuffer, 1);
-                outBuffer = findOutBuffer(newBuffer);
-                if (!outBuffer) {
-                    c2_err("not find newBuffer %p in outBuffer list.", newBuffer);
-                    goto exit;
-                } else {
-                    copyOutputBuffer(mppBuffer, newBuffer);
-                    mppBuffer = newBuffer;
-                }
-            } else {
+            if (outBuffer) {
                 mpp_buffer_inc_ref(mppBuffer);
+            } else {
+                c2_err("get outdated mppBuffer %p, release it.", mppBuffer);
+                goto exit;
             }
             outBuffer->site = BUFFER_SITE_BY_C2;
             outblock = outBuffer->block;
@@ -1564,52 +1550,22 @@ exit:
     return ret;
 }
 
-c2_status_t C2RKMpiDec::checkSurfaceConfig(std::shared_ptr<C2GraphicBlock> block) {
+c2_status_t C2RKMpiDec::commitBufferToMpp(std::shared_ptr<C2GraphicBlock> block) {
+    uint32_t bufferSize = 0, bufferId = 0;
+    auto c2Handle = block->handle();
+    uint32_t fd = c2Handle->data[0];
+    native_handle_t *grallocHandle = nullptr;
+
     if (!mScaleEnabled) {
         updateScaleCfg(block);
     }
 
-    uint32_t bqSlot, width, height, format, stride, generation;
-    uint64_t usage, bqId;
+    grallocHandle = UnwrapNativeCodec2GrallocHandle(c2Handle);
 
-    auto c2Handle = block->handle();
+    bufferSize = C2RKGrallocOps::getInstance()->getAllocationSize(grallocHandle);
+    bufferId = C2RKGrallocOps::getInstance()->getBufferId(grallocHandle);
 
-    android::_UnwrapNativeCodec2GrallocMetadata(
-                c2Handle, &width, &height, &format, &usage,
-                &stride, &generation, &bqId, &bqSlot);
-
-    if (mGeneration == 0) {
-        mGeneration = generation;
-    } else if (mGeneration != generation) {
-        c2_info("generation change to %d, clear old buffer", generation);
-        clearOldGenerationOutBuffers(generation);
-        mpp_buffer_group_clear(mFrmGrp);
-        mGeneration = generation;
-        return C2_NO_MEMORY;
-    }
-
-    return C2_OK;
-}
-
-c2_status_t C2RKMpiDec::commitBufferToMpp(std::shared_ptr<C2GraphicBlock> block) {
-    auto c2Handle = block->handle();
-    uint32_t fd = c2Handle->data[0];
-
-    uint32_t bqSlot, width, height, format, stride, generation;
-    uint64_t usage, bqId;
-
-    android::_UnwrapNativeCodec2GrallocMetadata(
-                c2Handle, &width, &height, &format, &usage,
-                &stride, &generation, &bqId, &bqSlot);
-
-    auto GetC2BlockSize = [c2Handle]() -> uint32_t {
-        native_handle_t *grallocHandle = UnwrapNativeCodec2GrallocHandle(c2Handle);
-        uint32_t size = C2RKGrallocOps::getInstance()->getAllocationSize(grallocHandle);
-        native_handle_delete(grallocHandle);
-        return size;
-    };
-
-    OutBuffer *buffer = findOutBuffer(bqSlot);
+    OutBuffer *buffer = findOutBuffer(bufferId);
     if (buffer) {
         /* commit this buffer back to mpp */
         MppBuffer mppBuffer = buffer->mppBuffer;
@@ -1619,8 +1575,7 @@ c2_status_t C2RKMpiDec::commitBufferToMpp(std::shared_ptr<C2GraphicBlock> block)
         buffer->block = block;
         buffer->site = BUFFER_SITE_BY_MPI;
 
-        c2_trace("put this buffer, slot %d fd %d gene %d mppBuf %p",
-                 bqSlot, fd, generation, mppBuffer);
+        c2_trace("put this buffer, index %d fd %d mppBuf %p", bufferId, fd, mppBuffer);
     } else {
         /* register this buffer to mpp group */
         MppBuffer mppBuffer;
@@ -1631,25 +1586,28 @@ c2_status_t C2RKMpiDec::commitBufferToMpp(std::shared_ptr<C2GraphicBlock> block)
         info.fd = fd;
         info.ptr = nullptr;
         info.hnd = nullptr;
-        info.size = GetC2BlockSize();
-        info.index = bqSlot;
+        info.size = bufferSize;
+        info.index = bufferId;
 
         mpp_buffer_import_with_tag(
                 mFrmGrp, &info, &mppBuffer, "codec2", __FUNCTION__);
 
         OutBuffer *buffer = new OutBuffer;
-        buffer->index = bqSlot;
+        buffer->index = bufferId;
         buffer->mppBuffer = mppBuffer;
         buffer->block = block;
         buffer->site = BUFFER_SITE_BY_MPI;
-        buffer->generation = generation;
+
+        // signal buffer available to mpp
         mpp_buffer_put(mppBuffer);
 
         mOutBuffers.push(buffer);
 
-        c2_trace("import this buffer, slot %d fd %d size %d mppBuf %p gene %d listSize %d",
-                 bqSlot, fd, info.size, mppBuffer, generation, mOutBuffers.size());
+        c2_trace("import this buffer, index %d fd %d size %d mppBuf %p listSize %d",
+                 bufferId, fd, bufferSize, mppBuffer, mOutBuffers.size());
     }
+
+    native_handle_delete(grallocHandle);
 
     return C2_OK;
 }
@@ -1767,12 +1725,6 @@ c2_status_t C2RKMpiDec::ensureDecoderState(
                 break;
             }
 
-            ret = checkSurfaceConfig(outblock);
-            if (ret == C2_NO_MEMORY) {
-                c2_info("get surface changed, update output buffer");
-                count = mIntf->mActualOutputDelay->value - getOutBufferCountOwnByMpi();
-                i = 0;
-            }
             if (outblock) {
                 commitBufferToMpp(outblock);
                 i++;
