@@ -695,6 +695,41 @@ c2_status_t C2RKMpiDec::onFlush_sm() {
     return ret;
 }
 
+c2_status_t C2RKMpiDec::updateMppFrameInfo(uint32_t width, uint32_t height, uint32_t fmt) {
+    MppFrame frame  = nullptr;
+
+    mMppMpi->control(mMppCtx, MPP_DEC_SET_OUTPUT_FORMAT, (MppParam)&fmt);
+
+    mpp_frame_init(&frame);
+    mpp_frame_set_width(frame, width);
+    mpp_frame_set_height(frame, height);
+    mpp_frame_set_fmt(frame, (MppFrameFormat)fmt);
+    mMppMpi->control(mMppCtx, MPP_DEC_SET_FRAME_INFO, (MppParam)frame);
+
+    /*
+     * Command "set-frame-info" may failed to provide stride info in old
+     * mpp version, so config unaligned resolution for stride and then
+     * info-change will sent to transmit correct stride.
+     */
+    if (mpp_frame_get_hor_stride(frame) <= 0 ||
+        mpp_frame_get_ver_stride(frame) <= 0)
+    {
+        mpp_frame_set_hor_stride(frame, width);
+        mpp_frame_set_ver_stride(frame, height);
+        mMppMpi->control(mMppCtx, MPP_DEC_SET_FRAME_INFO, (MppParam)frame);
+    }
+
+    mHorStride = mpp_frame_get_hor_stride(frame);
+    mVerStride = mpp_frame_get_ver_stride(frame);
+    mColorFormat = mpp_frame_get_fmt(frame);
+
+    c2_info("init: hor %d ver %d color 0x%08x", mHorStride, mVerStride, mColorFormat);
+
+    mpp_frame_deinit(&frame);
+
+    return C2_OK;
+}
+
 c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
     MPP_RET err = MPP_OK;
 
@@ -769,8 +804,6 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
     }
 
     {
-        MppFrame frame  = nullptr;
-
         if (mProfile == PROFILE_AVC_HIGH_10 ||
             mProfile == PROFILE_HEVC_MAIN_10 ||
             (mBufferMode && mHalPixelFormat == HAL_PIXEL_FORMAT_YCBCR_P010)) {
@@ -781,43 +814,19 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
 
         uint32_t mppFmt = mColorFormat;
 
-        if (checkPreferFbcOutput(work)) {
-            mFbcCfg.mode = C2RKChipFeaturesDef::getFbcOutputMode(mCodingType);
-            if (mFbcCfg.mode) {
-                c2_info("use mpp fbc output mode");
-                mppFmt |= MPP_FRAME_FBC_AFBC_V2;
-            }
+        mFbcCfg.mode = C2RKChipFeaturesDef::getFbcOutputMode(mCodingType);
+        if (mFbcCfg.mode && checkPreferFbcOutput(work)) {
+            c2_info("use mpp fbc output mode");
+            mppFmt |= MPP_FRAME_FBC_AFBC_V2;
+            /* fbc decode output has padding inside, set crop before display */
+            C2RKChipFeaturesDef::getFbcOutputOffset(
+                    mCodingType, &mFbcCfg.paddingX, &mFbcCfg.paddingY);
+            c2_info("fbc padding offset(%d, %d)", mFbcCfg.paddingX, mFbcCfg.paddingY);
         } else {
             mFbcCfg.mode = 0;
         }
 
-        mMppMpi->control(mMppCtx, MPP_DEC_SET_OUTPUT_FORMAT, (MppParam)&mppFmt);
-
-        mpp_frame_init(&frame);
-        mpp_frame_set_width(frame, mWidth);
-        mpp_frame_set_height(frame, mHeight);
-        mpp_frame_set_fmt(frame, (MppFrameFormat)mppFmt);
-        mMppMpi->control(mMppCtx, MPP_DEC_SET_FRAME_INFO, (MppParam)frame);
-
-        /*
-         * Command "set-frame-info" may failed to provide stride info in old
-         * mpp version, so config unaligned resolution for stride and then
-         * info-change will sent to transmit correct stride.
-         */
-        if (mpp_frame_get_hor_stride(frame) <= 0 ||
-            mpp_frame_get_ver_stride(frame) <= 0)
-        {
-            mpp_frame_set_hor_stride(frame, mWidth);
-            mpp_frame_set_ver_stride(frame, mHeight);
-            mMppMpi->control(mMppCtx, MPP_DEC_SET_FRAME_INFO, (MppParam)frame);
-        }
-
-        mHorStride = mpp_frame_get_hor_stride(frame);
-        mVerStride = mpp_frame_get_ver_stride(frame);
-
-        c2_info("init: get stride [%d:%d]", mHorStride, mVerStride);
-
-        mpp_frame_deinit(&frame);
+        updateMppFrameInfo(mWidth, mHeight, mppFmt);
     }
 
     /*
@@ -832,14 +841,6 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
             goto error;
         }
         mMppMpi->control(mMppCtx, MPP_DEC_SET_EXT_BUF_GROUP, mFrmGrp);
-    }
-
-    /* fbc decode output has padding inside, set crop before display */
-    if (mFbcCfg.mode) {
-        C2RKChipFeaturesDef::getFbcOutputOffset(mCodingType,
-                                                &mFbcCfg.paddingX,
-                                                &mFbcCfg.paddingY);
-        c2_info("fbc padding offset(%d, %d)", mFbcCfg.paddingX, mFbcCfg.paddingY);
     }
 
     if (!mDump) {
@@ -885,7 +886,7 @@ bool C2RKMpiDec::checkPreferFbcOutput(const std::unique_ptr<C2Work> &work) {
 
     // kodi/photos/files does not transmit profile level(10bit etc) to C2, so
     // get bitDepth info from spspps in this case.
-    if (work->input.flags & C2FrameData::FLAG_CODEC_CONFIG) {
+    if (work != nullptr && work->input.flags & C2FrameData::FLAG_CODEC_CONFIG) {
         C2ReadView rView = mDummyReadView;
         if (!work->input.buffers.empty()) {
             rView = work->input.buffers[0]->data().linearBlocks().front().map().get();
@@ -901,7 +902,7 @@ bool C2RKMpiDec::checkPreferFbcOutput(const std::unique_ptr<C2Work> &work) {
         }
     }
 
-    if (mWidth * mHeight > 2304 * 1080 ||  mCodingType == MPP_VIDEO_CodingVP9 || mCodingType == MPP_VIDEO_CodingHEVC) {
+    if (mWidth * mHeight > 2304 * 1080) {
         return true;
     }
 
@@ -1437,6 +1438,39 @@ REDO:
             mpp_buffer_group_clear(mFrmGrp);
         }
 
+        mWidth = width;
+        mHeight = height;
+        mColorFormat = format;
+        mHorStride = hstride;
+        mVerStride = vstride;
+
+        if (!MPP_FRAME_FMT_IS_FBC(mColorFormat)) {
+            mFbcCfg.mode = C2RKChipFeaturesDef::getFbcOutputMode(mCodingType);
+            if (mFbcCfg.mode && checkPreferFbcOutput()) {
+                uint32_t mppFmt = mColorFormat;
+                c2_info("change use mpp fbc output mode");
+                mppFmt |= MPP_FRAME_FBC_AFBC_V2;
+                /* fbc decode output has padding inside, set crop before display */
+                C2RKChipFeaturesDef::getFbcOutputOffset(
+                        mCodingType, &mFbcCfg.paddingX, &mFbcCfg.paddingY);
+                c2_info("fbc padding offset(%d, %d)", mFbcCfg.paddingX, mFbcCfg.paddingY);
+
+                updateMppFrameInfo(mWidth, mHeight, mppFmt);
+            } else {
+                mFbcCfg.mode = 0;
+            }
+        } else {
+            if (!checkPreferFbcOutput()) {
+                uint32_t mppFmt = mColorFormat;
+                c2_info("change use mpp non-fbc output mode");
+                mppFmt &= ~MPP_FRAME_FBC_AFBC_V2;
+                updateMppFrameInfo(mWidth, mHeight, mppFmt);
+                mFbcCfg.mode = 0;
+                mFbcCfg.paddingX = 0;
+                mFbcCfg.paddingY = 0;
+            }
+        }
+
         /*
          * All buffer group config done. Set info change ready to let
          * decoder continue decoding
@@ -1446,17 +1480,6 @@ REDO:
             c2_err("failed to set info-change ready, ret %d", ret);
             ret = C2_CORRUPTED;
             goto exit;
-        }
-
-        mWidth = width;
-        mHeight = height;
-        mHorStride = hstride;
-        mVerStride = vstride;
-        mColorFormat = format;
-        if (MPP_FRAME_FMT_IS_FBC(mColorFormat)) {
-            mFbcCfg.mode = RT_COMPRESS_AFBC_16x16;
-        } else {
-            mFbcCfg.mode = 0;
         }
 
         ret = C2_NO_MEMORY;

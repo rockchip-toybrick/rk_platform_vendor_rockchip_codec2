@@ -145,7 +145,7 @@ private:
         }
     } mBitstreamColorAspects;
 
-    bool checkPreferFbcOutput(const std::unique_ptr<C2Work> &work);
+    bool checkPreferFbcOutput(const std::unique_ptr<C2Work> &work = nullptr);
     //check bufferqueue from GrallocBufferSource or not
     bool checkIsGBSource(const std::shared_ptr<C2BlockPool> &pool);
     void fillEmptyWork(const std::unique_ptr<C2Work> &work);
@@ -155,6 +155,7 @@ private:
         const std::shared_ptr<C2BlockPool> &pool,
         const std::unique_ptr<C2Work> &work);
 
+    c2_status_t updateMppFrameInfo(uint32_t width, uint32_t height, uint32_t fmt);
     c2_status_t initDecoder(const std::unique_ptr<C2Work> &work);
     void setDefaultCodecColorAspectsIfNeeded(ColorAspects &aspects);
     void getVuiParams(MppFrame frame);
