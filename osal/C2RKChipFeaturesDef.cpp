@@ -20,6 +20,7 @@
 
 #include <string.h>
 
+
 static C2FbcCaps fbcCaps_rk356x[] = {
     { MPP_VIDEO_CodingAVC,  RT_COMPRESS_AFBC_16x16, 0, 4 },
     { MPP_VIDEO_CodingHEVC, RT_COMPRESS_AFBC_16x16, 0, 4 },
@@ -39,6 +40,7 @@ static const C2ChipFeatures FeatrueInfos[] = {
         0,                  // fbcCapNum
         NULL,               // fbcCaps
         0,                  // scaleMetaCap
+        C2_CAP_10BIT_NONE,  // cap10bit
         0,                  // reserved
     },
     {
@@ -47,6 +49,7 @@ static const C2ChipFeatures FeatrueInfos[] = {
         0,
         NULL,
         0,
+        C2_CAP_10BIT_NONE,
         0,
     },
     {
@@ -55,6 +58,7 @@ static const C2ChipFeatures FeatrueInfos[] = {
         0,
         NULL,
         0,
+        C2_CAP_10BIT_NONE,
         0,
     },
     {
@@ -63,6 +67,7 @@ static const C2ChipFeatures FeatrueInfos[] = {
         0,
         NULL,
         0,
+        C2_CAP_10BIT_NONE,
         0,
     },
     {
@@ -71,6 +76,7 @@ static const C2ChipFeatures FeatrueInfos[] = {
         0,
         NULL,
         0,
+        C2_CAP_10BIT_NONE,
         0,
     },
     {
@@ -79,6 +85,7 @@ static const C2ChipFeatures FeatrueInfos[] = {
         0,
         NULL,
         0,
+        C2_CAP_10BIT_NONE,
         0,
     },
     /* 3128h first for string matching */
@@ -88,6 +95,7 @@ static const C2ChipFeatures FeatrueInfos[] = {
         0,
         NULL,
         0,
+        C2_CAP_10BIT_NONE,
         0,
     },
     {
@@ -96,6 +104,7 @@ static const C2ChipFeatures FeatrueInfos[] = {
         0,
         NULL,
         0,
+        C2_CAP_10BIT_NONE,
         0,
     },
     {
@@ -104,6 +113,7 @@ static const C2ChipFeatures FeatrueInfos[] = {
         0,
         NULL,
         0,
+        C2_CAP_10BIT_NONE,
         0,
     },
     {
@@ -112,6 +122,7 @@ static const C2ChipFeatures FeatrueInfos[] = {
         0,
         NULL,
         0,
+        C2_CAP_10BIT_NONE,
         0,
     },
     {
@@ -120,6 +131,7 @@ static const C2ChipFeatures FeatrueInfos[] = {
         0,
         NULL,
         0,
+        C2_CAP_10BIT_HEVC,
         0,
     },
     {
@@ -128,6 +140,7 @@ static const C2ChipFeatures FeatrueInfos[] = {
         0,
         NULL,
         0,
+        C2_CAP_10BIT_NONE,
         0,
     },
     {
@@ -136,6 +149,7 @@ static const C2ChipFeatures FeatrueInfos[] = {
         0,
         NULL,
         0,
+        C2_CAP_10BIT_NONE,
         0,
     },
     {
@@ -144,6 +158,7 @@ static const C2ChipFeatures FeatrueInfos[] = {
         0,
         NULL,
         0,
+        C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
         0,
     },
     {
@@ -152,6 +167,7 @@ static const C2ChipFeatures FeatrueInfos[] = {
         0,
         NULL,
         0,
+        C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
         0,
     },
     {
@@ -160,6 +176,7 @@ static const C2ChipFeatures FeatrueInfos[] = {
         0,
         NULL,
         0,
+        C2_CAP_10BIT_NONE,
         0,
     },
     {
@@ -168,6 +185,7 @@ static const C2ChipFeatures FeatrueInfos[] = {
         0,
         NULL,
         0,
+        C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
         0,
     },
     {
@@ -176,6 +194,7 @@ static const C2ChipFeatures FeatrueInfos[] = {
         0,
         NULL,
         0,
+        C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
         0,
     },
     {
@@ -184,6 +203,7 @@ static const C2ChipFeatures FeatrueInfos[] = {
         0,
         NULL,
         0,
+        C2_CAP_10BIT_HEVC,
         0,
     },
     {
@@ -192,6 +212,7 @@ static const C2ChipFeatures FeatrueInfos[] = {
         0,
         NULL,
         0,
+        C2_CAP_10BIT_HEVC,
         0,
     },
     {
@@ -200,6 +221,7 @@ static const C2ChipFeatures FeatrueInfos[] = {
         0,
         NULL,
         0,
+        C2_CAP_10BIT_HEVC,
         0,
     },
     {
@@ -208,6 +230,7 @@ static const C2ChipFeatures FeatrueInfos[] = {
         0,
         NULL,
         0,
+        C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
         0,
     },
     {
@@ -216,6 +239,7 @@ static const C2ChipFeatures FeatrueInfos[] = {
         0,
         NULL,
         0,
+        C2_CAP_10BIT_NONE,
         0,
     },
     {
@@ -224,6 +248,7 @@ static const C2ChipFeatures FeatrueInfos[] = {
         3,
         fbcCaps_rk356x,
         0,
+        C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
         0,
     },
     {
@@ -232,6 +257,7 @@ static const C2ChipFeatures FeatrueInfos[] = {
         3,
         fbcCaps_rk356x,
         0,
+        C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
         0,
     },
     {
@@ -240,6 +266,7 @@ static const C2ChipFeatures FeatrueInfos[] = {
         3,
         fbcCaps_rk3588,
         1,
+        C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC,
         0,
     },
     {
@@ -248,6 +275,16 @@ static const C2ChipFeatures FeatrueInfos[] = {
         3,
         fbcCaps_rk3588,
         0,
+        C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
+        0,
+    },
+    {
+        "rk3562",
+        RK_CHIP_3562,
+        0,
+        NULL,
+        0,
+        C2_CAP_10BIT_NONE,
         0,
     }
 };
@@ -286,6 +323,50 @@ int C2RKChipFeaturesDef::getFbcOutputMode(MppCodingType codecId) {
     c2_info("[%s] codec-0x%08x fbc_support_result-%d", chipInfo->name, codecId, fbcMode);
 
     return fbcMode;
+}
+
+bool C2RKChipFeaturesDef::is10bitSupport(MppCodingType codecId) {
+    RKChipInfo *chipInfo = getChipName();
+    bool ret = false;
+
+    if (chipInfo == NULL) {
+        c2_err("get chipInfo fail.");
+        return ret;
+    }
+
+    int i;
+    for (i = 0; i < C2ChipFeatureSize; i++) {
+        C2ChipFeatures featureInfo = FeatrueInfos[i];
+
+        if (strstr(chipInfo->name, featureInfo.chipName)) {
+            switch (codecId) {
+                case MPP_VIDEO_CodingAVC: {
+                    if (featureInfo.cap10bit & C2_CAP_10BIT_AVC) {
+                        ret = true;
+                    }
+                    break;
+                }
+                case MPP_VIDEO_CodingHEVC: {
+                    if (featureInfo.cap10bit & C2_CAP_10BIT_HEVC) {
+                        ret = true;
+                    }
+                    break;
+                }
+                case MPP_VIDEO_CodingVP9: {
+                    if (featureInfo.cap10bit & C2_CAP_10BIT_VP9) {
+                        ret = true;
+                    }
+                    break;
+                }
+                default: {
+                    c2_err("Unknown cap10bit for codec: %d", codecId);
+                    break;
+                }
+            }
+        }
+    }
+
+    return ret;
 }
 
 void C2RKChipFeaturesDef::getFbcOutputOffset(

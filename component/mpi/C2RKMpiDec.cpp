@@ -110,7 +110,7 @@ public:
                 .withSetter(BlockSizeSetter)
                 .build());
 
-        std::vector<uint32_t> pixelFormats = { HAL_PIXEL_FORMAT_YCBCR_420_888 };
+        std::vector<uint32_t> pixelFormats = {HAL_PIXEL_FORMAT_YCBCR_420_888};
         if (C2RKMediaUtils::isP010Allowed()) {
             pixelFormats.push_back(HAL_PIXEL_FORMAT_YCBCR_P010);
         }
@@ -126,20 +126,23 @@ public:
 
         // profile and level
         if (mediaType == MEDIA_MIMETYPE_VIDEO_AVC) {
-            addParameter(
-                    DefineParam(mProfileLevel, C2_PARAMKEY_PROFILE_LEVEL)
-                    .withDefault(new C2StreamProfileLevelInfo::input(0u,
-                            C2Config::PROFILE_AVC_BASELINE, C2Config::LEVEL_AVC_5_1))
-                    .withFields({
-                        C2F(mProfileLevel, profile).oneOf({
+            std::vector<uint32_t> avcProfiles ={
                                 C2Config::PROFILE_AVC_CONSTRAINED_BASELINE,
                                 C2Config::PROFILE_AVC_BASELINE,
                                 C2Config::PROFILE_AVC_MAIN,
                                 C2Config::PROFILE_AVC_CONSTRAINED_HIGH,
                                 C2Config::PROFILE_AVC_PROGRESSIVE_HIGH,
-                                C2Config::PROFILE_AVC_HIGH,
-                                C2Config::PROFILE_AVC_HIGH_10,
-                                C2Config::PROFILE_AVC_PROGRESSIVE_HIGH_10}),
+                                C2Config::PROFILE_AVC_HIGH};
+            if (C2RKChipFeaturesDef::is10bitSupport(MPP_VIDEO_CodingAVC)) {
+                avcProfiles.push_back(C2Config::PROFILE_AVC_HIGH_10);
+                avcProfiles.push_back(C2Config::PROFILE_AVC_PROGRESSIVE_HIGH_10);
+            }
+            addParameter(
+                    DefineParam(mProfileLevel, C2_PARAMKEY_PROFILE_LEVEL)
+                    .withDefault(new C2StreamProfileLevelInfo::input(0u,
+                            C2Config::PROFILE_AVC_BASELINE, C2Config::LEVEL_AVC_5_1))
+                    .withFields({
+                        C2F(mProfileLevel, profile).oneOf(avcProfiles),
                         C2F(mProfileLevel, level).oneOf({
                                 C2Config::LEVEL_AVC_1, C2Config::LEVEL_AVC_1B, C2Config::LEVEL_AVC_1_1,
                                 C2Config::LEVEL_AVC_1_2, C2Config::LEVEL_AVC_1_3,
@@ -152,14 +155,16 @@ public:
                     .withSetter(ProfileLevelSetter, mSize)
                     .build());
         } else if (mediaType == MEDIA_MIMETYPE_VIDEO_HEVC) {
+            std::vector<uint32_t> hevcProfiles ={C2Config::PROFILE_HEVC_MAIN};
+            if (C2RKChipFeaturesDef::is10bitSupport(MPP_VIDEO_CodingHEVC)) {
+                hevcProfiles.push_back(C2Config::PROFILE_HEVC_MAIN_10);
+            }
             addParameter(
                     DefineParam(mProfileLevel, C2_PARAMKEY_PROFILE_LEVEL)
                     .withDefault(new C2StreamProfileLevelInfo::input(0u,
                             C2Config::PROFILE_HEVC_MAIN, C2Config::LEVEL_HEVC_MAIN_5_1))
                     .withFields({
-                        C2F(mProfileLevel, profile).oneOf({
-                                C2Config::PROFILE_HEVC_MAIN,
-                                C2Config::PROFILE_HEVC_MAIN_10}),
+                        C2F(mProfileLevel, profile).oneOf(hevcProfiles),
                         C2F(mProfileLevel, level).oneOf({
                                C2Config::LEVEL_HEVC_MAIN_1,
                                C2Config::LEVEL_HEVC_MAIN_2, C2Config::LEVEL_HEVC_MAIN_2_1,
@@ -228,14 +233,16 @@ public:
                     .withSetter(ProfileLevelSetter, mSize)
                     .build());
         } else if (mediaType == MEDIA_MIMETYPE_VIDEO_VP9) {
+            std::vector<uint32_t> vp9Profiles ={C2Config::PROFILE_VP9_0};
+            if (C2RKChipFeaturesDef::is10bitSupport(MPP_VIDEO_CodingVP9)) {
+                vp9Profiles.push_back(C2Config::PROFILE_VP9_2);
+            }
             addParameter(
                     DefineParam(mProfileLevel, C2_PARAMKEY_PROFILE_LEVEL)
                     .withDefault(new C2StreamProfileLevelInfo::input(0u,
                             C2Config::PROFILE_VP9_0, C2Config::LEVEL_VP9_5))
                     .withFields({
-                        C2F(mProfileLevel, profile).oneOf({
-                                C2Config::PROFILE_VP9_0,
-                                C2Config::PROFILE_VP9_2}),
+                        C2F(mProfileLevel, profile).oneOf(vp9Profiles),
                         C2F(mProfileLevel, level).oneOf({
                                 C2Config::LEVEL_VP9_1,
                                 C2Config::LEVEL_VP9_1_1,

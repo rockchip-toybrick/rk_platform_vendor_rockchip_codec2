@@ -25,6 +25,13 @@
 #include "C2RKChips.h"
 #include "mpp/rk_type.h"
 
+typedef enum _C2Cap10bit {
+    C2_CAP_10BIT_NONE        = 0,   /* unsupport 10bit */
+    C2_CAP_10BIT_AVC         = 0x1,
+    C2_CAP_10BIT_HEVC        = 0x2,
+    C2_CAP_10BIT_VP9         = 0x4,
+} C2Cap10bit;
+
 typedef enum _C2CompressMode {
     RT_COMPRESS_MODE_NONE = 0,   /* no compress */
     RT_COMPRESS_AFBC_16x16,
@@ -47,12 +54,14 @@ typedef struct {
     int         fbcCapNum;
     C2FbcCaps  *fbcCaps;
     uint32_t    scaleMetaCap     : 1;
-    uint32_t    reserved         : 31;
+    uint32_t    cap10bit         : 3;
+    uint32_t    reserved         : 28;
 } C2ChipFeatures;
 
 class C2RKChipFeaturesDef {
  public:
     static int   getFbcOutputMode(MppCodingType codecId);
+    static bool  is10bitSupport(MppCodingType codecId);
     static void  getFbcOutputOffset(MppCodingType codecId, uint32_t *offsetX, uint32_t *offsetY);
     static uint32_t getScaleMetaCap();
 };
