@@ -81,6 +81,7 @@ private:
     bool           mSawInputEOS;
     bool           mOutputEOS;
     bool           mSignalledError;
+    bool           mHasRkVenc;
     int32_t        mHorStride;
     int32_t        mVerStride;
     int32_t        mCurLayerCount;
@@ -123,6 +124,7 @@ private:
     c2_status_t handleRequestSyncFrame();
     c2_status_t handleMlvecDynamicCfg(MppMeta meta);
 
+    bool needRgaConvert(uint32_t width, uint32_t height);
     c2_status_t getInBufferFromWork(
             const std::unique_ptr<C2Work> &work, MyDmaBuffer_t *outBuffer);
     c2_status_t sendframe(

@@ -98,6 +98,7 @@ public:
                 uint8_t *dstY, uint8_t *dstUV, size_t dstYStride,
                 size_t dstUVStride, uint8_t *src, size_t hstride,
                 size_t vstride, size_t width, size_t height);
+    static bool hasRkVenc();
 };
 
 #endif  // ANDROID_C2_RK_MEDIA_UTILS_H_

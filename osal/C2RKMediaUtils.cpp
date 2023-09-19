@@ -26,6 +26,8 @@
 #include "C2RKLog.h"
 #include "C2RKEnv.h"
 #include "mpp/mpp_soc.h"
+#include "mpp/mpp_platform.h"
+#include "mpp/mpp_dev_defs.h"
 
 using namespace android;
 
@@ -336,4 +338,12 @@ void C2RKMediaUtils::convert10BitNV12ToP010(
             pix[7] = ((base_u16[4] & 0xFFC0) >> 6) << 6;
         }
     }
+}
+
+bool C2RKMediaUtils::hasRkVenc() {
+    bool ret = false;
+    uint32_t vcodec_type = mpp_get_vcodec_type();
+    if (vcodec_type & HAVE_RKVENC)
+        ret = true;
+    return ret;
 }

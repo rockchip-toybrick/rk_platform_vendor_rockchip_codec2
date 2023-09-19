@@ -933,6 +933,8 @@ C2RKMpiEnc::C2RKMpiEnc(
         c2_err("failed to get MppCodingType from component %s", name);
     }
 
+    mHasRkVenc = C2RKMediaUtils::hasRkVenc();
+
     RKChipInfo *chipInfo = getChipName();
     if (chipInfo != nullptr) {
         mChipType = getChipName()->type;
@@ -2233,6 +2235,19 @@ c2_status_t C2RKMpiEnc::handleMlvecDynamicCfg(MppMeta meta) {
     return C2_OK;
 }
 
+ bool C2RKMpiEnc::needRgaConvert(uint32_t width, uint32_t height) {
+    if (!mHasRkVenc)
+        return true;
+
+    if (mChipType == RK_CHIP_3588 && mCodingType != MPP_VIDEO_CodingVP8)
+        return false;
+
+    if (!((width & 0xf) || (height & 0xf)))
+        return false;
+
+    return true;
+ }
+
 c2_status_t C2RKMpiEnc::getInBufferFromWork(
         const std::unique_ptr<C2Work> &work, MyDmaBuffer_t *outBuffer) {
     c2_status_t ret = C2_OK;
@@ -2294,8 +2309,7 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
         /* dump input data if neccessary */
         mDump->recordInFile((void*)input->data()[0], stride, height, RAW_TYPE_RGBA);
 
-        if ((mChipType == RK_CHIP_3588 && mCodingType != MPP_VIDEO_CodingVP8)
-                || !((stride & 0xf) || (height & 0xf))) {
+        if (!needRgaConvert(stride, height)) {
             outBuffer->fd = fd;
             outBuffer->size = mHorStride * mVerStride * 4;
 
