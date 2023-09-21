@@ -107,6 +107,7 @@ private:
     c2_status_t setupBaseCodec();
     c2_status_t setupSceneMode();
     c2_status_t setupSliceSize();
+    c2_status_t setupReencTimes();
     c2_status_t setupFrameRate();
     c2_status_t setupBitRate();
     c2_status_t setupProfileParams();

@@ -46,6 +46,7 @@ enum ExtendedC2ParamIndexKind : C2Param::type_index_t {
     kParamIndexMLVECInputCrop,
 
     kParamIndexSliceSize,
+    kParamIndexReencSetup,
 };
 
 typedef C2PortParam<C2Info, C2Int32Value, kParamIndexSceneMode> C2StreamSceneModeInfo;
@@ -53,6 +54,9 @@ constexpr char C2_PARAMKEY_SCENE_MODE[] = "scene-mode";
 
 typedef C2PortParam<C2Info, C2Int32Value, kParamIndexSliceSize> C2StreamSliceSizeInfo;
 constexpr char C2_PARAMKEY_SLICE_SIZE[] = "slice-size";
+
+typedef C2PortParam<C2Info, C2Int32Value, kParamIndexReencSetup> C2StreamReencInfo;
+constexpr char C2_PARAMKEY_REENC_TIMES[] = "reenc-times";
 
 /*
  * 1. MLVEC hardware driver version
