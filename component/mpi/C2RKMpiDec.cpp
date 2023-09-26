@@ -1016,6 +1016,11 @@ c2_status_t C2RKMpiDec::drainInternal(
         const std::unique_ptr<C2Work> &work) {
     c2_log_func_enter();
 
+    if (!mStarted) {
+        c2_warn("decoder is not initialized: no-op");
+        return C2_OK;
+    }
+
     if (drainMode == NO_DRAIN) {
         c2_warn("drain with NO_DRAIN: no-op");
         return C2_OK;
