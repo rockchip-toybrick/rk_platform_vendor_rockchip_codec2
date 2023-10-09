@@ -56,6 +56,7 @@ typedef enum _RKChipType {
     //  support 8k chips
     RK_CHIP_8K_SUPPORT_BEGIN,
     RK_CHIP_3566,
+    RK_CHIP_3567,
     RK_CHIP_3568,
     RK_CHIP_3528,
     RK_CHIP_3588,
@@ -98,6 +99,7 @@ static const RKChipInfo ChipList[] = {
     {"rk3326",    RK_CHIP_3326},
     {"px30",      RK_CHIP_3326},
     {"rk3566",    RK_CHIP_3566},
+    {"rk3567",    RK_CHIP_3567},
     {"rk3568",    RK_CHIP_3568},
     {"rv1126",    RK_CHIP_1126},
     {"rk3588",    RK_CHIP_3588},
