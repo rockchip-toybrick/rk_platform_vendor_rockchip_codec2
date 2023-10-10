@@ -82,6 +82,7 @@ enum MppH265Level {
     MPP_H265_LEVEL8_5 = 255,
 };
 
+const char *toStr_Coding(uint32_t coding);
 const char *toStr_Profile(uint32_t i, uint32_t coding);
 const char *toStr_Level(uint32_t i, uint32_t coding);
 const char *toStr_BitrateMode(uint32_t i);

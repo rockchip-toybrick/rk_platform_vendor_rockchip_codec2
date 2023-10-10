@@ -486,7 +486,6 @@ public:
         uint32_t maxBframes = 0;
         ParseGop(gop.v, nullptr, nullptr, &maxBframes);
         me.set().value = maxBframes;
-        c2_log_func_enter();
         return C2R::Ok();
     }
 
@@ -530,7 +529,6 @@ public:
     static C2R GopSetter(bool mayBlock, C2P<C2StreamGopTuning::output> &me) {
         (void)mayBlock;
         (void)me;
-        c2_log_func_enter();
         return C2R::Ok();
     }
 
@@ -538,7 +536,6 @@ public:
                                          C2P<C2StreamPictureQuantizationTuning::output> &me) {
         (void)mayBlock;
         (void)me;
-        c2_log_func_enter();
         return C2R::Ok();
     }
 
@@ -743,7 +740,6 @@ public:
             bool mayBlock, C2P<C2StreamTemporalLayeringTuning::output>& me) {
         (void)mayBlock;
         (void)me;
-        c2_log_func_enter();
         return C2R::Ok();
     }
 
@@ -751,7 +747,6 @@ public:
             bool mayBlock, C2P<C2PrependHeaderModeSetting>& me) {
         (void)mayBlock;
         (void)me;
-        c2_log_func_enter();
         return C2R::Ok();
     }
 
@@ -759,7 +754,6 @@ public:
             bool mayBlock, C2P<C2MProfileLevel::output> &me) {
         (void)mayBlock;
         (void)me;
-        c2_log_func_enter();
         return C2R::Ok();
     }
 
@@ -767,7 +761,6 @@ public:
             bool mayBlock, C2P<C2SliceSpacing::output> &me) {
         (void)mayBlock;
         (void)me;
-        c2_log_func_enter();
         return C2R::Ok();
     }
 
@@ -775,7 +768,6 @@ public:
             bool mayBlock, C2P<C2NumLTRFrms::output> &me) {
         (void)mayBlock;
         (void)me;
-        c2_log_func_enter();
         return C2R::Ok();
     }
 
@@ -783,7 +775,6 @@ public:
             bool mayBlock, C2P<C2SarSize::output> &me) {
         (void)mayBlock;
         (void)me;
-        c2_log_func_enter();
         return C2R::Ok();
     }
 
@@ -791,7 +782,6 @@ public:
             bool mayBlock, C2P<C2InputQueuCtl::output> &me) {
         (void)mayBlock;
         (void)me;
-        c2_log_func_enter();
         return C2R::Ok();
     }
 
@@ -799,7 +789,6 @@ public:
             bool mayBlock, C2P<C2LtrCtlMark::input> &me) {
         (void)mayBlock;
         (void)me;
-        c2_log_func_enter();
         return C2R::Ok();
     }
 
@@ -807,7 +796,6 @@ public:
             bool mayBlock, C2P<C2LtrCtlUse::input> &me) {
         (void)mayBlock;
         (void)me;
-        c2_log_func_enter();
         return C2R::Ok();
     }
 
@@ -815,7 +803,6 @@ public:
             bool mayBlock, C2P<C2TriggerTime::input> &me) {
         (void)mayBlock;
         (void)me;
-        c2_log_func_enter();
         return C2R::Ok();
     }
 
@@ -954,11 +941,10 @@ C2RKMpiEnc::C2RKMpiEnc(
 
     sEncConcurrentInstances.fetch_add(1, std::memory_order_relaxed);
 
-    c2_info("component name %s\r\nversion: %s", name, C2_GIT_BUILD_VERSION);
+    c2_info("name %s\r\nversion: %s", name, C2_GIT_BUILD_VERSION);
 }
 
 C2RKMpiEnc::~C2RKMpiEnc() {
-    c2_log_func_enter();
     if (sEncConcurrentInstances.load() > 0) {
         sEncConcurrentInstances.fetch_sub(1, std::memory_order_relaxed);
     }
@@ -967,7 +953,6 @@ C2RKMpiEnc::~C2RKMpiEnc() {
 
 c2_status_t C2RKMpiEnc::onInit() {
     c2_log_func_enter();
-
     return C2_OK;
 }
 
@@ -1001,8 +986,8 @@ c2_status_t C2RKMpiEnc::setupBaseCodec() {
         mVerStride = C2_ALIGN(mSize->height, 8);
     }
 
-    c2_info("setupBaseCodec: coding %d w %d h %d hor %d ver %d",
-            mCodingType, mSize->width, mSize->height, mHorStride, mVerStride);
+    c2_info("setupBaseCodec: coding %s w %d h %d hor %d ver %d",
+            toStr_Coding(mCodingType), mSize->width, mSize->height, mHorStride, mVerStride);
 
     mpp_enc_cfg_set_s32(mEncCfg, "codec:type", mCodingType);
 
@@ -2600,7 +2585,6 @@ public:
             c2_node_id_t id,
             std::shared_ptr<C2ComponentInterface>* const interface,
             std::function<void(C2ComponentInterface*)> deleter) override {
-        c2_log_func_enter();
         *interface = std::shared_ptr<C2ComponentInterface>(
                 new C2RKInterface<C2RKMpiEnc::IntfImpl>(
                         mComponentName.c_str(),

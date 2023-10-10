@@ -39,6 +39,7 @@
 #include "C2RKVersion.h"
 #include "C2RKEnv.h"
 #include "C2VdecExtendFeature.h"
+#include "C2RKCodecMapper.h"
 
 #include "C2RKExtendParam.h"
 #include "C2RKMlvecLegacy.h"
@@ -602,11 +603,10 @@ C2RKMpiDec::C2RKMpiDec(
 
     sDecConcurrentInstances.fetch_add(1, std::memory_order_relaxed);
 
-    c2_info("component name: %s\r\nversion: %s", name, C2_GIT_BUILD_VERSION);
+    c2_info("name: %s\r\nversion: %s", name, C2_GIT_BUILD_VERSION);
 }
 
 C2RKMpiDec::~C2RKMpiDec() {
-    c2_log_func_enter();
     if (sDecConcurrentInstances.load() > 0) {
         sDecConcurrentInstances.fetch_sub(1, std::memory_order_relaxed);
     }
@@ -614,11 +614,9 @@ C2RKMpiDec::~C2RKMpiDec() {
 }
 
 c2_status_t C2RKMpiDec::onInit() {
-    c2_status_t ret = C2_OK;
-
     c2_log_func_enter();
 
-    ret = updateOutputDelay();
+    c2_status_t ret = updateOutputDelay();
     if (ret != C2_OK) {
         c2_err("failed to update output delay, ret %d", ret);
     }
@@ -722,7 +720,7 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
         }
     }
 
-    c2_info("init: w %d h %d coding %d", mWidth, mHeight, mCodingType);
+    c2_info("init: w %d h %d coding %s", mWidth, mHeight, toStr_Coding(mCodingType));
 
     err = mpp_create(&mMppCtx, &mMppMpi);
     if (err != MPP_OK) {
@@ -1803,8 +1801,8 @@ c2_status_t C2RKMpiDec::updateOutputDelay() {
     outputDelay = C2RKMediaUtils::calculateOutputDelay(size.width, size.height,
                                                        mCodingType, profileLevel.level);
 
-    c2_info("codec(%d) video(%dx%d) profile&level(%d %d) needs %d reference frames",
-            mCodingType, size.width, size.height,
+    c2_info("codec(%s) video(%dx%d) profile&level(%d %d) needs %d reference frames",
+            toStr_Coding(mCodingType), size.width, size.height,
             profileLevel.profile, profileLevel.level, outputDelay);
 
     C2PortActualDelayTuning::output tuningOutputDelay(outputDelay);
@@ -1882,7 +1880,6 @@ c2_status_t C2RKMpiDec::configFrameScaleMeta(
 
     return C2_OK;
 }
-
 
 class C2RKMpiDecFactory : public C2ComponentFactory {
 public:

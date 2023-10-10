@@ -24,6 +24,25 @@
 #include <media/stagefright/MediaCodecConstants.h>
 #include <C2Config.h>
 
+const char *toStr_Coding(uint32_t coding) {
+    switch (coding) {
+        case MPP_VIDEO_CodingUnused:    return "UNUSED";
+        case MPP_VIDEO_CodingMPEG2:     return "MPEG2";
+        case MPP_VIDEO_CodingH263:      return "H263";
+        case MPP_VIDEO_CodingMPEG4:     return "MPEG4";
+        case MPP_VIDEO_CodingWMV:       return "WMV";
+        case MPP_VIDEO_CodingAVC:       return "AVC";
+        case MPP_VIDEO_CodingVP8:       return "VP8";
+        case MPP_VIDEO_CodingVP9:       return "VP9";
+        case MPP_VIDEO_CodingVC1:       return "VC1";
+        case MPP_VIDEO_CodingHEVC:      return "HEVC";
+        case MPP_VIDEO_CodingAVS:       return "AVS";
+        case MPP_VIDEO_CodingAVS2:      return "AVS2";
+        case MPP_VIDEO_CodingAV1:       return "AV1";
+        default:                        return "unknown";
+    }
+}
+
 const char *toStr_Profile(uint32_t i, uint32_t coding) {
     if (coding == MPP_VIDEO_CodingAVC) {
         switch (i) {

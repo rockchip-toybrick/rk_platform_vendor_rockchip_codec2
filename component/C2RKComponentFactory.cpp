@@ -23,13 +23,10 @@
 #include "C2RKMpiEnc.h"
 #include "C2RKMediaUtils.h"
 #include "C2RKLog.h"
-#include "C2RKVersion.h"
 
 extern "C" ::C2ComponentFactory* CreateRKCodec2Factory(std::string componentName) {
     C2Component::kind_t kind;
     C2ComponentFactory *factory = NULL;
-
-    c2_info("in version: %s", C2_GIT_BUILD_VERSION);
 
     if (!C2RKMediaUtils::getKindFromComponentName(componentName, &kind)) {
         c2_err("get kind from component name failed, componentName=%s", componentName.c_str());
@@ -55,7 +52,6 @@ __FAILED:
 }
 
 extern "C" void DestroyRKCodec2Factory(::C2ComponentFactory* factory) {
-    c2_log_func_enter();
     delete factory;
 }
 

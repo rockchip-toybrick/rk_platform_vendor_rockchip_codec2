@@ -14,12 +14,14 @@
  * limitations under the License.
  */
 
+#undef  ROCKCHIP_LOG_TAG
+#define ROCKCHIP_LOG_TAG    "C2RKChipFeaturesDef"
+
 #include "C2RKChipFeaturesDef.h"
 #include "C2RKLog.h"
 #include "C2RKEnv.h"
 
 #include <string.h>
-
 
 static C2FbcCaps fbcCaps_rk356x[] = {
     { MPP_VIDEO_CodingAVC,  RT_COMPRESS_AFBC_16x16, 0, 4 },
@@ -320,7 +322,7 @@ int C2RKChipFeaturesDef::getFbcOutputMode(MppCodingType codecId) {
         }
     }
 
-    c2_info("[%s] codec-0x%08x fbc_support_result-%d", chipInfo->name, codecId, fbcMode);
+    c2_trace("[%s] codec-0x%08x fbc_support_result-%d", chipInfo->name, codecId, fbcMode);
 
     return fbcMode;
 }

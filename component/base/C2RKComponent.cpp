@@ -214,7 +214,7 @@ C2RKComponent::~C2RKComponent() {
 
 c2_status_t C2RKComponent::setListener_vb(
         const std::shared_ptr<C2Component::Listener> &listener, c2_blocking_t mayBlock) {
-    c2_log_func_enter();
+    c2_trace_func_enter();
 
     mHandler->setComponent(shared_from_this());
 
@@ -230,7 +230,7 @@ c2_status_t C2RKComponent::setListener_vb(
     // TODO: wait for listener change to have taken place before returning
     // (e.g. if there is an ongoing listener callback)
 
-    c2_log_func_leave();
+    c2_trace_func_leave();
 
     return C2_OK;
 }
@@ -265,7 +265,7 @@ c2_status_t C2RKComponent::announce_nb(const std::vector<C2WorkOutline> &items) 
 
 c2_status_t C2RKComponent::flush_sm(
         flush_mode_t flushMode, std::list<std::unique_ptr<C2Work>>* const flushedWork) {
-    c2_log_func_enter();
+    c2_trace_func_enter();
 
     (void)flushMode;
     {
@@ -290,13 +290,13 @@ c2_status_t C2RKComponent::flush_sm(
         }
     }
 
-    c2_log_func_leave();
+    c2_trace_func_leave();
 
     return C2_OK;
 }
 
 c2_status_t C2RKComponent::drain_nb(drain_mode_t drainMode) {
-    c2_log_func_enter();
+    c2_trace_func_enter();
 
     if (drainMode == DRAIN_CHAIN) {
         return C2_OMITTED;
@@ -317,13 +317,13 @@ c2_status_t C2RKComponent::drain_nb(drain_mode_t drainMode) {
         (new AMessage(WorkHandler::kWhatProcess, mHandler))->post();
     }
 
-    c2_log_func_leave();
+    c2_trace_func_leave();
 
     return C2_OK;
 }
 
 c2_status_t C2RKComponent::start() {
-    c2_log_func_enter();
+    c2_trace_func_enter();
 
     Mutexed<ExecState>::Locked state(mExecState);
     if (state->mState == RUNNING) {
@@ -345,13 +345,13 @@ c2_status_t C2RKComponent::start() {
     state.lock();
     state->mState = RUNNING;
 
-    c2_log_func_leave();
+    c2_trace_func_leave();
 
     return C2_OK;
 }
 
 c2_status_t C2RKComponent::stop() {
-    c2_log_func_enter();
+    c2_trace_func_enter();
 
     {
         Mutexed<ExecState>::Locked state(mExecState);
@@ -378,14 +378,13 @@ c2_status_t C2RKComponent::stop() {
         return (c2_status_t)err;
     }
 
-    c2_log_func_leave();
+    c2_trace_func_leave();
 
     return C2_OK;
 }
 
 c2_status_t C2RKComponent::reset() {
-    c2_log_func_enter();
-
+    c2_trace_func_enter();
     {
         Mutexed<ExecState>::Locked state(mExecState);
         state->mState = UNINITIALIZED;
@@ -406,7 +405,7 @@ c2_status_t C2RKComponent::reset() {
 }
 
 c2_status_t C2RKComponent::release() {
-    c2_log_func_enter();
+    c2_trace_func_enter();
     sp<AMessage> reply;
     (new AMessage(WorkHandler::kWhatRelease, mHandler))->postAndAwaitResponse(&reply);
     return C2_OK;

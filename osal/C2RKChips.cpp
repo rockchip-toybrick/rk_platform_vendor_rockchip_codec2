@@ -128,13 +128,13 @@ RKChipInfo* readEfuse() {
 
 RKChipInfo* getChipName() {
     if (!sChipInfo) {
-        sChipInfo = readEfuse();
-        if (sChipInfo != NULL) {
+        sChipInfo = readDeviceTree();
+        if (sChipInfo !=NULL) {
             return sChipInfo;
         }
 
-        sChipInfo = readDeviceTree();
-        if (sChipInfo !=NULL) {
+        sChipInfo = readEfuse();
+        if (sChipInfo != NULL) {
             return sChipInfo;
         }
 
