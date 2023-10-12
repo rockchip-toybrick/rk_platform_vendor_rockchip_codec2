@@ -2250,8 +2250,10 @@ c2_status_t C2RKMpiEnc::handleMlvecDynamicCfg(MppMeta meta) {
     if (!mHasRkVenc)
         return true;
 
-    if (mChipType == RK_CHIP_3588 && mCodingType != MPP_VIDEO_CodingVP8)
-        return false;
+     if (mChipType == RK_CHIP_3588 || mChipType == RK_CHIP_3562) {
+         if (mCodingType != MPP_VIDEO_CodingVP8)
+            return false;
+     }
 
     if (!((width & 0xf) || (height & 0xf)))
         return false;
