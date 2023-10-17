@@ -32,8 +32,7 @@
 #include "C2RKLog.h"
 #include "C2RKMediaUtils.h"
 #include "C2RKRgaDef.h"
-#include "C2RKChipFeaturesDef.h"
-#include "C2RKGrallocDef.h"
+#include "C2RKChipCapDef.h"
 #include "C2RKColorAspects.h"
 #include "C2RKNalParser.h"
 #include "C2RKVersion.h"
@@ -45,6 +44,8 @@
 #include "C2RKMlvecLegacy.h"
 
 namespace android {
+
+#define GRALLOC_USAGE_RKVDEC_SCALING   0x01000000U
 
 /* max support video resolution */
 constexpr uint32_t kMaxVideoWidth = 8192;
@@ -134,7 +135,7 @@ public:
                                 C2Config::PROFILE_AVC_CONSTRAINED_HIGH,
                                 C2Config::PROFILE_AVC_PROGRESSIVE_HIGH,
                                 C2Config::PROFILE_AVC_HIGH};
-            if (C2RKChipFeaturesDef::is10bitSupport(MPP_VIDEO_CodingAVC)) {
+            if (C2RKChipCapDef::get()->is10bitSupport(MPP_VIDEO_CodingAVC)) {
                 avcProfiles.push_back(C2Config::PROFILE_AVC_HIGH_10);
                 avcProfiles.push_back(C2Config::PROFILE_AVC_PROGRESSIVE_HIGH_10);
             }
@@ -157,7 +158,7 @@ public:
                     .build());
         } else if (mediaType == MEDIA_MIMETYPE_VIDEO_HEVC) {
             std::vector<uint32_t> hevcProfiles ={C2Config::PROFILE_HEVC_MAIN};
-            if (C2RKChipFeaturesDef::is10bitSupport(MPP_VIDEO_CodingHEVC)) {
+            if (C2RKChipCapDef::get()->is10bitSupport(MPP_VIDEO_CodingHEVC)) {
                 hevcProfiles.push_back(C2Config::PROFILE_HEVC_MAIN_10);
             }
             addParameter(
@@ -235,7 +236,7 @@ public:
                     .build());
         } else if (mediaType == MEDIA_MIMETYPE_VIDEO_VP9) {
             std::vector<uint32_t> vp9Profiles ={C2Config::PROFILE_VP9_0};
-            if (C2RKChipFeaturesDef::is10bitSupport(MPP_VIDEO_CodingVP9)) {
+            if (C2RKChipCapDef::get()->is10bitSupport(MPP_VIDEO_CodingVP9)) {
                 vp9Profiles.push_back(C2Config::PROFILE_VP9_2);
             }
             addParameter(
@@ -575,7 +576,7 @@ C2RKMpiDec::C2RKMpiDec(
       mHeight(0),
       mHorStride(0),
       mVerStride(0),
-      mGrallocVersion(0),
+      mGrallocVersion(C2RKChipCapDef::get()->getGrallocVersion()),
       mLastPts(-1),
       mGeneration(0),
       mStarted(false),
@@ -590,15 +591,6 @@ C2RKMpiDec::C2RKMpiDec(
       mBufferMode(false) {
     if (!C2RKMediaUtils::getCodingTypeFromComponentName(name, &mCodingType)) {
         c2_err("failed to get codingType from component %s", name);
-    }
-
-    /*
-     * only a few chips, and the version above Android 11 supports gralloc 4.0
-     */
-    uint32_t grallocVersion = C2RKGrallocDef::getGrallocVersion();
-    uint32_t androidVersion = C2RKGrallocDef::getAndroidVerison();
-    if (grallocVersion > 3 && androidVersion >= 30) {
-        mGrallocVersion = 4;
     }
 
     sDecConcurrentInstances.fetch_add(1, std::memory_order_relaxed);
@@ -814,12 +806,12 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
 
         uint32_t mppFmt = mColorFormat;
 
-        mFbcCfg.mode = C2RKChipFeaturesDef::getFbcOutputMode(mCodingType);
+        mFbcCfg.mode = C2RKChipCapDef::get()->getFbcOutputMode(mCodingType);
         if (mFbcCfg.mode && checkPreferFbcOutput(work)) {
             c2_info("use mpp fbc output mode");
             mppFmt |= MPP_FRAME_FBC_AFBC_V2;
             /* fbc decode output has padding inside, set crop before display */
-            C2RKChipFeaturesDef::getFbcOutputOffset(
+            C2RKChipCapDef::get()->getFbcOutputOffset(
                     mCodingType, &mFbcCfg.paddingX, &mFbcCfg.paddingY);
             c2_info("fbc padding offset(%d, %d)", mFbcCfg.paddingX, mFbcCfg.paddingY);
         } else {
@@ -1445,13 +1437,13 @@ REDO:
         mVerStride = vstride;
 
         if (!MPP_FRAME_FMT_IS_FBC(mColorFormat)) {
-            mFbcCfg.mode = C2RKChipFeaturesDef::getFbcOutputMode(mCodingType);
+            mFbcCfg.mode = C2RKChipCapDef::get()->getFbcOutputMode(mCodingType);
             if (mFbcCfg.mode && checkPreferFbcOutput()) {
                 uint32_t mppFmt = mColorFormat;
                 c2_info("change use mpp fbc output mode");
                 mppFmt |= MPP_FRAME_FBC_AFBC_V2;
                 /* fbc decode output has padding inside, set crop before display */
-                C2RKChipFeaturesDef::getFbcOutputOffset(
+                C2RKChipCapDef::get()->getFbcOutputOffset(
                         mCodingType, &mFbcCfg.paddingX, &mFbcCfg.paddingY);
                 c2_info("fbc padding offset(%d, %d)", mFbcCfg.paddingX, mFbcCfg.paddingY);
 
@@ -1838,7 +1830,7 @@ c2_status_t C2RKMpiDec::updateOutputDelay() {
 }
 
 c2_status_t C2RKMpiDec::updateScaleCfg(std::shared_ptr<C2GraphicBlock> block) {
-    if (!mScaleEnabled && C2RKChipFeaturesDef::getScaleMetaCap()) {
+    if (!mScaleEnabled && C2RKChipCapDef::get()->getScaleMetaCap()) {
         auto c2Handle = block->handle();
 
         native_handle_t *nHandle = UnwrapNativeCodec2GrallocHandle(c2Handle);

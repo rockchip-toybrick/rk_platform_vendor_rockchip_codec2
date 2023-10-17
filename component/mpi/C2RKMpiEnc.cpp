@@ -39,7 +39,7 @@
 #include "C2RKExtendParam.h"
 #include "C2RKCodecMapper.h"
 #include "C2RKVersion.h"
-#include "C2RKChips.h"
+#include "C2RKChipCapDef.h"
 
 namespace android {
 
@@ -915,7 +915,7 @@ C2RKMpiEnc::C2RKMpiEnc(
       mEncCfg(nullptr),
       mCodingType(MPP_VIDEO_CodingUnused),
       mInputMppFmt(MPP_FMT_YUV420SP),
-      mChipType(0),
+      mChipType(C2RKChipCapDef::get()->getChipType()),
       mStarted(false),
       mSpsPpsHeaderReceived(false),
       mSawInputEOS(false),
@@ -931,13 +931,6 @@ C2RKMpiEnc::C2RKMpiEnc(
     }
 
     mHasRkVenc = C2RKMediaUtils::hasRkVenc();
-
-    RKChipInfo *chipInfo = getChipName();
-    if (chipInfo != nullptr) {
-        mChipType = getChipName()->type;
-    } else {
-        mChipType = RK_CHIP_UNKOWN;
-    }
 
     sEncConcurrentInstances.fetch_add(1, std::memory_order_relaxed);
 
