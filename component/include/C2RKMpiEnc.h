@@ -18,9 +18,9 @@
 #define ANDROID_C2_RK_MPI_ENC_H__
 
 #include "C2RKComponent.h"
-#include "mpp/rk_mpi.h"
 #include "C2RKMlvecLegacy.h"
 #include "C2RKDump.h"
+#include "mpp/rk_mpi.h"
 
 namespace android {
 

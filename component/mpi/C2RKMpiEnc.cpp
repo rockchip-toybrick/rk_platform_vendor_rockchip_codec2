@@ -26,7 +26,6 @@
 #include <C2AllocatorGralloc.h>
 #include <ui/GraphicBufferMapper.h>
 #include <ui/GraphicBufferAllocator.h>
-#include <sys/syscall.h>
 
 #include "hardware/hardware_rockchip.h"
 #include "hardware/gralloc_rockchip.h"
@@ -34,7 +33,6 @@
 #include "C2RKMediaUtils.h"
 #include "C2RKRgaDef.h"
 #include "C2RKLog.h"
-#include "C2RKEnv.h"
 #include "C2RKExtendParam.h"
 #include "C2RKCodecMapper.h"
 #include "C2RKChipCapDef.h"
@@ -1713,10 +1711,9 @@ c2_status_t C2RKMpiEnc::initEncoder() {
         goto error;
     }
 
-
     mDmaMem = (MyDmaBuffer_t *)malloc(sizeof(MyDmaBuffer_t));
-    mDmaMem->fd = C2RKGrallocOps::getInstance()->getShareFd(bufferHandle);
-    mDmaMem->size = C2RKGrallocOps::getInstance()->getAllocationSize(bufferHandle);
+    mDmaMem->fd = C2RKGrallocOps::get()->getShareFd(bufferHandle);
+    mDmaMem->size = C2RKGrallocOps::get()->getAllocationSize(bufferHandle);
     mDmaMem->handler = (void *)bufferHandle;
 
     c2_info("alloc temporary DmaMem fd %d size %d", mDmaMem->fd, mDmaMem->size);

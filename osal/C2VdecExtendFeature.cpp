@@ -32,7 +32,7 @@ int C2VdecExtendFeature::configFrameHdrDynamicMeta(buffer_handle_t hnd, int64_t 
     int ret = 0;
     int64_t dynamicHdrOffset = offset;
 
-    ret = C2RKGrallocOps::getInstance()->setDynamicHdrMeta(hnd, dynamicHdrOffset);
+    ret = C2RKGrallocOps::get()->setDynamicHdrMeta(hnd, dynamicHdrOffset);
     if (ret)
         return ret;
 
@@ -46,9 +46,9 @@ int C2VdecExtendFeature::checkNeedScale(buffer_handle_t hnd) {
     uint64_t usage = 0;
 
     metadata_for_rkvdec_scaling_t* metadata = NULL;
-    bufId = C2RKGrallocOps::getInstance()->getBufferId(hnd);
-    usage = C2RKGrallocOps::getInstance()->getUsage(hnd);
-    ret = C2RKGrallocOps::getInstance()->mapScaleMeta(hnd, &metadata);
+    bufId = C2RKGrallocOps::get()->getBufferId(hnd);
+    usage = C2RKGrallocOps::get()->getUsage(hnd);
+    ret = C2RKGrallocOps::get()->mapScaleMeta(hnd, &metadata);
     if (!ret) {
         /*
          * NOTE: After info change realloc buf, buf has not processed by hwc,
@@ -70,7 +70,7 @@ int C2VdecExtendFeature::checkNeedScale(buffer_handle_t hnd) {
             need = -1;
             break;
         }
-        C2RKGrallocOps::getInstance()->unmapScaleMeta(hnd);
+        C2RKGrallocOps::get()->unmapScaleMeta(hnd);
     }
 
     return need;
@@ -81,7 +81,7 @@ int C2VdecExtendFeature::configFrameScaleMeta(
     int ret = 0;
     metadata_for_rkvdec_scaling_t* metadata = NULL;
 
-    ret = C2RKGrallocOps::getInstance()->mapScaleMeta(hnd, &metadata);
+    ret = C2RKGrallocOps::get()->mapScaleMeta(hnd, &metadata);
     if (!ret) {
         int32_t thumbWidth     = scaleParam->thumbWidth;
         int32_t thumbHeight    = scaleParam->thumbHeight;
@@ -110,11 +110,11 @@ int C2VdecExtendFeature::configFrameScaleMeta(
         metadata->byteStride[0] = thumbHorStride;
         metadata->byteStride[1] = thumbHorStride;
 
-        usage = C2RKGrallocOps::getInstance()->getUsage(hnd);
+        usage = C2RKGrallocOps::get()->getUsage(hnd);
         metadata->usage = (uint32_t)usage;
     }
 
-    ret = C2RKGrallocOps::getInstance()->unmapScaleMeta(hnd);
+    ret = C2RKGrallocOps::get()->unmapScaleMeta(hnd);
 
     return ret;
 }

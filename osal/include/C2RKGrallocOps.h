@@ -28,7 +28,7 @@ namespace android {
 
 class C2RKGrallocOps {
 public:
-    static C2RKGrallocOps* getInstance()
+    static C2RKGrallocOps* get()
     {
         static C2RKGrallocOps _gInstance;
         return &_gInstance;

@@ -19,8 +19,8 @@
 
 #include "C2RKComponent.h"
 #include "C2RKInterface.h"
-#include "mpp/rk_mpi.h"
 #include "C2RKDump.h"
+#include "mpp/rk_mpi.h"
 
 #include <mutex>
 #include <utils/Vector.h>
@@ -106,7 +106,7 @@ private:
     bool mSignalledError;
     bool mSizeInfoUpdate;
     bool mLowLatencyMode;
-    bool mGraphicBufferSource;
+    bool mIsGBSource;
     bool mScaleEnabled;
 
     /*
@@ -142,31 +142,27 @@ private:
         }
     } mBitstreamColorAspects;
 
+    c2_status_t updateOutputDelay();
+
     bool checkPreferFbcOutput(const std::unique_ptr<C2Work> &work = nullptr);
-    //check bufferqueue from GrallocBufferSource or not
-    bool checkIsGBSource(const std::shared_ptr<C2BlockPool> &pool);
+    bool checkSurfaceConfig(
+            const std::shared_ptr<C2BlockPool> &pool, bool *isGBSource, bool *scaleEnable);
     void fillEmptyWork(const std::unique_ptr<C2Work> &work);
     void finishWork(OutWorkEntry *entry);
     c2_status_t drainInternal(
-        uint32_t drainMode,
-        const std::shared_ptr<C2BlockPool> &pool,
-        const std::unique_ptr<C2Work> &work);
+            uint32_t drainMode,
+            const std::shared_ptr<C2BlockPool> &pool,
+            const std::unique_ptr<C2Work> &work);
 
-    c2_status_t updateMppFrameInfo(uint32_t width, uint32_t height, uint32_t fmt);
     c2_status_t initDecoder(const std::unique_ptr<C2Work> &work);
     void setDefaultCodecColorAspectsIfNeeded(ColorAspects &aspects);
     void getVuiParams(MppFrame frame);
-    c2_status_t copyOutputBuffer(MppBuffer srcBuffer, MppBuffer dstBuffer = nullptr);
-    c2_status_t sendpacket(
-            uint8_t *data, size_t size, uint64_t pts, uint32_t flags);
-    c2_status_t getoutframe(OutWorkEntry *entry, bool needGetFrame);
-
-    c2_status_t checkSurfaceConfig(std::shared_ptr<C2GraphicBlock> block);
+    c2_status_t updateFbcModeIfNeccessary();
     c2_status_t commitBufferToMpp(std::shared_ptr<C2GraphicBlock> block);
     c2_status_t ensureDecoderState(const std::shared_ptr<C2BlockPool> &pool);
-    c2_status_t updateOutputDelay();
+    c2_status_t sendpacket(uint8_t *data, size_t size, uint64_t pts, uint32_t flags);
+    c2_status_t getoutframe(OutWorkEntry *entry, bool needGetFrame);
 
-    c2_status_t updateScaleCfg(std::shared_ptr<C2GraphicBlock> block);
     c2_status_t configFrameScaleMeta(MppFrame frame, std::shared_ptr<C2GraphicBlock> block);
 
     /*
