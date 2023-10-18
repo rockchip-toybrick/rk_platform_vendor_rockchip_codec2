@@ -81,7 +81,6 @@ private:
     bool           mSawInputEOS;
     bool           mOutputEOS;
     bool           mSignalledError;
-    bool           mHasRkVenc;
     int32_t        mHorStride;
     int32_t        mVerStride;
     int32_t        mCurLayerCount;

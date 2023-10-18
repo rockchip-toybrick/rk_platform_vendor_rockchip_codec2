@@ -120,6 +120,8 @@ public:
     int32_t getFbcOutputMode(MppCodingType codecId);
     int32_t getFbcOutputOffset(MppCodingType codecId, uint32_t *offsetX, uint32_t *offsetY);
     bool    is10bitSupport(MppCodingType codecId);
+    bool    isHWSupport(MppCtxType type, MppCodingType codingType);
+    bool    hasRkVenc();
 
 private:
     C2RKChipCapDef();

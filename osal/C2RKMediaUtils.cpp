@@ -25,9 +25,6 @@
 #include "C2RKMediaUtils.h"
 #include "C2RKLog.h"
 #include "C2RKEnv.h"
-#include "mpp/mpp_soc.h"
-#include "mpp/mpp_platform.h"
-#include "mpp/mpp_dev_defs.h"
 
 using namespace android;
 
@@ -72,7 +69,7 @@ static C2LevelInfo vp9LevelInfos[] = {
 
 bool C2RKMediaUtils::getCodingTypeFromComponentName(
         C2String componentName, MppCodingType *codingType) {
-    for (int i = 0; i < C2_RK_ARRAY_ELEMS(kComponentMapEntry); ++i) {
+    for (int i = 0; i < C2_ARRAY_ELEMS(kComponentMapEntry); ++i) {
         if (!strcasecmp(componentName.c_str(), kComponentMapEntry[i].componentName.c_str())) {
             *codingType = kComponentMapEntry[i].codingType;
             return true;
@@ -85,7 +82,7 @@ bool C2RKMediaUtils::getCodingTypeFromComponentName(
 }
 
 bool C2RKMediaUtils::getMimeFromComponentName(C2String componentName, C2String *mime) {
-    for (int i = 0; i < C2_RK_ARRAY_ELEMS(kComponentMapEntry); ++i) {
+    for (int i = 0; i < C2_ARRAY_ELEMS(kComponentMapEntry); ++i) {
         if (!strcasecmp(componentName.c_str(), kComponentMapEntry[i].componentName.c_str())) {
             *mime = kComponentMapEntry[i].mime;
             return true;
@@ -183,16 +180,6 @@ int32_t C2RKMediaUtils::colorFormatMpiToAndroid(uint32_t format, bool fbcMode) {
     return aFormat;
 }
 
-bool C2RKMediaUtils::checkHWSupport(MppCtxType type, MppCodingType codingType) {
-    c2_info("type:%d codingType:%d", type, codingType);
-
-    if (!mpp_check_soc_cap(type, codingType)) {
-        return false;
-    }
-
-    return true;
-}
-
 uint64_t C2RKMediaUtils::getStrideUsage(int32_t width, int32_t stride) {
     if (stride == C2_ALIGN_ODD(width, 256)) {
         return RK_GRALLOC_USAGE_STRIDE_ALIGN_256_ODD_TIMES;
@@ -224,7 +211,7 @@ uint32_t C2RKMediaUtils::calculateOutputDelay(
       case MPP_VIDEO_CodingAVC: {
         // default max Dpb Mbs is level 5.1
         maxDpbPixs = h264LevelInfos[1].maxDpbPixs;
-        for (int idx = 0; idx < C2_RK_ARRAY_ELEMS(h264LevelInfos); idx++) {
+        for (int idx = 0; idx < C2_ARRAY_ELEMS(h264LevelInfos); idx++) {
             if (h264LevelInfos[idx].level == level) {
                 maxDpbPixs = h264LevelInfos[idx].maxDpbPixs;
             }
@@ -239,7 +226,7 @@ uint32_t C2RKMediaUtils::calculateOutputDelay(
       case MPP_VIDEO_CodingHEVC: {
         // default max Dpb Mbs is level 5.1
         maxDpbPixs = h265LevelInfos[1].maxDpbPixs;
-        for (int idx = 0; idx < C2_RK_ARRAY_ELEMS(h265LevelInfos); idx++) {
+        for (int idx = 0; idx < C2_ARRAY_ELEMS(h265LevelInfos); idx++) {
             if (h265LevelInfos[idx].level == level) {
                 maxDpbPixs = h265LevelInfos[idx].maxDpbPixs;
             }
@@ -250,7 +237,7 @@ uint32_t C2RKMediaUtils::calculateOutputDelay(
       case MPP_VIDEO_CodingVP9: {
         // default max Dpb Mbs is level 5.1
         maxDpbPixs = vp9LevelInfos[1].maxDpbPixs;
-        for (int idx = 0; idx < C2_RK_ARRAY_ELEMS(vp9LevelInfos); idx++) {
+        for (int idx = 0; idx < C2_ARRAY_ELEMS(vp9LevelInfos); idx++) {
             if (vp9LevelInfos[idx].level == level) {
                 maxDpbPixs = vp9LevelInfos[idx].maxDpbPixs;
             }
@@ -338,12 +325,4 @@ void C2RKMediaUtils::convert10BitNV12ToP010(
             pix[7] = ((base_u16[4] & 0xFFC0) >> 6) << 6;
         }
     }
-}
-
-bool C2RKMediaUtils::hasRkVenc() {
-    bool ret = false;
-    uint32_t vcodec_type = mpp_get_vcodec_type();
-    if (vcodec_type & HAVE_RKVENC)
-        ret = true;
-    return ret;
 }

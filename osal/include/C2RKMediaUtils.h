@@ -44,12 +44,12 @@ extern std::atomic<int32_t> sEncConcurrentInstances;
 #define C2_MAX_OUTPUT_DELAY            21
 
 
-#define C2_SAFE_FREE(p) { if (p) {free(p); (p)=NULL;} }
-#define C2_ALIGN(x, a)         (((x)+(a)-1)&~((a)-1))
-#define C2_ALIGN_ODD(x, a)     (((x)+(a)-1)&~((a)-1) | a)
-#define C2_CLIP(a, l, h)       ((a) < (l) ? (l) : ((a) > (h) ? (h) : (a)))
+#define C2_SAFE_FREE(p)             { if (p) {free(p); (p)=NULL;} }
+#define C2_ALIGN(x, a)              (((x)+(a)-1)&~((a)-1))
+#define C2_ALIGN_ODD(x, a)          (((x)+(a)-1)&~((a)-1) | a)
+#define C2_CLIP(a, l, h)            ((a) < (l) ? (l) : ((a) > (h) ? (h) : (a)))
 
-#define C2_RK_ARRAY_ELEMS(a)      (sizeof(a) / sizeof((a)[0]))
+#define C2_ARRAY_ELEMS(a)           (sizeof(a) / sizeof((a)[0]))
 
 static const struct ComponentMapEntry {
     C2String        componentName;
@@ -88,7 +88,6 @@ public:
     static bool getMimeFromComponentName(C2String componentName, C2String *mime);
     static bool getKindFromComponentName(C2String componentName, C2Component::kind_t *kind);
     static bool getDomainFromComponentName(C2String componentName, C2Component::domain_t *domain);
-    static bool checkHWSupport(MppCtxType type, MppCodingType codingType);
     static int32_t colorFormatMpiToAndroid(uint32_t format, bool fbcMode);
     static uint64_t getStrideUsage(int32_t width, int32_t stride);
     static uint64_t getHStrideUsage(int32_t height, int32_t hstride);
@@ -98,7 +97,6 @@ public:
                 uint8_t *dstY, uint8_t *dstUV, size_t dstYStride,
                 size_t dstUVStride, uint8_t *src, size_t hstride,
                 size_t vstride, size_t width, size_t height);
-    static bool hasRkVenc();
 };
 
 #endif  // ANDROID_C2_RK_MEDIA_UTILS_H_

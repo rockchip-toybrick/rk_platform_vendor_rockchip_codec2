@@ -20,6 +20,9 @@
 #include "C2RKChipCapDef.h"
 #include "C2RKLog.h"
 #include "C2RKEnv.h"
+#include "mpp/mpp_soc.h"
+#include "mpp/mpp_platform.h"
+#include "mpp/mpp_dev_defs.h"
 
 #include <unistd.h>
 #include <fcntl.h>
@@ -312,6 +315,22 @@ bool C2RKChipCapDef::is10bitSupport(MppCodingType codecId) {
         }
     }
 
+    return ret;
+}
+
+bool C2RKChipCapDef::isHWSupport(MppCtxType type, MppCodingType codingType) {
+    if (!mpp_check_soc_cap(type, codingType)) {
+        return false;
+    }
+    return true;
+}
+
+
+bool C2RKChipCapDef::hasRkVenc() {
+    bool ret = false;
+    uint32_t vcodec_type = mpp_get_vcodec_type();
+    if (vcodec_type & HAVE_RKVENC)
+        ret = true;
     return ret;
 }
 

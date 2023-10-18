@@ -930,8 +930,6 @@ C2RKMpiEnc::C2RKMpiEnc(
         c2_err("failed to get MppCodingType from component %s", name);
     }
 
-    mHasRkVenc = C2RKMediaUtils::hasRkVenc();
-
     sEncConcurrentInstances.fetch_add(1, std::memory_order_relaxed);
 
     c2_info("name %s\r\nversion: %s", name, C2_GIT_BUILD_VERSION);
@@ -2240,7 +2238,7 @@ c2_status_t C2RKMpiEnc::handleMlvecDynamicCfg(MppMeta meta) {
 }
 
  bool C2RKMpiEnc::needRgaConvert(uint32_t width, uint32_t height) {
-    if (!mHasRkVenc)
+    if (!C2RKChipCapDef::get()->hasRkVenc())
         return true;
 
      if (mChipType == RK_CHIP_3588 || mChipType == RK_CHIP_3562) {

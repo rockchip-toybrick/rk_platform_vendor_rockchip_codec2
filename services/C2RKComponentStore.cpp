@@ -30,9 +30,10 @@
 #include <util/C2InterfaceHelper.h>
 #include <utils/Log.h>
 #include <dlfcn.h>
-#include <unistd.h> // getpagesize
+#include <unistd.h>
 
 #include "C2RKMediaUtils.h"
+#include "C2RKChipCapDef.h"
 #include "C2RKLog.h"
 
 #include <map>
@@ -948,8 +949,8 @@ C2RKComponentStore::C2RKComponentStore()
         mComponents.emplace(componentName, componentName);
     };
 
-    for (int i = 0; i < C2_RK_ARRAY_ELEMS(kComponentMapEntry); ++i) {
-        if (C2RKMediaUtils::checkHWSupport(
+    for (int i = 0; i < C2_ARRAY_ELEMS(kComponentMapEntry); ++i) {
+        if (C2RKChipCapDef::get()->isHWSupport(
                 kComponentMapEntry[i].type, kComponentMapEntry[i].codingType)) {
             c2_info("plugin %s", kComponentMapEntry[i].componentName.c_str());
             emplace(kComponentMapEntry[i].componentName.c_str());
