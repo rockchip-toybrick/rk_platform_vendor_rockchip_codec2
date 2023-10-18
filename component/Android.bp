@@ -27,8 +27,10 @@ cc_library_shared {
         "libmpp",
         "librga",
         "libui",
-        "libgralloc_priv",
         "libhardware",
+        "libhidlbase",
+        "libgralloctypes",
+        "android.hardware.graphics.mapper@4.0",
     ],
 
     export_include_dirs: [

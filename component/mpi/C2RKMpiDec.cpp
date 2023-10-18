@@ -22,7 +22,6 @@
 #include <C2AllocatorGralloc.h>
 #include <Codec2Mapper.h>
 #include <ui/GraphicBufferMapper.h>
-#include <gralloc_priv_omx.h>
 #include <sys/syscall.h>
 #include <media/stagefright/foundation/ALookup.h>
 
@@ -35,17 +34,15 @@
 #include "C2RKChipCapDef.h"
 #include "C2RKColorAspects.h"
 #include "C2RKNalParser.h"
-#include "C2RKVersion.h"
 #include "C2RKEnv.h"
 #include "C2VdecExtendFeature.h"
 #include "C2RKCodecMapper.h"
-
 #include "C2RKExtendParam.h"
 #include "C2RKMlvecLegacy.h"
+#include "C2RKGrallocOps.h"
+#include "C2RKVersion.h"
 
 namespace android {
-
-#define GRALLOC_USAGE_RKVDEC_SCALING   0x01000000U
 
 /* max support video resolution */
 constexpr uint32_t kMaxVideoWidth = 8192;
@@ -1605,23 +1602,11 @@ c2_status_t C2RKMpiDec::commitBufferToMpp(std::shared_ptr<C2GraphicBlock> block)
                 c2Handle, &width, &height, &format, &usage,
                 &stride, &generation, &bqId, &bqSlot);
 
-    auto GetC2BlockSize
-            = [c2Handle, width, height, format, usage, stride]() -> uint32_t {
-        gralloc_private_handle_t pHandle;
-        buffer_handle_t bHandle;
-        native_handle_t *nHandle = UnwrapNativeCodec2GrallocHandle(c2Handle);
-
-        GraphicBufferMapper &gm(GraphicBufferMapper::get());
-        gm.importBuffer(const_cast<native_handle_t *>(nHandle),
-                        width, height, 1, format, usage,
-                        stride, &bHandle);
-
-        Rockchip_get_gralloc_private((uint32_t *)bHandle, &pHandle);
-
-        gm.freeBuffer(bHandle);
-        native_handle_delete(nHandle);
-
-        return pHandle.size;
+    auto GetC2BlockSize = [c2Handle]() -> uint32_t {
+        native_handle_t *grallocHandle = UnwrapNativeCodec2GrallocHandle(c2Handle);
+        uint32_t size = C2RKGrallocOps::getInstance()->getAllocationSize(grallocHandle);
+        native_handle_delete(grallocHandle);
+        return size;
     };
 
     OutBuffer *buffer = findOutBuffer(bqSlot);

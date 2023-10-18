@@ -26,7 +26,6 @@
 #include <C2AllocatorGralloc.h>
 #include <ui/GraphicBufferMapper.h>
 #include <ui/GraphicBufferAllocator.h>
-#include <gralloc_priv_omx.h>
 #include <sys/syscall.h>
 
 #include "hardware/hardware_rockchip.h"
@@ -38,8 +37,9 @@
 #include "C2RKEnv.h"
 #include "C2RKExtendParam.h"
 #include "C2RKCodecMapper.h"
-#include "C2RKVersion.h"
 #include "C2RKChipCapDef.h"
+#include "C2RKGrallocOps.h"
+#include "C2RKVersion.h"
 
 namespace android {
 
@@ -1692,7 +1692,6 @@ c2_status_t C2RKMpiEnc::initEncoder() {
      * within 4G in view of rga efficiency.
      */
     buffer_handle_t bufferHandle;
-    gralloc_private_handle_t privHandle;
     uint32_t stride = 0;
 
     uint64_t usage = (GRALLOC_USAGE_SW_READ_OFTEN |
@@ -1714,11 +1713,10 @@ c2_status_t C2RKMpiEnc::initEncoder() {
         goto error;
     }
 
-    Rockchip_get_gralloc_private((uint32_t *)bufferHandle, &privHandle);
 
     mDmaMem = (MyDmaBuffer_t *)malloc(sizeof(MyDmaBuffer_t));
-    mDmaMem->fd = privHandle.share_fd;
-    mDmaMem->size = privHandle.size;
+    mDmaMem->fd = C2RKGrallocOps::getInstance()->getShareFd(bufferHandle);
+    mDmaMem->size = C2RKGrallocOps::getInstance()->getAllocationSize(bufferHandle);
     mDmaMem->handler = (void *)bufferHandle;
 
     c2_info("alloc temporary DmaMem fd %d size %d", mDmaMem->fd, mDmaMem->size);
