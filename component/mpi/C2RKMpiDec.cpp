@@ -1438,7 +1438,7 @@ c2_status_t C2RKMpiDec::ensureDecoderState(
     std::lock_guard<std::mutex> lock(mPoolMutex);
 
     // NOTE: private grallc align flag only support in gralloc 4.0.
-    if (mGrallocVersion == 4 && !mIsGBSource) {
+    if (mGrallocVersion == 4 && !mFbcCfg.mode && !mIsGBSource) {
         blockW = mWidth;
         usage = C2RKMediaUtils::getStrideUsage(mWidth, mHorStride);
 
