@@ -41,8 +41,6 @@
 
 namespace android {
 
-namespace {
-
 void ParseGop(
         const C2StreamGopTuning::output &gop,
         uint32_t *syncInterval, uint32_t *iInterval, uint32_t *maxBframes) {
@@ -75,8 +73,6 @@ void ParseGop(
         *iInterval = iInt;
     }
 }
-
-} // namepsace
 
 struct MlvecParams {
     std::shared_ptr<C2DriverVersion::output> driverInfo;
@@ -1526,7 +1522,7 @@ c2_status_t C2RKMpiEnc::setupPrependHeaderSetting() {
     return C2_OK;
 }
 
-c2_status_t C2RKMpiEnc::setupMlvecIfNeccessary() {
+c2_status_t C2RKMpiEnc::setupMlvecIfNeeded() {
     int32_t layerCount = 0;
     int32_t spacing = 0;
     int32_t numLTRFrms = 0;
@@ -1648,7 +1644,7 @@ c2_status_t C2RKMpiEnc::setupEncCfg() {
     setupPrependHeaderSetting();
 
     /* Video control Set MLVEC encoder */
-    setupMlvecIfNeccessary();
+    setupMlvecIfNeeded();
 
     err = mMppMpi->control(mMppCtx, MPP_ENC_SET_CFG, mEncCfg);
     if (err) {
@@ -1683,8 +1679,6 @@ c2_status_t C2RKMpiEnc::initEncoder() {
     }
 
     /*
-     * create vpumem for mpp input
-     *
      * NOTE: We need temporary buffer to store rga nv12 output for some rgba input,
      * since mpp can't process rgba input properly. in addition to this, alloc buffer
      * within 4G in view of rga efficiency.
@@ -2232,20 +2226,48 @@ c2_status_t C2RKMpiEnc::handleMlvecDynamicCfg(MppMeta meta) {
     return C2_OK;
 }
 
- bool C2RKMpiEnc::needRgaConvert(uint32_t width, uint32_t height) {
-    if (!C2RKChipCapDef::get()->hasRkVenc())
-        return true;
+// check if codec2 input can be received by mpp driver directly, if not, we need
+// convert input to align yuv420sp format by rga.
+bool C2RKMpiEnc::needRgaConvert(uint32_t width, uint32_t height, MppFrameFormat fmt) {
+    bool ret = true;
 
-     if (mChipType == RK_CHIP_3588 || mChipType == RK_CHIP_3562) {
-         if (mCodingType != MPP_VIDEO_CodingVP8)
-            return false;
-     }
+    if (fmt == MPP_FMT_RGBA8888) {
+        if (!C2RKChipCapDef::get()->hasRkVenc()) {
+            ret = true;
+            goto quit;
+        }
 
-    if (!((width & 0xf) || (height & 0xf)))
-        return false;
+        if ((mChipType == RK_CHIP_3588 || mChipType == RK_CHIP_3562)
+                && mCodingType != MPP_VIDEO_CodingVP8) {
+            ret = false;
+            goto quit;
+        }
 
-    return true;
- }
+        if (C2_ALIGN(width, 16) && C2_ALIGN(height, 16)) {
+            ret = false;
+            goto quit;
+        }
+
+    } else if (fmt == MPP_FMT_YUV420SP) {
+        if (mChipType == RK_CHIP_3588) {
+            ret = false;
+            goto quit;
+        }
+
+        if (C2_ALIGN(width, 16) && C2_ALIGN(height, 16)) {
+            ret = false;
+            goto quit;
+        }
+    }
+
+
+quit:
+    if (mInputCount == 0) {
+        c2_info("check: hor %d ver %d fmt %s %s extra convert",
+                width, height, toStr_Format(fmt), ret ? "need" : "no need");
+    }
+    return ret;
+}
 
 c2_status_t C2RKMpiEnc::getInBufferFromWork(
         const std::unique_ptr<C2Work> &work, MyDmaBuffer_t *outBuffer) {
@@ -2308,7 +2330,7 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
         /* dump input data if neccessary */
         mDump->recordInFile((void*)input->data()[0], stride, height, RAW_TYPE_RGBA);
 
-        if (!needRgaConvert(stride, height)) {
+        if (!needRgaConvert(stride, height, MPP_FMT_RGBA8888)) {
             outBuffer->fd = fd;
             outBuffer->size = mHorStride * mVerStride * 4;
 
@@ -2322,10 +2344,8 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
 
             C2RKRgaDef::SetRgaInfo(&src, fd, width, height, stride, height);
             C2RKRgaDef::SetRgaInfo(&dst, mDmaMem->fd,
-                                   mSize->width, mSize->height, mHorStride, mVerStride);
-
+                    mSize->width, mSize->height, mHorStride, mVerStride);
             if (!C2RKRgaDef::RGBToNV12(src, dst)) {
-                c2_err("faild to convert rgba to nv12");
                 ret = C2_CORRUPTED;
             }
 
@@ -2345,28 +2365,7 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
             configChanged = true;
         }
 
-        /*
-         * mpp-driver fetch buffer 16 bits at one time, so the stride of
-         * input buffer shoule be aligned to 16.
-         * For this reason if the stride of buffer not aligned to 16, we
-         * copy input buffer to anothor larger dmaBuffer, and than import
-         * this dmaBuffer to encoder.
-         */
-        if ((mChipType != RK_CHIP_3588) && ((stride & 0xf) || (height & 0xf))) {
-            RgaInfo src, dst;
-
-            C2RKRgaDef::SetRgaInfo(&src, fd, width, height, stride, height);
-            C2RKRgaDef::SetRgaInfo(&dst, mDmaMem->fd,
-                                   mSize->width, mSize->height, mHorStride, mVerStride);
-
-            if (!C2RKRgaDef::NV12ToNV12(src, dst)) {
-                c2_err("faild to copy nv12");
-                ret = C2_CORRUPTED;
-            }
-
-            outBuffer->fd = mDmaMem->fd;
-            outBuffer->size = mHorStride * mVerStride * 3 / 2;
-        } else {
+        if (!needRgaConvert(stride, height, MPP_FMT_YUV420SP)) {
             if (mHorStride != stride || mVerStride != height) {
                 // setup encoder using new stride config
                 c2_info("cfg stride change from [%d:%d] -> [%d %d]",
@@ -2376,6 +2375,18 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
                 configChanged = true;
             }
             outBuffer->fd = fd;
+            outBuffer->size = mHorStride * mVerStride * 3 / 2;
+        } else {
+            RgaInfo src, dst;
+
+            C2RKRgaDef::SetRgaInfo(&src, fd, width, height, stride, height);
+            C2RKRgaDef::SetRgaInfo(&dst, mDmaMem->fd,
+                    mSize->width, mSize->height, mHorStride, mVerStride);
+            if (!C2RKRgaDef::NV12ToNV12(src, dst)) {
+                ret = C2_CORRUPTED;
+            }
+
+            outBuffer->fd = mDmaMem->fd;
             outBuffer->size = mHorStride * mVerStride * 3 / 2;
         }
     } break;

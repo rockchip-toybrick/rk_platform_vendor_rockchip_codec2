@@ -1318,7 +1318,7 @@ void C2RKMpiDec::getVuiParams(MppFrame frame) {
     }
 }
 
-c2_status_t C2RKMpiDec::updateFbcModeIfNeccessary() {
+c2_status_t C2RKMpiDec::updateFbcModeIfNeeded() {
     uint32_t format = mColorFormat;
     bool needUpdate = false;
     bool preferFbc = checkPreferFbcOutput();
@@ -1364,14 +1364,13 @@ c2_status_t C2RKMpiDec::updateFbcModeIfNeccessary() {
 }
 
 c2_status_t C2RKMpiDec::commitBufferToMpp(std::shared_ptr<C2GraphicBlock> block) {
-    uint32_t bufferSize = 0, bufferId = 0;
+    uint32_t bufferId = 0;
     auto c2Handle = block->handle();
     uint32_t fd = c2Handle->data[0];
     native_handle_t *grallocHandle = nullptr;
 
     grallocHandle = UnwrapNativeCodec2GrallocHandle(c2Handle);
 
-    bufferSize = C2RKGrallocOps::get()->getAllocationSize(grallocHandle);
     bufferId = C2RKGrallocOps::get()->getBufferId(grallocHandle);
 
     OutBuffer *buffer = findOutBuffer(bufferId);
@@ -1395,7 +1394,7 @@ c2_status_t C2RKMpiDec::commitBufferToMpp(std::shared_ptr<C2GraphicBlock> block)
         info.fd = fd;
         info.ptr = nullptr;
         info.hnd = nullptr;
-        info.size = bufferSize;
+        info.size = C2RKGrallocOps::get()->getAllocationSize(grallocHandle);
         info.index = bufferId;
 
         mpp_buffer_import_with_tag(
@@ -1413,7 +1412,7 @@ c2_status_t C2RKMpiDec::commitBufferToMpp(std::shared_ptr<C2GraphicBlock> block)
         mOutBuffers.push(buffer);
 
         c2_trace("import this buffer, index %d fd %d size %d mppBuf %p listSize %d",
-                 bufferId, fd, bufferSize, mppBuffer, mOutBuffers.size());
+                 bufferId, fd, info.size, mppBuffer, mOutBuffers.size());
     }
 
     native_handle_delete(grallocHandle);
@@ -1643,7 +1642,7 @@ REDO:
         mVerStride = vstride;
 
         // support fbc mode change on info change stage
-        updateFbcModeIfNeccessary();
+        updateFbcModeIfNeeded();
 
         /*
          * All buffer group config done. Set info change ready to let

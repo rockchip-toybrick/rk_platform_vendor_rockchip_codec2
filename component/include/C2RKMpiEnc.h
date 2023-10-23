@@ -114,7 +114,7 @@ private:
     c2_status_t setupVuiParams();
     c2_status_t setupTemporalLayers();
     c2_status_t setupPrependHeaderSetting();
-    c2_status_t setupMlvecIfNeccessary();
+    c2_status_t setupMlvecIfNeeded();
     c2_status_t setupEncCfg();
 
     c2_status_t initEncoder();
@@ -124,7 +124,7 @@ private:
     c2_status_t handleRequestSyncFrame();
     c2_status_t handleMlvecDynamicCfg(MppMeta meta);
 
-    bool needRgaConvert(uint32_t width, uint32_t height);
+    bool needRgaConvert(uint32_t width, uint32_t height, MppFrameFormat fmt);
     c2_status_t getInBufferFromWork(
             const std::unique_ptr<C2Work> &work, MyDmaBuffer_t *outBuffer);
     c2_status_t sendframe(

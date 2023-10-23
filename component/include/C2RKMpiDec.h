@@ -157,7 +157,7 @@ private:
     c2_status_t initDecoder(const std::unique_ptr<C2Work> &work);
     void setDefaultCodecColorAspectsIfNeeded(ColorAspects &aspects);
     void getVuiParams(MppFrame frame);
-    c2_status_t updateFbcModeIfNeccessary();
+    c2_status_t updateFbcModeIfNeeded();
     c2_status_t commitBufferToMpp(std::shared_ptr<C2GraphicBlock> block);
     c2_status_t ensureDecoderState(const std::shared_ptr<C2BlockPool> &pool);
     c2_status_t sendpacket(uint8_t *data, size_t size, uint64_t pts, uint32_t flags);

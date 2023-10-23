@@ -24,6 +24,17 @@
 #include <media/stagefright/MediaCodecConstants.h>
 #include <C2Config.h>
 
+const char *toStr_Format(uint32_t fmt) {
+    switch (fmt) {
+        case MPP_FMT_YUV420SP:          return "YUV420SP";
+        case MPP_FMT_YUV420SP_10BIT:    return "YUV420SP_10BIT";
+        case MPP_FMT_RGB888:            return "RGB888";
+        case MPP_FMT_RGBA8888:          return "RGBA8888";
+        case MPP_FMT_BGRA8888:          return "BGRA8888";
+        default:                        return "unknown";
+    }
+}
+
 const char *toStr_Coding(uint32_t coding) {
     switch (coding) {
         case MPP_VIDEO_CodingUnused:    return "UNUSED";
