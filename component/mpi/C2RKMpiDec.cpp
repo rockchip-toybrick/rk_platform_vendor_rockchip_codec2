@@ -1102,6 +1102,8 @@ void C2RKMpiDec::process(
             c2_info("surface config: surfaceMode %d isGBSource %d scaleEnable %d",
                     !mBufferMode, mIsGBSource, mScaleEnabled);
         }
+        if (mIsGBSource)
+            updateFbcModeIfNeeded();
     }
 
     if (mSignalledInputEos || mSignalledError) {
@@ -1355,6 +1357,8 @@ c2_status_t C2RKMpiDec::updateFbcModeIfNeeded() {
         mpp_frame_set_fmt(frame, (MppFrameFormat)format);
         mMppMpi->control(mMppCtx, MPP_DEC_SET_FRAME_INFO, (MppParam)frame);
 
+        mHorStride = mpp_frame_get_hor_stride(frame);
+        mVerStride = mpp_frame_get_ver_stride(frame);
         mColorFormat = mpp_frame_get_fmt(frame);
 
         mpp_frame_deinit(&frame);
