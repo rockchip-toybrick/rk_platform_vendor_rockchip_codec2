@@ -722,7 +722,9 @@ bool C2RKMpiDec::checkPreferFbcOutput(const std::unique_ptr<C2Work> &work) {
         return true;
     }
 
-    if (mProfile == PROFILE_AVC_HIGH_10 || mProfile == PROFILE_HEVC_MAIN_10) {
+    if (mProfile == PROFILE_AVC_HIGH_10 ||
+        mProfile == PROFILE_HEVC_MAIN_10 ||
+        mProfile == PROFILE_VP9_2) {
         c2_info("get 10bit profile, prefer fbc output mode");
         return true;
     }
@@ -873,6 +875,7 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
 
         if (mProfile == PROFILE_AVC_HIGH_10 ||
             mProfile == PROFILE_HEVC_MAIN_10 ||
+            mProfile == PROFILE_VP9_2 ||
             (mBufferMode && mHalPixelFormat == HAL_PIXEL_FORMAT_YCBCR_P010)) {
             c2_info("setup 10Bit format with profile %d halPixelFmt %d",
                     mProfile, mHalPixelFormat);
