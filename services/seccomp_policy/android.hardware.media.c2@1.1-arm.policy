@@ -22,10 +22,8 @@ ppoll: 1
 mprotect: arg2 in ~PROT_EXEC || arg2 in ~PROT_WRITE
 mmap2: arg2 in ~PROT_EXEC || arg2 in ~PROT_WRITE
 memfd_create: 1
-recvfrom: 1
 ftruncate: 1
 ftruncate64: 1
-sysinfo: 1
 
 # mremap: Ensure |flags| are (MREMAP_MAYMOVE | MREMAP_FIXED) TODO: Once minijail
 # parser support for '<' is in this needs to be modified to also prevent
@@ -33,7 +31,7 @@ sysinfo: 1
 # on ARM is statically loaded at 0xffff 0000. See
 # http://infocenter.arm.com/help/index.jsp?topic=/com.arm.doc.ddi0211h/Babfeega.html
 # for more details.
-mremap: arg3 == 3 || arg3 == MREMAP_MAYMOVE
+mremap: arg3 == 3
 munmap: 1
 prctl: 1
 getuid32: 1
@@ -70,6 +68,7 @@ madvise: 1
 # crash dump policy additions
 sigreturn: 1
 clock_gettime: 1
+futex: 1
 getpid: 1
 gettid: 1
 pipe2: 1
