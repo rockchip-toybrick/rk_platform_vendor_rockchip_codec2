@@ -82,6 +82,7 @@ cc_binary {
 prebuilt_etc {
     name: "android.hardware.media.c2@1.1-seccomp_policy",
     vendor: true,
+    compile_multilib: "prefer32",
     sub_dir: "seccomp_policy",
 
     // If a specific architecture is targeted, multiple choices are not needed.
