@@ -986,10 +986,15 @@ void C2RKMpiDec::finishWork(OutWorkEntry *entry) {
         }
     }
 
-    auto fillWork = [buffer, entry](const std::unique_ptr<C2Work> &work) {
+    auto fillWork = [buffer, entry, this](const std::unique_ptr<C2Work> &work) {
         // now output work is new work, frame index remove by input work,
         // output work set to incomplete to ignore frame index check
-        work->worklets.front()->output.flags = C2FrameData::FLAG_INCOMPLETE;
+        uint32_t outputFlags = C2FrameData::FLAG_INCOMPLETE;
+        if (isDropFrame(entry->timestamp)) {
+            work->input.flags = C2FrameData::FLAG_DROP_FRAME;
+            outputFlags |= C2FrameData::FLAG_DROP_FRAME;
+        }
+        work->worklets.front()->output.flags = (C2FrameData::flags_t)outputFlags;
         work->worklets.front()->output.buffers.clear();
         work->worklets.front()->output.buffers.push_back(buffer);
         work->worklets.front()->output.ordinal = work->input.ordinal;
@@ -1141,6 +1146,9 @@ void C2RKMpiDec::process(
     bool sendPacketFlag = true;
     uint32_t outfrmCnt = 0;
     OutWorkEntry entry;
+
+    if (flags & C2FrameData::FLAG_DROP_FRAME)
+        mDropFramesPts.push_back(timestamp);
 
     if ((flags & C2FrameData::FLAG_CODEC_CONFIG) == 0) {
         // reset flush flag when get non-config frame.

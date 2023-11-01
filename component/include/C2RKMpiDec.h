@@ -85,6 +85,8 @@ private:
     MppCodingType   mCodingType;
     MppFrameFormat  mColorFormat;
     MppBufferGroup  mFrmGrp;
+    // Indicates that these buffers should be decoded but not rendered.
+    Vector<uint64_t> mDropFramesPts;
     Vector<OutBuffer*> mOutBuffers;
 
     uint32_t mWidth;
@@ -164,6 +166,17 @@ private:
     c2_status_t getoutframe(OutWorkEntry *entry, bool needGetFrame);
 
     c2_status_t configFrameScaleMeta(MppFrame frame, std::shared_ptr<C2GraphicBlock> block);
+
+    bool isDropFrame(uint64_t pts) {
+        Vector<uint64_t>::iterator it;
+        for (it = mDropFramesPts.begin(); it != mDropFramesPts.end(); it++) {
+            if (*it == pts) {
+                mDropFramesPts.erase(it);
+                return true;
+            }
+        }
+        return false;
+    }
 
     /*
      * OutBuffer vector operations
