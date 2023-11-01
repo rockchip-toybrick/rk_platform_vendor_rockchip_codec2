@@ -1703,7 +1703,7 @@ REDO:
                 C2RKRgaDef::SetRgaInfo(
                         &srcInfo, srcFd, mWidth, mHeight, mHorStride, mVerStride);
                 C2RKRgaDef::SetRgaInfo(
-                        &dstInfo, dstFd, mWidth, mHeight, mWidth, mHeight);
+                        &dstInfo, dstFd, mWidth, mHeight, mHorStride, mVerStride);
                 if (!C2RKRgaDef::NV12ToNV12(srcInfo, dstInfo)) {
                     // use cpu copy if get rga error
                     uint8_t *srcPtr = (uint8_t*)mpp_buffer_get_ptr(mppBuffer);
