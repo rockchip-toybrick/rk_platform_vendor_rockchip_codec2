@@ -360,11 +360,6 @@ c2_status_t C2RKComponent::stop() {
         }
         state->mState = STOPPED;
     }
-
-    if (mOutputBlockPool) {
-        drain(DRAIN_COMPONENT_NO_EOS, mOutputBlockPool);
-    }
-
     {
         Mutexed<WorkQueue>::Locked queue(mWorkQueue);
         queue->clear();
@@ -389,11 +384,6 @@ c2_status_t C2RKComponent::reset() {
         Mutexed<ExecState>::Locked state(mExecState);
         state->mState = UNINITIALIZED;
     }
-
-    if (mOutputBlockPool) {
-        drain(DRAIN_COMPONENT_NO_EOS, mOutputBlockPool);
-    }
-
     {
         Mutexed<WorkQueue>::Locked queue(mWorkQueue);
         queue->clear();

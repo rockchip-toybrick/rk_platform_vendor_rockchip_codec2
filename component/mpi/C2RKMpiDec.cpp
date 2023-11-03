@@ -1057,9 +1057,6 @@ c2_status_t C2RKMpiDec::drainInternal(
         ret = getoutframe(&entry, false);
         if (ret == C2_OK && entry.outblock) {
             finishWork(&entry);
-        } else if (drainMode == DRAIN_COMPONENT_NO_EOS && !work) {
-            c2_info("drain without wait eos, done.");
-            break;
         }
 
         if (mOutputEos && work) {
