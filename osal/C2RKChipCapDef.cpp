@@ -117,7 +117,7 @@ static C2ChipCapInfo sChipCapInfos[] = {
     },
     {
         .chipName       = "rk3566",
-        .chipType       = RK_CHIP_3566,
+        .chipType       = RK_CHIP_356X,
         .fbcCapNum      = 3,
         .fbcCaps        = fbcCaps_rk356x,
         .scaleMetaCap   = 0,
@@ -127,7 +127,7 @@ static C2ChipCapInfo sChipCapInfos[] = {
     },
     {
         .chipName       = "rk3567",
-        .chipType       = RK_CHIP_3567,
+        .chipType       = RK_CHIP_356X,
         .fbcCapNum      = 3,
         .fbcCaps        = fbcCaps_rk356x,
         .scaleMetaCap   = 0,
@@ -137,7 +137,7 @@ static C2ChipCapInfo sChipCapInfos[] = {
     },
     {
         .chipName       = "rk3568",
-        .chipType       = RK_CHIP_3568,
+        .chipType       = RK_CHIP_356X,
         .fbcCapNum      = 3,
         .fbcCaps        = fbcCaps_rk356x,
         .scaleMetaCap   = 0,

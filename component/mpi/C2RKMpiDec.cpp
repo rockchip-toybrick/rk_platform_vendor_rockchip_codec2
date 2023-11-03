@@ -1521,6 +1521,11 @@ c2_status_t C2RKMpiDec::ensureDecoderState(
         }
         if (!mOutBlock) {
             usage |= (GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN);
+            // allocate buffer within 4G to avoid rga2 error.
+            if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_3588 ||
+                C2RKChipCapDef::get()->getChipType() == RK_CHIP_356X) {
+                usage |= RK_GRALLOC_USAGE_WITHIN_4G;
+            }
             ret = pool->fetchGraphicBlock(blockW, blockH, format,
                                           C2AndroidMemoryUsage::FromGrallocUsage(usage),
                                           &mOutBlock);

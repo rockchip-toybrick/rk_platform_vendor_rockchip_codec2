@@ -1689,10 +1689,8 @@ c2_status_t C2RKMpiEnc::initEncoder() {
     uint64_t usage = (GRALLOC_USAGE_SW_READ_OFTEN |
                       GRALLOC_USAGE_SW_WRITE_OFTEN);
 
-    //  only limit rga2
-    if (mChipType == RK_CHIP_3588 ||
-        mChipType == RK_CHIP_3566 ||
-        mChipType == RK_CHIP_3568) {
+    //  allocate buffer within 4G to avoid rga2 error.
+    if (mChipType == RK_CHIP_3588 || mChipType == RK_CHIP_356X) {
         usage = RK_GRALLOC_USAGE_WITHIN_4G;
     }
 
@@ -2259,7 +2257,6 @@ bool C2RKMpiEnc::needRgaConvert(uint32_t width, uint32_t height, MppFrameFormat 
             goto quit;
         }
     }
-
 
 quit:
     if (mInputCount == 0) {
