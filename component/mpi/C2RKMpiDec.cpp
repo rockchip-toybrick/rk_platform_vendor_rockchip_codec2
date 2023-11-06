@@ -772,15 +772,19 @@ bool C2RKMpiDec::checkSurfaceConfig(
 
     uint64_t getUsage = 0;
     auto c2Handle = block->handle();
-    native_handle_t *grallocHandle = UnwrapNativeCodec2GrallocHandle(c2Handle);
+    native_handle_t *gHandle = UnwrapNativeCodec2GrallocHandle(c2Handle);
 
-    getUsage = C2RKGrallocOps::get()->getUsage(grallocHandle);
+    // Import new buffer to get metadata of graphicBuffer
+    buffer_handle_t outHandle = nullptr;
+    GraphicBufferMapper::get().importBufferNoValidate(gHandle, &outHandle);
+
+    getUsage = C2RKGrallocOps::get()->getUsage(outHandle);
     if (getUsage & GRALLOC_USAGE_HW_VIDEO_ENCODER) {
         *isGBSource = true;
     }
 
     if (C2RKChipCapDef::get()->getScaleMetaCap()
-            && C2VdecExtendFeature::checkNeedScale(grallocHandle) == 1) {
+            && C2VdecExtendFeature::checkNeedScale(outHandle) == 1) {
         MppDecCfg cfg;
         mpp_dec_cfg_init(&cfg);
         mMppMpi->control(mMppCtx, MPP_DEC_GET_CFG, cfg);
@@ -792,7 +796,8 @@ bool C2RKMpiDec::checkSurfaceConfig(
     }
 
     block.reset();
-    native_handle_delete(grallocHandle);
+    native_handle_delete(gHandle);
+    GraphicBufferMapper::get().freeBuffer(outHandle);
 
     return true;
 }
@@ -1379,11 +1384,14 @@ c2_status_t C2RKMpiDec::commitBufferToMpp(std::shared_ptr<C2GraphicBlock> block)
     uint32_t bufferId = 0;
     auto c2Handle = block->handle();
     uint32_t fd = c2Handle->data[0];
-    native_handle_t *grallocHandle = nullptr;
+    native_handle_t *gHandle = nullptr;
+    buffer_handle_t  outHandle = nullptr;
 
-    grallocHandle = UnwrapNativeCodec2GrallocHandle(c2Handle);
+    // Import new buffer to get metadata of graphicBuffer
+    gHandle = UnwrapNativeCodec2GrallocHandle(c2Handle);
+    GraphicBufferMapper::get().importBufferNoValidate(gHandle, &outHandle);
 
-    bufferId = C2RKGrallocOps::get()->getBufferId(grallocHandle);
+    bufferId = C2RKGrallocOps::get()->getBufferId(outHandle);
 
     OutBuffer *buffer = findOutBuffer(bufferId);
     if (buffer) {
@@ -1395,7 +1403,7 @@ c2_status_t C2RKMpiDec::commitBufferToMpp(std::shared_ptr<C2GraphicBlock> block)
         buffer->block = block;
         buffer->site = BUFFER_SITE_BY_MPI;
 
-        c2_trace("put this buffer, index %d fd %d mppBuf %p", bufferId, fd, mppBuffer);
+        c2_trace("put this buffer, index %d mppBuf %p", bufferId, mppBuffer);
     } else {
         /* register this buffer to mpp group */
         MppBuffer mppBuffer;
@@ -1406,7 +1414,7 @@ c2_status_t C2RKMpiDec::commitBufferToMpp(std::shared_ptr<C2GraphicBlock> block)
         info.fd = fd;
         info.ptr = nullptr;
         info.hnd = nullptr;
-        info.size = C2RKGrallocOps::get()->getAllocationSize(grallocHandle);
+        info.size = C2RKGrallocOps::get()->getAllocationSize(outHandle);
         info.index = bufferId;
 
         mpp_buffer_import_with_tag(
@@ -1423,11 +1431,12 @@ c2_status_t C2RKMpiDec::commitBufferToMpp(std::shared_ptr<C2GraphicBlock> block)
 
         mOutBuffers.push(buffer);
 
-        c2_trace("import this buffer, index %d fd %d size %d mppBuf %p listSize %d",
-                 bufferId, fd, info.size, mppBuffer, mOutBuffers.size());
+        c2_trace("import this buffer, index %d size %d mppBuf %p listSize %d",
+                 bufferId, info.size, mppBuffer, mOutBuffers.size());
     }
 
-    native_handle_delete(grallocHandle);
+    native_handle_delete(gHandle);
+    GraphicBufferMapper::get().freeBuffer(outHandle);
 
     return C2_OK;
 }
