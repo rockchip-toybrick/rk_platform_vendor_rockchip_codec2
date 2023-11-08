@@ -1149,8 +1149,10 @@ void C2RKMpiDec::process(
     uint32_t outfrmCnt = 0;
     OutWorkEntry entry;
 
-    if (flags & C2FrameData::FLAG_DROP_FRAME)
+    if (!(flags & C2FrameData::FLAG_CODEC_CONFIG)
+            && flags & C2FrameData::FLAG_DROP_FRAME) {
         mDropFramesPts.push_back(timestamp);
+    }
 
     if ((flags & C2FrameData::FLAG_CODEC_CONFIG) == 0) {
         // reset flush flag when get non-config frame.
