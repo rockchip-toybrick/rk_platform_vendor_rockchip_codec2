@@ -52,6 +52,32 @@ struct MlvecParams {
     std::shared_ptr<C2LowLatencyMode::output> lowLatencyMode;
 };
 
+status_t importGraphicBuffer(const C2Handle *const c2Handle, buffer_handle_t *outHandle) {
+    status_t err = OK;
+    uint32_t bqSlot, width, height, format, stride, generation;
+    uint64_t usage, bqId;
+
+    native_handle_t *gHandle = UnwrapNativeCodec2GrallocHandle(c2Handle);
+
+    android::_UnwrapNativeCodec2GrallocMetadata(
+            c2Handle, &width, &height, &format, &usage,
+            &stride, &generation, &bqId, &bqSlot);
+
+    err = GraphicBufferMapper::get().importBuffer(
+            gHandle, width, height, 1, format, usage,
+            stride, outHandle);
+    if (err != OK) {
+        c2_err("failed to import buffer %p", gHandle);
+    }
+
+    native_handle_delete(gHandle);
+    return err;
+}
+
+status_t freeGraphicBuffer(buffer_handle_t outHandle) {
+    return GraphicBufferMapper::get().freeBuffer(outHandle);
+}
+
 class C2RKMpiDec::IntfImpl : public C2RKInterface<void>::BaseParams {
 public:
     explicit IntfImpl(
@@ -772,11 +798,12 @@ bool C2RKMpiDec::checkSurfaceConfig(
 
     uint64_t getUsage = 0;
     auto c2Handle = block->handle();
-    native_handle_t *gHandle = UnwrapNativeCodec2GrallocHandle(c2Handle);
 
     // Import new buffer to get metadata of graphicBuffer
     buffer_handle_t outHandle = nullptr;
-    GraphicBufferMapper::get().importBufferNoValidate(gHandle, &outHandle);
+    if (importGraphicBuffer(c2Handle, &outHandle) != OK) {
+        return false;
+    }
 
     getUsage = C2RKGrallocOps::get()->getUsage(outHandle);
     if (getUsage & GRALLOC_USAGE_HW_VIDEO_ENCODER) {
@@ -796,8 +823,7 @@ bool C2RKMpiDec::checkSurfaceConfig(
     }
 
     block.reset();
-    native_handle_delete(gHandle);
-    GraphicBufferMapper::get().freeBuffer(outHandle);
+    freeGraphicBuffer(outHandle);
 
     return true;
 }
@@ -1386,12 +1412,10 @@ c2_status_t C2RKMpiDec::commitBufferToMpp(std::shared_ptr<C2GraphicBlock> block)
     uint32_t bufferId = 0;
     auto c2Handle = block->handle();
     uint32_t fd = c2Handle->data[0];
-    native_handle_t *gHandle = nullptr;
-    buffer_handle_t  outHandle = nullptr;
 
     // Import new buffer to get metadata of graphicBuffer
-    gHandle = UnwrapNativeCodec2GrallocHandle(c2Handle);
-    GraphicBufferMapper::get().importBufferNoValidate(gHandle, &outHandle);
+    buffer_handle_t outHandle = nullptr;
+    importGraphicBuffer(c2Handle, &outHandle);
 
     bufferId = C2RKGrallocOps::get()->getBufferId(outHandle);
 
@@ -1437,8 +1461,7 @@ c2_status_t C2RKMpiDec::commitBufferToMpp(std::shared_ptr<C2GraphicBlock> block)
                  bufferId, info.size, mppBuffer, mOutBuffers.size());
     }
 
-    native_handle_delete(gHandle);
-    GraphicBufferMapper::get().freeBuffer(outHandle);
+    freeGraphicBuffer(outHandle);
 
     return C2_OK;
 }
