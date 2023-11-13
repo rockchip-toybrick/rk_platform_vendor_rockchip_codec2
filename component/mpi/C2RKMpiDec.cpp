@@ -751,6 +751,18 @@ bool C2RKMpiDec::checkPreferFbcOutput(const std::unique_ptr<C2Work> &work) {
     if (mProfile == PROFILE_AVC_HIGH_10 ||
         mProfile == PROFILE_HEVC_MAIN_10 ||
         mProfile == PROFILE_VP9_2) {
+        /*
+         * workaround for CtsMediaDecoderTestCases:
+         *   android.media.decoder.cts.ImageReaderDecoderTest#decodeTest
+         *   [89_video/hevc_c2.rk.hevc.decoder_136x144_10bit_swirl_imagereader]
+         *
+         * ImageReader set GRALLOC_USAGE_SW_READ_OFTEN to gralloc which conflict
+         * with fbc then fetchGraphicBlock fail.
+         */
+        if (mWidth * mHeight < 176 * 144) {
+            mBufferMode = true;
+            return false;
+        }
         c2_info("get 10bit profile, prefer fbc output mode");
         return true;
     }
@@ -1124,10 +1136,9 @@ void C2RKMpiDec::process(
     work->workletsProcessed = 0u;
     work->worklets.front()->output.flags = work->input.flags;
 
-    mBufferMode = (pool->getLocalId() <= C2BlockPool::PLATFORM_START);
-
     // Initialize decoder if not already initialized
     if (!mStarted) {
+        mBufferMode = (pool->getLocalId() <= C2BlockPool::PLATFORM_START);
         err = initDecoder(work);
         if (err != C2_OK) {
             work->result = C2_BAD_VALUE;
