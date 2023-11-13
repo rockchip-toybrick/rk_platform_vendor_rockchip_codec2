@@ -2241,18 +2241,17 @@ bool C2RKMpiEnc::needRgaConvert(uint32_t width, uint32_t height, MppFrameFormat 
             goto quit;
         }
 
-        if (C2_ALIGN(width, 16) && C2_ALIGN(height, 16)) {
+        if (C2_IS_ALIGN(width, 16) && C2_IS_ALIGN(height, 16)) {
             ret = false;
             goto quit;
         }
-
     } else if (fmt == MPP_FMT_YUV420SP) {
         if (mChipType == RK_CHIP_3588) {
             ret = false;
             goto quit;
         }
 
-        if (C2_ALIGN(width, 16) && C2_ALIGN(height, 16)) {
+        if (C2_IS_ALIGN(width, 16) && C2_IS_ALIGN(height, 16)) {
             ret = false;
             goto quit;
         }
