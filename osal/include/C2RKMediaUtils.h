@@ -46,7 +46,7 @@ extern std::atomic<int32_t> sEncConcurrentInstances;
 
 #define C2_SAFE_FREE(p)             { if (p) {free(p); (p)=NULL;} }
 #define C2_ALIGN(x, a)              (((x)+(a)-1)&~((a)-1))
-#define C2_IS_ALIGN(x, a)           (C2_ALIGN(x, a) == x)
+#define C2_IS_ALIGNED(x, a)         (!((x) & ((a)-1)))
 #define C2_ALIGN_ODD(x, a)          (((x)+(a)-1)&~((a)-1) | a)
 #define C2_CLIP(a, l, h)            ((a) < (l) ? (l) : ((a) > (h) ? (h) : (a)))
 

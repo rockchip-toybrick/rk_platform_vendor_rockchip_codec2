@@ -597,7 +597,6 @@ C2RKMpiDec::C2RKMpiDec(
       mHorStride(0),
       mVerStride(0),
       mGrallocVersion(C2RKChipCapDef::get()->getGrallocVersion()),
-      mLastPts(-1),
       mStarted(false),
       mFlushed(true),
       mOutputEos(false),
@@ -733,24 +732,19 @@ c2_status_t C2RKMpiDec::updateOutputDelay() {
 
 bool C2RKMpiDec::checkPreferFbcOutput(const std::unique_ptr<C2Work> &work) {
     if (mIsGBSource) {
-        c2_info("get graphicBufferSource in, perfer non-fbc mode");
+        c2_info("graphicBufferSource not support fbc mode");
         return false;
     }
 
     if (mBufferMode) {
-        c2_info("bufferMode perfer non-fbc mode");
+        c2_info("buffer mode not support fbc mode");
         return false;
-    }
-
-    /* SMPTEST2084 = 6 */
-    if (mTransfer == 6) {
-        c2_info("get transfer SMPTEST2084, prefer fbc output mode");
-        return true;
     }
 
     if (mProfile == PROFILE_AVC_HIGH_10 ||
         mProfile == PROFILE_HEVC_MAIN_10 ||
-        mProfile == PROFILE_VP9_2) {
+        mProfile == PROFILE_VP9_2 ||
+        mTransfer == 6 /* SMPTEST2084 = 6 */) {
         /*
          * workaround for CtsMediaDecoderTestCases:
          *   android.media.decoder.cts.ImageReaderDecoderTest#decodeTest
@@ -763,22 +757,21 @@ bool C2RKMpiDec::checkPreferFbcOutput(const std::unique_ptr<C2Work> &work) {
             mBufferMode = true;
             return false;
         }
-        c2_info("get 10bit profile, prefer fbc output mode");
+        c2_info("get 10bit video profile, perfer use fbc output mode");
         return true;
     }
 
     // kodi/photos/files does not transmit profile level(10bit etc) to C2, so
     // get bitDepth info from spspps in this case.
     if (work != nullptr && work->input.flags & C2FrameData::FLAG_CODEC_CONFIG) {
-        C2ReadView rView = mDummyReadView;
         if (!work->input.buffers.empty()) {
+            C2ReadView rView = mDummyReadView;
             rView = work->input.buffers[0]->data().linearBlocks().front().map().get();
             if (!rView.error()) {
-                uint8_t *inData = const_cast<uint8_t *>(rView.data());
-                size_t inSize = rView.capacity();
-                int32_t depth = C2RKNalParser::getBitDepth(inData, inSize, mCodingType);
+                int32_t depth = C2RKNalParser::getBitDepth(
+                        const_cast<uint8_t *>(rView.data()), rView.capacity(), mCodingType);
                 if (depth == 10) {
-                    c2_info("get 10bit profile tag from spspps, prefer fbc output mode");
+                    c2_info("10bit video profile detached, prefer use fbc output mode");
                     return true;
                 }
             }
@@ -809,10 +802,10 @@ bool C2RKMpiDec::checkSurfaceConfig(
     }
 
     uint64_t getUsage = 0;
+    buffer_handle_t outHandle = nullptr;
     auto c2Handle = block->handle();
 
     // Import new buffer to get metadata of graphicBuffer
-    buffer_handle_t outHandle = nullptr;
     if (importGraphicBuffer(c2Handle, &outHandle) != OK) {
         return false;
     }
@@ -920,8 +913,6 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
             mProfile == PROFILE_HEVC_MAIN_10 ||
             mProfile == PROFILE_VP9_2 ||
             (mBufferMode && mHalPixelFormat == HAL_PIXEL_FORMAT_YCBCR_P010)) {
-            c2_info("setup 10Bit format with profile %d halPixelFmt %d",
-                    mProfile, mHalPixelFormat);
             mColorFormat = MPP_FMT_YUV420SP_10BIT;
         }
 
@@ -1187,7 +1178,7 @@ void C2RKMpiDec::process(
     OutWorkEntry entry;
 
     if (!(flags & C2FrameData::FLAG_CODEC_CONFIG)
-            && flags & C2FrameData::FLAG_DROP_FRAME) {
+            && (flags & C2FrameData::FLAG_DROP_FRAME)) {
         mDropFramesPts.push_back(timestamp);
     }
 
@@ -1216,12 +1207,6 @@ inPacket:
     } else {
         if (!eos) {
             fillEmptyWork(work);
-        }
-
-        // TODO workround: CTS-CodecDecoderTest
-        // testFlushNative[15(c2.rk.mpeg2.decoder_video/mpeg2)
-        if (mLastPts != timestamp) {
-            mLastPts = timestamp;
         }
     }
 
@@ -1423,9 +1408,9 @@ c2_status_t C2RKMpiDec::commitBufferToMpp(std::shared_ptr<C2GraphicBlock> block)
     uint32_t bufferId = 0;
     auto c2Handle = block->handle();
     uint32_t fd = c2Handle->data[0];
+    buffer_handle_t outHandle = nullptr;
 
     // Import new buffer to get metadata of graphicBuffer
-    buffer_handle_t outHandle = nullptr;
     importGraphicBuffer(c2Handle, &outHandle);
 
     bufferId = C2RKGrallocOps::get()->getBufferId(outHandle);

@@ -99,7 +99,6 @@ private:
     uint32_t mRange;
     uint32_t mProfile;
     uint32_t mHalPixelFormat;
-    int64_t  mLastPts;
 
     bool mStarted;
     bool mFlushed;

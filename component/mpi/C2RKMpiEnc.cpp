@@ -2241,7 +2241,7 @@ bool C2RKMpiEnc::needRgaConvert(uint32_t width, uint32_t height, MppFrameFormat 
             goto quit;
         }
 
-        if (C2_IS_ALIGN(width, 16) && C2_IS_ALIGN(height, 16)) {
+        if (C2_IS_ALIGNED(width, 16) && C2_IS_ALIGNED(height, 16)) {
             ret = false;
             goto quit;
         }
@@ -2251,7 +2251,7 @@ bool C2RKMpiEnc::needRgaConvert(uint32_t width, uint32_t height, MppFrameFormat 
             goto quit;
         }
 
-        if (C2_IS_ALIGN(width, 16) && C2_IS_ALIGN(height, 16)) {
+        if (C2_IS_ALIGNED(width, 16) && C2_IS_ALIGNED(height, 16)) {
             ret = false;
             goto quit;
         }
@@ -2327,14 +2327,23 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
         mDump->recordInFile((void*)input->data()[0], stride, height, RAW_TYPE_RGBA);
 
         if (!needRgaConvert(stride, height, MPP_FMT_RGBA8888)) {
-            outBuffer->fd = fd;
-            outBuffer->size = mHorStride * mVerStride * 4;
+            if (mHorStride != stride || mVerStride != height) {
+                // setup encoder using new stride config
+                c2_info("cfg stride change from [%d:%d] -> [%d %d]",
+                        mHorStride, mVerStride, stride, height);
+                mHorStride = stride;
+                mVerStride = height;
+                configChanged = true;
+            }
 
             if (mInputMppFmt != MPP_FMT_RGBA8888) {
                 c2_info("update use rgba input format.");
                 mInputMppFmt = MPP_FMT_RGBA8888;
                 configChanged = true;
             }
+
+            outBuffer->fd = fd;
+            outBuffer->size = mHorStride * mVerStride * 4;
         } else {
             RgaInfo src, dst;
 
