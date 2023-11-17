@@ -247,10 +247,17 @@ public:
                     .withFields({
                         C2F(mProfileLevel, profile).oneOf({
                             PROFILE_HEVC_MAIN,
-                            PROFILE_HEVC_MAIN_10,
                         }),
                         C2F(mProfileLevel, level).oneOf({
+                            LEVEL_HEVC_MAIN_1,
+                            LEVEL_HEVC_MAIN_2,
+                            LEVEL_HEVC_MAIN_2_1,
+                            LEVEL_HEVC_MAIN_3,
+                            LEVEL_HEVC_MAIN_3_1,
+                            LEVEL_HEVC_MAIN_4,
                             LEVEL_HEVC_MAIN_4_1,
+                            LEVEL_HEVC_MAIN_5,
+                            LEVEL_HEVC_MAIN_5_1,
                         }),
                     })
                     .withSetter(HEVCProfileLevelSetter, mSize, mFrameRate, mBitrate)
