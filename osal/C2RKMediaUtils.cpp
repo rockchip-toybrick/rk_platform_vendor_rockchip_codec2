@@ -288,6 +288,21 @@ bool C2RKMediaUtils::isP010Allowed() {
     return kFirstApiLevel >= 33;
 }
 
+void C2RKMediaUtils::convert10BitNV12ToRequestFmt(
+        uint32_t dstFormat, uint8_t *dstY, uint8_t *dstUV,
+        size_t dstYStride, size_t dstUVStride, uint8_t *src,
+        size_t hstride, size_t vstride, size_t width, size_t height) {
+    if (dstFormat == HAL_PIXEL_FORMAT_YCBCR_P010) {
+        C2RKMediaUtils::convert10BitNV12ToP010(
+                dstY, dstUV, dstYStride, dstUVStride,
+                src, hstride, vstride, width, height);
+    } else {
+        C2RKMediaUtils::convert10BitNV12ToNV12(
+                dstY, dstUV, dstYStride, dstUVStride,
+                src, hstride, vstride, width, height);
+    }
+}
+
 void C2RKMediaUtils::convert10BitNV12ToP010(
         uint8_t *dstY, uint8_t *dstUV, size_t dstYStride,
         size_t dstUVStride, uint8_t *src, size_t hstride,
@@ -323,6 +338,53 @@ void C2RKMediaUtils::convert10BitNV12ToP010(
             pix[5] = ((base_u16[3] & 0x0FFC) >> 2) << 6;
             pix[6] = ((base_u16[3] & 0xF000) >> 12 | (base_u16[4] & 0x003F) << 4) << 6;
             pix[7] = ((base_u16[4] & 0xFFC0) >> 6) << 6;
+        }
+    }
+}
+
+void C2RKMediaUtils::convert10BitNV12ToNV12(
+        uint8_t *dstY, uint8_t *dstUV, size_t dstYStride,
+        size_t dstUVStride, uint8_t *src, size_t hstride,
+        size_t vstride, size_t width, size_t height) {
+    uint32_t i, k;
+    uint8_t *base_y = src;
+    uint8_t *base_uv = src + hstride * vstride;
+    for (i = 0; i < height; i++, base_y += hstride, dstY += dstYStride) {
+        for (k = 0; k < (width + 7) / 8; k++) {
+            uint8_t *pix = (uint8_t *)(dstY + k * 8);
+            uint16_t *base_u16 = (uint16_t *)(base_y + k * 10);
+
+            pix[0] = (uint8_t)((base_u16[0] & 0x03FF) >> 2);
+            pix[1] = (uint8_t)(((base_u16[0] & 0xFC00) >> 10
+                | (base_u16[1] & 0x000F) << 6) >> 2);
+            pix[2] = (uint8_t)(((base_u16[1] & 0x3FF0) >> 4) >> 2);
+            pix[3] = (uint8_t)(((base_u16[1] & 0xC000) >> 14
+                | (base_u16[2] & 0x00FF) << 2) >> 2);
+            pix[4] = (uint8_t)(((base_u16[2] & 0xFF00) >> 8
+                | (base_u16[3] & 0x0003) << 8) >> 2);
+            pix[5] = (uint8_t)(((base_u16[3] & 0x0FFC) >> 2) >> 2);
+            pix[6] = (uint8_t)(((base_u16[3] & 0xF000) >> 12
+                | (base_u16[4] & 0x003F) << 4) >> 2);
+            pix[7] = (uint8_t)(((base_u16[4] & 0xFFC0) >> 6) >> 2);
+        }
+    }
+    for (i = 0; i < height / 2; i++, base_uv += hstride, dstUV += dstUVStride) {
+        for (k = 0; k < (width + 7) / 8; k++) {
+            uint8_t *pix = (uint8_t *)(dstUV + k * 8);
+            uint16_t *base_u16 = (uint16_t *)(base_uv + k * 10);
+
+            pix[0] = (uint8_t)((base_u16[0] & 0x03FF) >> 2);
+            pix[1] = (uint8_t)(((base_u16[0] & 0xFC00) >> 10
+                | (base_u16[1] & 0x000F) << 6) >> 2);
+            pix[2] = (uint8_t)(((base_u16[1] & 0x3FF0) >> 4) >> 2);
+            pix[3] = (uint8_t)(((base_u16[1] & 0xC000) >> 14
+                | (base_u16[2] & 0x00FF) << 2) >> 2);
+            pix[4] = (uint8_t)(((base_u16[2] & 0xFF00) >> 8
+                | (base_u16[3] & 0x0003) << 8) >> 2);
+            pix[5] = (uint8_t)(((base_u16[3] & 0x0FFC) >> 2) >> 2);
+            pix[6] = (uint8_t)(((base_u16[3] & 0xF000) >> 12
+                | (base_u16[4] & 0x003F) << 4) >> 2);
+            pix[7] = (uint8_t)(((base_u16[4] & 0xFFC0) >> 6) >> 2);
         }
     }
 }

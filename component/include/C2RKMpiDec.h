@@ -98,7 +98,7 @@ private:
     uint32_t mTransfer;
     uint32_t mRange;
     uint32_t mProfile;
-    uint32_t mHalPixelFormat;
+    uint32_t mPixelFormat;
 
     bool mStarted;
     bool mFlushed;

@@ -846,7 +846,7 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
         mPrimaries = (uint32_t)mIntf->getDefaultColorAspects_l()->primaries;
         mTransfer = (uint32_t)mIntf->getDefaultColorAspects_l()->transfer;
         mRange = (uint32_t)mIntf->getDefaultColorAspects_l()->range;
-        mHalPixelFormat = mIntf->getPixelFormat_l()->value;
+        mPixelFormat = mIntf->getPixelFormat_l()->value;
         if (mIntf->getLowLatency_l() != nullptr) {
             mLowLatencyMode = (mIntf->getLowLatency_l()->value > 0) ? true : false ;
         }
@@ -912,8 +912,7 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
 
         if (mProfile == PROFILE_AVC_HIGH_10 ||
             mProfile == PROFILE_HEVC_MAIN_10 ||
-            mProfile == PROFILE_VP9_2 ||
-            (mBufferMode && mHalPixelFormat == HAL_PIXEL_FORMAT_YCBCR_P010)) {
+            mProfile == PROFILE_VP9_2) {
             mColorFormat = MPP_FMT_YUV420SP_10BIT;
         }
 
@@ -1487,8 +1486,8 @@ c2_status_t C2RKMpiDec::ensureDecoderState(
     uint64_t usage  = RK_GRALLOC_USAGE_SPECIFY_STRIDE;
     uint32_t format = C2RKMediaUtils::colorFormatMpiToAndroid(mColorFormat, mFbcCfg.mode);
 
-    if (mBufferMode && mHalPixelFormat == HAL_PIXEL_FORMAT_YCBCR_P010) {
-        format = HAL_PIXEL_FORMAT_YCBCR_P010;
+    if (mBufferMode && (mColorFormat & MPP_FMT_YUV420SP_10BIT)) {
+        format = mPixelFormat;
     }
 
     std::lock_guard<std::mutex> lock(mPoolMutex);
@@ -1735,7 +1734,7 @@ REDO:
         }
 
         if (mBufferMode) {
-            if (mHalPixelFormat == HAL_PIXEL_FORMAT_YCBCR_P010) {
+            if (mColorFormat & MPP_FMT_YUV420SP_10BIT) {
                 C2GraphicView wView = mOutBlock->map().get();
                 C2PlanarLayout layout = wView.layout();
                 uint8_t *src = (uint8_t*)mpp_buffer_get_ptr(mppBuffer);
@@ -1744,9 +1743,9 @@ REDO:
                 size_t dstYStride = layout.planes[C2PlanarLayout::PLANE_Y].rowInc;
                 size_t dstUVStride = layout.planes[C2PlanarLayout::PLANE_U].rowInc;
 
-                C2RKMediaUtils::convert10BitNV12ToP010(
-                        dstY, dstUV, dstYStride, dstUVStride,
-                        src, hstride, vstride, width, height);
+                C2RKMediaUtils::convert10BitNV12ToRequestFmt(
+                        mPixelFormat, dstY, dstUV, dstYStride,
+                        dstUVStride, src, hstride, vstride, width, height);
             } else {
                 RgaInfo srcInfo, dstInfo;
                 int32_t srcFd = 0, dstFd = 0;
@@ -1760,7 +1759,7 @@ REDO:
                 C2RKRgaDef::SetRgaInfo(
                         &dstInfo, dstFd, mWidth, mHeight, mHorStride, mVerStride);
                 if (!C2RKRgaDef::NV12ToNV12(srcInfo, dstInfo)) {
-                    // use cpu copy if get rga error
+                    // use cpu copy if got rga error
                     uint8_t *srcPtr = (uint8_t*)mpp_buffer_get_ptr(mppBuffer);
                     uint8_t *dstPtr = mOutBlock->map().get().data()[C2PlanarLayout::PLANE_Y];
                     memcpy(dstPtr, srcPtr, mHorStride * mVerStride * 3 / 2);

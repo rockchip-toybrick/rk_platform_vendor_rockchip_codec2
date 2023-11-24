@@ -94,7 +94,15 @@ public:
     static uint64_t getHStrideUsage(int32_t height, int32_t hstride);
     static uint32_t calculateOutputDelay(int32_t width, int32_t height, MppCodingType type, int32_t level);
     static bool isP010Allowed();
+    static void convert10BitNV12ToRequestFmt(
+                uint32_t dstFormat, uint8_t *dstY, uint8_t *dstUV,
+                size_t dstYStride, size_t dstUVStride, uint8_t *src,
+                size_t hstride, size_t vstride, size_t width, size_t height);
     static void convert10BitNV12ToP010(
+                uint8_t *dstY, uint8_t *dstUV, size_t dstYStride,
+                size_t dstUVStride, uint8_t *src, size_t hstride,
+                size_t vstride, size_t width, size_t height);
+    static void convert10BitNV12ToNV12(
                 uint8_t *dstY, uint8_t *dstUV, size_t dstYStride,
                 size_t dstUVStride, uint8_t *src, size_t hstride,
                 size_t vstride, size_t width, size_t height);
