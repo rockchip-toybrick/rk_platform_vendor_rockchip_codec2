@@ -1026,7 +1026,6 @@ void C2RKMpiDec::finishWork(OutWorkEntry *entry) {
         uint32_t outputFlags = C2FrameData::FLAG_INCOMPLETE;
         if (isDropFrame(entry->timestamp)) {
             work->input.flags = C2FrameData::FLAG_DROP_FRAME;
-            outputFlags |= C2FrameData::FLAG_DROP_FRAME;
         }
         work->worklets.front()->output.flags = (C2FrameData::flags_t)outputFlags;
         work->worklets.front()->output.buffers.clear();
