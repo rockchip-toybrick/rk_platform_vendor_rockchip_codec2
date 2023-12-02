@@ -75,6 +75,7 @@ private:
         uint64_t timestamp;
     } OutWorkEntry;
 
+    const char* mName;
     std::shared_ptr<IntfImpl> mIntf;
     std::mutex mPoolMutex;
     C2RKDump *mDump;

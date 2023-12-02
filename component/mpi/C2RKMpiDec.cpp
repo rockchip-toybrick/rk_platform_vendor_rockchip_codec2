@@ -37,6 +37,7 @@
 #include "C2RKExtendParam.h"
 #include "C2RKMlvecLegacy.h"
 #include "C2RKGrallocOps.h"
+#include "C2RKMemTrace.h"
 #include "C2RKVersion.h"
 
 namespace android {
@@ -120,6 +121,14 @@ public:
                     C2F(mSize, height).inRange(2, kMaxVideoWidth, 2),
                 })
                 .withSetter(MaxPictureSizeSetter, mSize)
+                .build());
+
+        addParameter(
+                DefineParam(mFrameRate, C2_PARAMKEY_FRAME_RATE)
+                .withDefault(new C2StreamFrameRateInfo::output(0u, 1.))
+                // TODO: More restriction?
+                .withFields({C2F(mFrameRate, value).greaterThan(0.)})
+                .withSetter(Setter<decltype(*mFrameRate)>::StrictValueWithNoDeps)
                 .build());
 
         addParameter(
@@ -540,6 +549,10 @@ public:
         return mSize;
     }
 
+    std::shared_ptr<C2StreamFrameRateInfo::output> getFrameRate_l() {
+        return mFrameRate;
+    }
+
     std::shared_ptr<C2StreamColorAspectsInfo::output> getColorAspects_l() {
         return mColorAspects;
     }
@@ -567,6 +580,7 @@ public:
 private:
     std::shared_ptr<C2StreamPictureSizeInfo::output> mSize;
     std::shared_ptr<C2StreamMaxPictureSizeTuning::output> mMaxSize;
+    std::shared_ptr<C2StreamFrameRateInfo::output> mFrameRate;
     std::shared_ptr<C2StreamBlockSizeInfo::output> mBlockSize;
     std::shared_ptr<C2StreamPixelFormatInfo::output> mPixelFormat;
     std::shared_ptr<C2StreamProfileLevelInfo::input> mProfileLevel;
@@ -584,6 +598,7 @@ C2RKMpiDec::C2RKMpiDec(
         c2_node_id_t id,
         const std::shared_ptr<IntfImpl> &intfImpl)
     : C2RKComponent(std::make_shared<C2RKInterface<IntfImpl>>(name, id, intfImpl)),
+      mName(name),
       mIntf(intfImpl),
       mDump(nullptr),
       mMppCtx(nullptr),
@@ -610,20 +625,30 @@ C2RKMpiDec::C2RKMpiDec(
         c2_err("failed to get codingType from component %s", name);
     }
 
-    sDecConcurrentInstances.fetch_add(1, std::memory_order_relaxed);
-
     c2_info("name: %s\r\nversion: %s", name, C2_GIT_BUILD_VERSION);
 }
 
 C2RKMpiDec::~C2RKMpiDec() {
-    if (sDecConcurrentInstances.load() > 0) {
-        sDecConcurrentInstances.fetch_sub(1, std::memory_order_relaxed);
-    }
     onRelease();
+
+    C2RKMemTrace::get()->removeVideoNode(this);
+    C2RKMemTrace::get()->dumpAllNode();
 }
 
 c2_status_t C2RKMpiDec::onInit() {
     c2_log_func_enter();
+
+    C2RKMemTrace::C2NodeInfo node {
+        .client = this,
+        .name   = mName,
+        .width  = mIntf->getSize_l()->width,
+        .height = mIntf->getSize_l()->height,
+        .frameRate = mIntf->getFrameRate_l()->value
+    };
+    if (!C2RKMemTrace::get()->tryAddVideoNode(node)) {
+        C2RKMemTrace::get()->dumpAllNode();
+        return C2_NO_MEMORY;
+    }
 
     c2_status_t ret = updateOutputDelay();
     if (ret != C2_OK) {
@@ -648,10 +673,10 @@ void C2RKMpiDec::onReset() {
 }
 
 void C2RKMpiDec::onRelease() {
-    c2_log_func_enter();
+    if (!mStarted)
+        return;
 
-    mStarted = false;
-    mIsGBSource = false;
+    c2_log_func_enter();
 
     if (!mFlushed) {
         onFlush_sm();
@@ -675,6 +700,9 @@ void C2RKMpiDec::onRelease() {
         mpp_destroy(mMppCtx);
         mMppCtx = nullptr;
     }
+
+    mStarted = false;
+    mIsGBSource = false;
 }
 
 c2_status_t C2RKMpiDec::onFlush_sm() {
@@ -805,7 +833,6 @@ bool C2RKMpiDec::checkSurfaceConfig(
     buffer_handle_t outHandle = nullptr;
     auto c2Handle = block->handle();
 
-    // Import new buffer to get metadata of graphicBuffer
     if (importGraphicBuffer(c2Handle, &outHandle) != OK) {
         return false;
     }
@@ -879,7 +906,7 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
     }
 
     {
-        // enable fast mode,
+        // enable fast mode
         uint32_t fastParser = 1;
         mMppMpi->control(mMppCtx, MPP_DEC_SET_PARSER_FAST_MODE, &fastParser);
 
@@ -1876,12 +1903,6 @@ public:
             c2_node_id_t id,
             std::shared_ptr<C2Component>* const component,
             std::function<void(C2Component*)> deleter) override {
-        if (sDecConcurrentInstances.load() >= kMaxDecConcurrentInstances) {
-            c2_warn("Reject to Initialize() due to too many dec instances: %d",
-                    sDecConcurrentInstances.load());
-            return C2_NO_MEMORY;
-        }
-
         *component = std::shared_ptr<C2Component>(
                 new C2RKMpiDec(
                         mComponentName.c_str(),

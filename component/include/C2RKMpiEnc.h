@@ -63,6 +63,7 @@ private:
         uint64_t  frameIndex;
     } OutWorkEntry;
 
+    const char* mName;
     std::shared_ptr<IntfImpl> mIntf;
     MyDmaBuffer_t *mDmaMem;
     C2RKMlvecLegacy *mMlvec;

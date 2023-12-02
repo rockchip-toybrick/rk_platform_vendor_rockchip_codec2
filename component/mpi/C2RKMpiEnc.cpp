@@ -37,6 +37,7 @@
 #include "C2RKCodecMapper.h"
 #include "C2RKChipCapDef.h"
 #include "C2RKGrallocOps.h"
+#include "C2RKMemTrace.h"
 #include "C2RKVersion.h"
 
 namespace android {
@@ -907,6 +908,7 @@ private:
 C2RKMpiEnc::C2RKMpiEnc(
         const char *name, c2_node_id_t id, const std::shared_ptr<IntfImpl> &intfImpl)
     : C2RKComponent(std::make_shared<C2RKInterface<IntfImpl>>(name, id, intfImpl)),
+      mName(name),
       mIntf(intfImpl),
       mDmaMem(nullptr),
       mMlvec(nullptr),
@@ -931,20 +933,31 @@ C2RKMpiEnc::C2RKMpiEnc(
         c2_err("failed to get MppCodingType from component %s", name);
     }
 
-    sEncConcurrentInstances.fetch_add(1, std::memory_order_relaxed);
-
     c2_info("name %s\r\nversion: %s", name, C2_GIT_BUILD_VERSION);
 }
 
 C2RKMpiEnc::~C2RKMpiEnc() {
-    if (sEncConcurrentInstances.load() > 0) {
-        sEncConcurrentInstances.fetch_sub(1, std::memory_order_relaxed);
-    }
     onRelease();
+
+    C2RKMemTrace::get()->removeVideoNode(this);
+    C2RKMemTrace::get()->dumpAllNode();
 }
 
 c2_status_t C2RKMpiEnc::onInit() {
     c2_log_func_enter();
+
+    C2RKMemTrace::C2NodeInfo node {
+        .client = this,
+        .name   = mName,
+        .width  = mIntf->getSize_l()->width,
+        .height = mIntf->getSize_l()->height,
+        .frameRate = mIntf->getFrameRate_l()->value
+    };
+    if (!C2RKMemTrace::get()->tryAddVideoNode(node)) {
+        C2RKMemTrace::get()->dumpAllNode();
+        return C2_NO_MEMORY;
+    }
+
     return C2_OK;
 }
 
@@ -1763,11 +1776,8 @@ error:
 }
 
 c2_status_t C2RKMpiEnc::releaseEncoder() {
-    mStarted = false;
-    mSpsPpsHeaderReceived = false;
-    mSawInputEOS = false;
-    mOutputEOS = false;
-    mSignalledError = false;
+    if (!mStarted)
+        return C2_OK;
 
     if (mInputCount != mOutputCount) {
         c2_warn("release but input count %d doesn't equal to output count %d.",
@@ -1799,6 +1809,12 @@ c2_status_t C2RKMpiEnc::releaseEncoder() {
         delete mDump;
         mDump = nullptr;
     }
+
+    mStarted = false;
+    mSpsPpsHeaderReceived = false;
+    mSawInputEOS = false;
+    mOutputEOS = false;
+    mSignalledError = false;
 
     return C2_OK;
 }
@@ -2576,12 +2592,6 @@ public:
             c2_node_id_t id,
             std::shared_ptr<C2Component>* const component,
             std::function<void(C2Component*)> deleter) override {
-        if (sEncConcurrentInstances.load() >= kMaxEncConcurrentInstances) {
-            c2_warn("Reject to Initialize() due to too many enc instances: %d",
-                    sEncConcurrentInstances.load());
-            return C2_NO_MEMORY;
-        }
-
         *component = std::shared_ptr<C2Component>(
                 new C2RKMpiEnc(
                         mComponentName.c_str(),

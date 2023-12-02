@@ -28,9 +28,6 @@
 
 using namespace android;
 
-std::atomic<int32_t> sDecConcurrentInstances = 0;
-std::atomic<int32_t> sEncConcurrentInstances = 0;
-
 static C2LevelInfo h264LevelInfos[] = {
     /*  level            maxDpbPixs(maxDpbMbs * 256) name    */
     {   C2Config::LEVEL_AVC_5,    110400 * 256,    "h264 level 5"   },
