@@ -950,13 +950,22 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
     /*
      * For buffer mode, since we don't konw when the last buffer will use
      * up by user, so we use MPP internal buffer group, and copy output to
-     * dst block(mOutBlock).
+     * dst block.
      */
     if (!mBufferMode) {
-        err = mpp_buffer_group_get_external(&mFrmGrp, MPP_BUFFER_TYPE_ION);
-        if (err != MPP_OK) {
-            c2_err("failed to get buffer_group, err %d", err);
-            goto error;
+        // allocate buffer within 4G to avoid rga2 error.
+        if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_3588 ||
+            C2RKChipCapDef::get()->getChipType() == RK_CHIP_356X) {
+            mpp_buffer_group_get_external(&mFrmGrp,
+                    (MppBufferType)(MPP_BUFFER_TYPE_ION | MPP_BUFFER_FLAGS_DMA32));
+        }
+
+        if (!mFrmGrp) {
+            err = mpp_buffer_group_get_external(&mFrmGrp, MPP_BUFFER_TYPE_ION);
+            if (err != MPP_OK) {
+                c2_err("failed to get buffer_group, err %d", err);
+                goto error;
+            }
         }
         mMppMpi->control(mMppCtx, MPP_DEC_SET_EXT_BUF_GROUP, mFrmGrp);
     }
