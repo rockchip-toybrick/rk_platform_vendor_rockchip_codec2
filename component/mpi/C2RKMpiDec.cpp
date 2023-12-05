@@ -744,7 +744,8 @@ bool C2RKMpiDec::checkPreferFbcOutput(const std::unique_ptr<C2Work> &work) {
     if (mProfile == PROFILE_AVC_HIGH_10 ||
         mProfile == PROFILE_HEVC_MAIN_10 ||
         mProfile == PROFILE_VP9_2 ||
-        mTransfer == 6 /* SMPTEST2084 = 6 */) {
+        mTransfer == 6 /* SMPTEST2084 = 6 */ ||
+        mColorFormat & MPP_FMT_YUV420SP_10BIT) {
         /*
          * workaround for CtsMediaDecoderTestCases:
          *   android.media.decoder.cts.ImageReaderDecoderTest#decodeTest
@@ -757,7 +758,7 @@ bool C2RKMpiDec::checkPreferFbcOutput(const std::unique_ptr<C2Work> &work) {
             mBufferMode = true;
             return false;
         }
-        c2_info("get 10bit video profile, perfer use fbc output mode");
+        c2_info("10bit video source, perfer use fbc output mode");
         return true;
     }
 
