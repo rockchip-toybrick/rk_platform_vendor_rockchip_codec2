@@ -1169,7 +1169,7 @@ c2_status_t C2RKMpiEnc::setupQp() {
     if (mCodingType == MPP_VIDEO_CodingVP8) {
         defaultIMin = defaultPMin = 0;
         defaultIMax = defaultPMax = 127;
-        qpInit = 40;
+        qpInit = 56;
     } else {
         /* the quality of h264/265 range from 10~51 */
         defaultIMin = defaultPMin = 10;
