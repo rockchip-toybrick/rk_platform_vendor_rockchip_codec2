@@ -1278,12 +1278,7 @@ outframe:
 
 void C2RKMpiDec::setDefaultCodecColorAspectsIfNeeded(ColorAspects &aspects) {
     typedef ColorAspects CA;
-
-    // reset unsupport other aspect
-    if (aspects.mMatrixCoeffs == CA::MatrixOther)
-        aspects.mMatrixCoeffs = CA::MatrixUnspecified;
-    if (aspects.mPrimaries == CA::PrimariesOther)
-        aspects.mPrimaries = CA::PrimariesUnspecified;
+    CA::MatrixCoeffs matrix;
 
     static const ALookup<CA::Primaries, CA::MatrixCoeffs> sPMAspectMap = {
         {
@@ -1292,9 +1287,18 @@ void C2RKMpiDec::setDefaultCodecColorAspectsIfNeeded(ColorAspects &aspects) {
             { CA::PrimariesBT601_6_625,   CA::MatrixBT601_6 },
             { CA::PrimariesBT601_6_525,   CA::MatrixBT601_6 },
             { CA::PrimariesBT2020,        CA::MatrixBT2020 },
-            { CA::PrimariesBT470_6M,      CA::MatrixBT470_6M },
         }
     };
+
+    // dataspace supported lists: BT709 / BT601_6_625 / BT601_6_525 / BT2020.
+    // so reset unsupport aspect here. For unassigned aspect, reassignment will
+    // do later in frameworks.
+    if (aspects.mMatrixCoeffs == CA::MatrixOther)
+        aspects.mMatrixCoeffs = CA::MatrixUnspecified;
+    if (!sPMAspectMap.map(aspects.mPrimaries, &matrix)) {
+        c2_warn("reset unsupport primaries %s", asString(aspects.mPrimaries));
+        aspects.mPrimaries = CA::PrimariesUnspecified;
+    }
 
     if (aspects.mMatrixCoeffs == CA::MatrixUnspecified
             && aspects.mPrimaries != CA::PrimariesUnspecified) {
@@ -1308,7 +1312,9 @@ void C2RKMpiDec::setDefaultCodecColorAspectsIfNeeded(ColorAspects &aspects) {
                 aspects.mPrimaries = CA::PrimariesBT601_6_625;
             }
         } else {
-            sPMAspectMap.map(aspects.mMatrixCoeffs, &aspects.mPrimaries);
+            if (!sPMAspectMap.map(aspects.mMatrixCoeffs, &aspects.mPrimaries)) {
+                aspects.mMatrixCoeffs = CA::MatrixUnspecified;
+            }
         }
     }
 }
