@@ -17,9 +17,7 @@
 #undef  ROCKCHIP_LOG_TAG
 #define ROCKCHIP_LOG_TAG    "C2RKComponent"
 
-#include <cutils/properties.h>
 #include <media/stagefright/foundation/AMessage.h>
-
 #include <inttypes.h>
 
 #include <C2Config.h>
