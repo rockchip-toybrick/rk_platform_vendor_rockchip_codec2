@@ -24,6 +24,7 @@
 #include "C2RKEnv.h"
 #include "C2RKMediaUtils.h"
 #include "C2RKMemTrace.h"
+#include "C2RKChipCapDef.h"
 
 namespace android {
 
@@ -35,7 +36,10 @@ namespace android {
 C2RKMemTrace::C2RKMemTrace() {
     mCurDecLoad = 0;
     mCurEncLoad = 0;
-
+    mMaxInstanceNum = 32;
+    if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_3326) {
+        mMaxInstanceNum = 16;
+    }
     Rockchip_C2_GetEnvU32("codec2_disable_load_check", &mDisableCheck, 0);
 }
 
@@ -75,23 +79,23 @@ bool C2RKMemTrace::tryAddVideoNode(C2NodeInfo &node) {
     C2RKMediaUtils::getKindFromComponentName(std::string(node.name), &kind);
 
     if (kind == C2Component::KIND_DECODER) {
-        if (mDisableCheck || (mCurDecLoad + load < MAX_DEC_SOC_CAP_LOAD)) {
+        if (mDisableCheck || (mCurDecLoad + load < MAX_DEC_SOC_CAP_LOAD)
+                || (mDecNodes.size() < mMaxInstanceNum)) {
             mDecNodes.push(node);
             mCurDecLoad += load;
             return true;
-        } else {
-            c2_err("overload initialize decoder(%dx%d@%.1f), current load %d",
-                   node.width, node.height, node.frameRate, mCurDecLoad);
         }
+        c2_err("overload initialize decoder(%dx%d@%.1f), current load %d",
+                node.width, node.height, node.frameRate, mCurDecLoad);
     } else if (kind == C2Component::KIND_ENCODER) {
-        if (mDisableCheck || (mCurEncLoad + load < MAX_ENC_SOC_CAP_LOAD)) {
+        if (mDisableCheck || (mCurEncLoad + load < MAX_ENC_SOC_CAP_LOAD)
+                || (mEncNodes.size() < mMaxInstanceNum)) {
             mEncNodes.push(node);
             mCurEncLoad += load;
             return true;
-        } else {
-            c2_err("overload initialize encoder(%dx%d@%.1f), current load %d",
-                   node.width, node.height, node.frameRate, mCurEncLoad);
         }
+        c2_err("overload initialize encoder(%dx%d@%.1f), current load %d",
+                node.width, node.height, node.frameRate, mCurEncLoad);
     }
 
     return false;

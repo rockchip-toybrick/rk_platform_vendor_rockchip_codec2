@@ -50,6 +50,7 @@ private:
     uint32_t            mDisableCheck;
     uint32_t            mCurDecLoad;
     uint32_t            mCurEncLoad;
+    uint32_t            mMaxInstanceNum;
     Mutex               mLock;
     Vector<C2NodeInfo>  mDecNodes;
     Vector<C2NodeInfo>  mEncNodes;
