@@ -79,8 +79,8 @@ bool C2RKMemTrace::tryAddVideoNode(C2NodeInfo &node) {
     C2RKMediaUtils::getKindFromComponentName(std::string(node.name), &kind);
 
     if (kind == C2Component::KIND_DECODER) {
-        if (mDisableCheck || (mCurDecLoad + load < MAX_DEC_SOC_CAP_LOAD)
-                || (mDecNodes.size() < mMaxInstanceNum)) {
+        if (mDisableCheck || ((mCurDecLoad + load < MAX_DEC_SOC_CAP_LOAD)
+                && (mDecNodes.size() < mMaxInstanceNum))) {
             mDecNodes.push(node);
             mCurDecLoad += load;
             return true;
@@ -88,8 +88,8 @@ bool C2RKMemTrace::tryAddVideoNode(C2NodeInfo &node) {
         c2_err("overload initialize decoder(%dx%d@%.1f), current load %d",
                 node.width, node.height, node.frameRate, mCurDecLoad);
     } else if (kind == C2Component::KIND_ENCODER) {
-        if (mDisableCheck || (mCurEncLoad + load < MAX_ENC_SOC_CAP_LOAD)
-                || (mEncNodes.size() < mMaxInstanceNum)) {
+        if (mDisableCheck || ((mCurEncLoad + load < MAX_ENC_SOC_CAP_LOAD)
+                && (mEncNodes.size() < mMaxInstanceNum))) {
             mEncNodes.push(node);
             mCurEncLoad += load;
             return true;
