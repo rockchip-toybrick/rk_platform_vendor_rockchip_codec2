@@ -1312,6 +1312,7 @@ void C2RKMpiDec::setDefaultCodecColorAspectsIfNeeded(ColorAspects &aspects) {
             { CA::PrimariesBT601_6_625,   CA::MatrixBT601_6 },
             { CA::PrimariesBT601_6_525,   CA::MatrixBT601_6 },
             { CA::PrimariesBT2020,        CA::MatrixBT2020 },
+            { CA::PrimariesBT470_6M,      CA::MatrixBT470_6M },
         }
     };
 
