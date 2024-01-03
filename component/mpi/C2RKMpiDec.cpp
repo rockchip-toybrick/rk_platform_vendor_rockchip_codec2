@@ -364,6 +364,7 @@ public:
         // vui colorAspects
         if (mediaType == MEDIA_MIMETYPE_VIDEO_AVC ||
             mediaType == MEDIA_MIMETYPE_VIDEO_HEVC ||
+            mediaType == MEDIA_MIMETYPE_VIDEO_AV1 ||
             mediaType == MEDIA_MIMETYPE_VIDEO_MPEG2) {
             addParameter(
                     DefineParam(mCodedColorAspects, C2_PARAMKEY_VUI_COLOR_ASPECTS)
@@ -1049,6 +1050,7 @@ void C2RKMpiDec::finishWork(OutWorkEntry *entry) {
     {
         if (mCodingType == MPP_VIDEO_CodingAVC ||
             mCodingType == MPP_VIDEO_CodingHEVC ||
+            mCodingType == MPP_VIDEO_CodingAV1 ||
             mCodingType == MPP_VIDEO_CodingMPEG2) {
             IntfImpl::Lock lock = mIntf->lock();
             buffer->setInfo(mIntf->getColorAspects_l());
@@ -1807,6 +1809,7 @@ REDO:
 
         if (mCodingType == MPP_VIDEO_CodingAVC ||
             mCodingType == MPP_VIDEO_CodingHEVC ||
+            mCodingType == MPP_VIDEO_CodingAV1 ||
             mCodingType == MPP_VIDEO_CodingMPEG2) {
             getVuiParams(frame);
         }
