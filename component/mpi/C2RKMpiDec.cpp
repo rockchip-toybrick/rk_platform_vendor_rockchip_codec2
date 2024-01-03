@@ -774,18 +774,6 @@ bool C2RKMpiDec::checkPreferFbcOutput(const std::unique_ptr<C2Work> &work) {
         mProfile == PROFILE_VP9_2 ||
         mTransfer == 6 /* SMPTEST2084 = 6 */ ||
         mColorFormat & MPP_FMT_YUV420SP_10BIT) {
-        /*
-         * workaround for CtsMediaDecoderTestCases:
-         *   android.media.decoder.cts.ImageReaderDecoderTest#decodeTest
-         *   [89_video/hevc_c2.rk.hevc.decoder_136x144_10bit_swirl_imagereader]
-         *
-         * ImageReader set GRALLOC_USAGE_SW_READ_OFTEN to gralloc which conflict
-         * with fbc then fetchGraphicBlock fail.
-         */
-        if (mWidth * mHeight < 176 * 144) {
-            mBufferMode = true;
-            return false;
-        }
         c2_info("10bit video source, perfer use fbc output mode");
         return true;
     }
@@ -939,8 +927,24 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
 
         if (mProfile == PROFILE_AVC_HIGH_10 ||
             mProfile == PROFILE_HEVC_MAIN_10 ||
-            mProfile == PROFILE_VP9_2) {
+            mProfile == PROFILE_VP9_2 ||
+            mTransfer == 6 /* SMPTEST2084 = 6 */) {
             mColorFormat = MPP_FMT_YUV420SP_10BIT;
+        }
+
+        // av1 support convert to user-set format internally.
+        if (mCodingType == MPP_VIDEO_CodingAV1
+                && mPixelFormat == HAL_PIXEL_FORMAT_YCBCR_P010) {
+            mColorFormat = MPP_FMT_YUV420SP_10BIT;
+        }
+
+        // P010 is different with decoding output compact 10bit, so reset to
+        // output buffer mode and do one more extry copy to format P010.
+        if (mColorFormat == MPP_FMT_YUV420SP_10BIT) {
+            if (!mBufferMode && mPixelFormat == HAL_PIXEL_FORMAT_YCBCR_P010) {
+                c2_warn("got p010 format request, use output buffer mode.");
+                mBufferMode = true;
+            }
         }
 
         uint32_t mppFmt = mColorFormat;
