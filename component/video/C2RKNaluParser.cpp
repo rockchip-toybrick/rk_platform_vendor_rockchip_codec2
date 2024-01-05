@@ -218,7 +218,7 @@ int32_t C2RKNaluParser::detechHEVCBitDepth(uint8_t *buf, int32_t size) {
                     goto error;
                 }
                 if (detachHEVCNalUnit(buf, length, &bitDepth)) {
-                    return true;
+                    return bitDepth;
                 }
                 buf += length;
                 size -= length;
@@ -233,7 +233,7 @@ int32_t C2RKNaluParser::detechHEVCBitDepth(uint8_t *buf, int32_t size) {
                 c2_info("find h265 sps start code.");
                 i += 3;
                 if (detachHEVCNalUnit(buf + i, size - i, &bitDepth)) {
-                    return true;
+                    return bitDepth;
                 }
             }
         }
