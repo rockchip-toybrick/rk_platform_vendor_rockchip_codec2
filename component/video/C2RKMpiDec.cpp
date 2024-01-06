@@ -982,31 +982,15 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
         c2_info("init: hor %d ver %d color 0x%08x", mHorStride, mVerStride, mColorFormat);
     }
 
-    /*
-     * For buffer mode, since we don't konw when the last buffer will use
-     * up by user, so we use MPP internal buffer group, and copy output to
-     * dst block.
-     */
-    if (!mBufferMode) {
-        // allocate buffer within 4G to avoid rga2 error.
-        if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_3588 ||
-            C2RKChipCapDef::get()->getChipType() == RK_CHIP_356X) {
-            mpp_buffer_group_get_external(&mFrmGrp,
-                    (MppBufferType)(MPP_BUFFER_TYPE_ION | MPP_BUFFER_FLAGS_DMA32));
-        }
-
-        if (!mFrmGrp) {
-            err = mpp_buffer_group_get_external(&mFrmGrp, MPP_BUFFER_TYPE_ION);
-            if (err != MPP_OK) {
-                c2_err("failed to get buffer_group, err %d", err);
-                goto error;
-            }
-        }
-        mMppMpi->control(mMppCtx, MPP_DEC_SET_EXT_BUF_GROUP, mFrmGrp);
+    err = mpp_buffer_group_get_external(&mFrmGrp, MPP_BUFFER_TYPE_ION);
+    if (err != MPP_OK) {
+        c2_err("failed to get buffer_group, err %d", err);
+        goto error;
     }
 
+    mMppMpi->control(mMppCtx, MPP_DEC_SET_EXT_BUF_GROUP, mFrmGrp);
+
     if (!mDump) {
-        // init dump object
         mDump = new C2RKDump();
         mDump->initDump(mHorStride, mVerStride, false);
     }
@@ -1588,23 +1572,22 @@ c2_status_t C2RKMpiDec::ensureDecoderState(
         usage |= GRALLOC_USAGE_RKVDEC_SCALING;
     }
 
-    /*
-     * For buffer mode, since we don't konw when the last buffer will use
-     * up by user, so we use MPP internal buffer group, and copy output to
-     * dst block(mOutBlock).
-     */
     if (mBufferMode) {
+        usage |= (GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN);
+        // allocate buffer within 4G to avoid rga2 error.
+        if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_3588 ||
+            C2RKChipCapDef::get()->getChipType() == RK_CHIP_356X) {
+            usage |= RK_GRALLOC_USAGE_WITHIN_4G;
+        }
+        /*
+         * For buffer mode, since we don't konw when the last buffer will use
+         * up by user, so we chose to copy output to another dst block.
+         */
         if (mOutBlock &&
                 (mOutBlock->width() != blockW || mOutBlock->height() != blockH)) {
             mOutBlock.reset();
         }
         if (!mOutBlock) {
-            usage |= (GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN);
-            // allocate buffer within 4G to avoid rga2 error.
-            if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_3588 ||
-                C2RKChipCapDef::get()->getChipType() == RK_CHIP_356X) {
-                usage |= RK_GRALLOC_USAGE_WITHIN_4G;
-            }
             ret = pool->fetchGraphicBlock(blockW, blockH, format,
                                           C2AndroidMemoryUsage::FromGrallocUsage(usage),
                                           &mOutBlock);
@@ -1612,32 +1595,30 @@ c2_status_t C2RKMpiDec::ensureDecoderState(
                 c2_err("failed to fetchGraphicBlock, err %d usage 0x%llx", ret, usage);
                 return ret;
             }
-            c2_trace("required (%dx%d) usage 0x%llx format 0x%x , fetch done",
-                     blockW, blockH, usage, format);
         }
-    } else {
-        std::shared_ptr<C2GraphicBlock> outblock;
-        uint32_t count = mIntf->mActualOutputDelay->value - getOutBufferCountOwnByMpi();
-
-        uint32_t i = 0;
-        while (i < count) {
-            ret = pool->fetchGraphicBlock(blockW, blockH, format,
-                                          C2AndroidMemoryUsage::FromGrallocUsage(usage),
-                                          &outblock);
-            if (ret != C2_OK) {
-                c2_err("failed to fetchGraphicBlock, err %d", ret);
-                break;
-            }
-
-            if (outblock) {
-                commitBufferToMpp(outblock);
-                i++;
-            }
-        }
-
-        c2_trace("required (%dx%d) usage 0x%llx format 0x%x, fetch %d/%d",
-                 blockW, blockH, usage, format, i, count);
     }
+
+    std::shared_ptr<C2GraphicBlock> outblock;
+    uint32_t count = mIntf->mActualOutputDelay->value - getOutBufferCountOwnByMpi();
+
+    uint32_t i = 0;
+    while (i < count) {
+        ret = pool->fetchGraphicBlock(blockW, blockH, format,
+                                      C2AndroidMemoryUsage::FromGrallocUsage(usage),
+                                      &outblock);
+        if (ret != C2_OK) {
+            c2_err("failed to fetchGraphicBlock, err %d", ret);
+            break;
+        }
+
+        if (outblock) {
+            commitBufferToMpp(outblock);
+            i++;
+        }
+    }
+
+    c2_trace("required (%dx%d) usage 0x%llx format 0x%x, fetch %d/%d",
+             blockW, blockH, usage, format, i, count);
 
     return ret;
 }
@@ -1725,10 +1706,8 @@ redo:
             goto exit;
         }
 
-        if (!mBufferMode) {
-            clearOutBuffers();
-            mpp_buffer_group_clear(mFrmGrp);
-        }
+        clearOutBuffers();
+        mpp_buffer_group_clear(mFrmGrp);
 
         mWidth = width;
         mHeight = height;
