@@ -990,6 +990,7 @@ c2_status_t C2RKMpiEnc::setupBaseCodec() {
     mHorStride = C2_ALIGN(mSize->width, 16);
     if (mCodingType == MPP_VIDEO_CodingVP8) {
         mVerStride = C2_ALIGN(mSize->height, 16);
+        mpp_enc_cfg_set_s32(mEncCfg, "vp8:disable_ivf", 1);
     } else {
         mVerStride = C2_ALIGN(mSize->height, 8);
     }
