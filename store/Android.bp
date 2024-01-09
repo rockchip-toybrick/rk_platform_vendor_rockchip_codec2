@@ -16,6 +16,7 @@ cc_library_shared {
 
     shared_libs: [
         "libmpp",
+        "libdmabufheap",
         "libstagefright_foundation",
     ],
 
