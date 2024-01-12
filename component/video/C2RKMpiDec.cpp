@@ -1505,10 +1505,6 @@ c2_status_t C2RKMpiDec::ensureDecoderState(
     uint64_t usage  = RK_GRALLOC_USAGE_SPECIFY_STRIDE;
     uint32_t format = C2RKMediaUtils::colorFormatMpiToAndroid(mColorFormat, mFbcCfg.mode);
 
-    if (mBufferMode && (mColorFormat & MPP_FMT_YUV420SP_10BIT)) {
-        format = mPixelFormat;
-    }
-
     std::lock_guard<std::mutex> lock(mPoolMutex);
 
     // NOTE: private grallc align flag only support in gralloc 4.0.
@@ -1573,6 +1569,7 @@ c2_status_t C2RKMpiDec::ensureDecoderState(
     }
 
     if (mBufferMode) {
+        uint32_t outputFormat = (mColorFormat & MPP_FMT_YUV420SP_10BIT) ? mPixelFormat : format;
         usage |= (GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN);
         // allocate buffer within 4G to avoid rga2 error.
         if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_3588 ||
@@ -1588,7 +1585,7 @@ c2_status_t C2RKMpiDec::ensureDecoderState(
             mOutBlock.reset();
         }
         if (!mOutBlock) {
-            ret = pool->fetchGraphicBlock(blockW, blockH, format,
+            ret = pool->fetchGraphicBlock(blockW, blockH, outputFormat,
                                           C2AndroidMemoryUsage::FromGrallocUsage(usage),
                                           &mOutBlock);
             if (ret != C2_OK) {
