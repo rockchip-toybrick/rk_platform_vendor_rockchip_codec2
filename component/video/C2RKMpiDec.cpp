@@ -1509,11 +1509,18 @@ c2_status_t C2RKMpiDec::ensureDecoderState(
 
     // NOTE: private grallc align flag only support in gralloc 4.0.
     if (mGrallocVersion == 4 && !mFbcCfg.mode && !mIsGBSource) {
-        blockW = mWidth;
-        usage = C2RKMediaUtils::getStrideUsage(mWidth, mHorStride);
+        uint64_t strideUsage = 0;
+        strideUsage = C2RKMediaUtils::getStrideUsage(mWidth, mHorStride);
+        if (strideUsage) {
+            blockW = mWidth;
+            usage |= strideUsage;
+        }
 
-        blockH = mHeight;
-        usage |= C2RKMediaUtils::getHStrideUsage(mHeight, mVerStride);
+        strideUsage = C2RKMediaUtils::getHStrideUsage(mHeight, mVerStride);
+        if (strideUsage) {
+            blockH = mHeight;
+            usage |= strideUsage;
+        }
     }
 
     if (mFbcCfg.mode) {
@@ -1569,12 +1576,13 @@ c2_status_t C2RKMpiDec::ensureDecoderState(
     }
 
     if (mBufferMode) {
-        uint32_t outputFormat = (mColorFormat & MPP_FMT_YUV420SP_10BIT) ? mPixelFormat : format;
-        usage |= (GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN);
+        uint32_t bFormat = (mColorFormat & MPP_FMT_YUV420SP_10BIT) ? mPixelFormat : format;
+        uint64_t bUsage = (usage | GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN);
+
         // allocate buffer within 4G to avoid rga2 error.
         if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_3588 ||
             C2RKChipCapDef::get()->getChipType() == RK_CHIP_356X) {
-            usage |= RK_GRALLOC_USAGE_WITHIN_4G;
+            bUsage |= RK_GRALLOC_USAGE_WITHIN_4G;
         }
         /*
          * For buffer mode, since we don't konw when the last buffer will use
@@ -1585,11 +1593,11 @@ c2_status_t C2RKMpiDec::ensureDecoderState(
             mOutBlock.reset();
         }
         if (!mOutBlock) {
-            ret = pool->fetchGraphicBlock(blockW, blockH, outputFormat,
-                                          C2AndroidMemoryUsage::FromGrallocUsage(usage),
+            ret = pool->fetchGraphicBlock(blockW, blockH, bFormat,
+                                          C2AndroidMemoryUsage::FromGrallocUsage(bUsage),
                                           &mOutBlock);
             if (ret != C2_OK) {
-                c2_err("failed to fetchGraphicBlock, err %d usage 0x%llx", ret, usage);
+                c2_err("failed to fetchGraphicBlock, err %d usage 0x%llx", ret, bUsage);
                 return ret;
             }
         }
