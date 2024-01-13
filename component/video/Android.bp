@@ -20,6 +20,7 @@ cc_library_static {
         "C2RKMlvecLegacy.cpp",
         "C2RKBitReader.cpp",
         "C2RKNaluParser.cpp",
+        "C2RKTunneledSession.cpp",
     ],
 
     header_libs: [

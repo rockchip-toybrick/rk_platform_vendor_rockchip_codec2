@@ -36,6 +36,7 @@
 #include "C2RKExtendParameters.h"
 #include "C2RKGrallocOps.h"
 #include "C2RKMemTrace.h"
+#include "C2RKTunneledSession.h"
 #include "C2RKVersion.h"
 
 namespace android {
@@ -408,6 +409,32 @@ public:
                     .withSetter(Setter<decltype(*mLowLatency)>::NonStrictValueWithNoDeps)
                     .build());
 
+            /* tunneled video playback */
+            addParameter(
+                    DefineParam(mTunneledPlayback, C2_PARAMKEY_TUNNELED_RENDER)
+                    .withDefault(C2PortTunneledModeTuning::output::AllocUnique(
+                            0, C2PortTunneledModeTuning::Struct::NONE,
+                            C2PortTunneledModeTuning::Struct::REALTIME, 0))
+                    .withFields({
+                        C2F(mTunneledPlayback, m.mode).oneOf({
+                                C2PortTunneledModeTuning::Struct::NONE,
+                                C2PortTunneledModeTuning::Struct::SIDEBAND}),
+                        C2F(mTunneledPlayback, m.syncType).oneOf({
+                                C2PortTunneledModeTuning::Struct::REALTIME,
+                                C2PortTunneledModeTuning::Struct::AUDIO_HW_SYNC,
+                                C2PortTunneledModeTuning::Struct::HW_AV_SYNC}),
+                        C2F(mTunneledPlayback, m.syncId).any()
+                    })
+                    .withSetter(TunneledPlaybackSetter)
+                    .build());
+
+            addParameter(
+                    DefineParam(mTunneledSideband, C2_PARAMKEY_OUTPUT_TUNNEL_HANDLE)
+                    .withDefault(decltype(mTunneledSideband)::element_type::AllocShared(256))
+                    .withFields({C2F(mTunneledSideband, m.values).any()})
+                    .withSetter(TunneledSidebandSetter, mTunneledPlayback)
+                    .build());
+
             /* extend parameter definition */
             addParameter(
                     DefineParam(mDisableDpbCheck, C2_PARAMKEY_DISABLE_DPB_CHECK)
@@ -545,6 +572,27 @@ public:
         return C2R::Ok();
     }
 
+    static C2R TunneledPlaybackSetter(
+        bool mayBlock, C2P<C2PortTunneledModeTuning::output> &me) {
+        (void)mayBlock;
+        if (me.v.m.syncType != C2PortTunneledModeTuning::Struct::sync_type_t::REALTIME) {
+            c2_warn("only support real-time sync type currently");
+            me.set().m.mode = C2PortTunneledModeTuning::Struct::NONE;
+        }
+        return C2R::Ok();
+    }
+
+    static C2R TunneledSidebandSetter(
+        bool mayBlock, C2P<C2PortTunnelHandleTuning::output> &me,
+        const C2P<C2PortTunneledModeTuning::output> &tunneledMode) {
+        (void)mayBlock;
+        (void)me;
+        if (tunneledMode.v.m.mode != C2PortTunneledModeTuning::Struct::SIDEBAND) {
+            return C2R::BadState();
+        }
+        return C2R::Ok();
+    }
+
     static C2R MLowLatenctyModeSetter(
         bool mayBlock, C2P<C2LowLatencyMode::output> &me) {
         (void)mayBlock;
@@ -611,6 +659,14 @@ public:
         return false;
     }
 
+    bool getIsTunnelMode() {
+        if (mTunneledPlayback && mTunneledPlayback->m.mode
+                == C2PortTunneledModeTuning::Struct::SIDEBAND) {
+            return true;
+        }
+        return false;
+    }
+
 private:
     std::shared_ptr<C2StreamPictureSizeInfo::output> mSize;
     std::shared_ptr<C2StreamMaxPictureSizeTuning::output> mMaxSize;
@@ -625,6 +681,8 @@ private:
     std::shared_ptr<C2StreamColorAspectsInfo::output> mColorAspects;
     std::shared_ptr<C2StreamDisableDpbCheck::input> mDisableDpbCheck;
     std::shared_ptr<C2GlobalLowLatencyModeTuning> mLowLatency;
+    std::shared_ptr<C2PortTunneledModeTuning::output> mTunneledPlayback;
+    std::shared_ptr<C2PortTunnelHandleTuning::output> mTunneledSideband;
     std::shared_ptr<MlvecParams> mMlvecParams;
 };
 
@@ -682,6 +740,7 @@ C2RKMpiDec::C2RKMpiDec(
       mCodingType(MPP_VIDEO_CodingUnused),
       mColorFormat(MPP_FMT_YUV420SP),
       mFrmGrp(nullptr),
+      mTunneledSession(nullptr),
       mWidth(0),
       mHeight(0),
       mHorStride(0),
@@ -696,6 +755,7 @@ C2RKMpiDec::C2RKMpiDec(
       mLowLatencyMode(false),
       mIsGBSource(false),
       mHdrMetaEnabled(false),
+      mTunneled(false),
       mBufferMode(false) {
     c2_info("[%s] version %s", name, C2_COMPONENT_FULL_VERSION);
     mCodingType = (MppCodingType)GetMppCodingFromComponentName(name);
@@ -756,10 +816,10 @@ void C2RKMpiDec::onReset() {
 }
 
 void C2RKMpiDec::onRelease() {
-    c2_log_func_enter();
-
     if (!mStarted)
         return;
+
+    c2_log_func_enter();
 
     /* set flushing state to discard all work output */
     setFlushingState();
@@ -793,6 +853,12 @@ void C2RKMpiDec::onRelease() {
 
     stopAndReleaseLooper();
     stopFlushingState();
+
+    if (mTunneled) {
+        mTunneledSession->disconnect();
+        delete mTunneledSession;
+        mTunneledSession = nullptr;
+    }
 
     mStarted = false;
 }
@@ -1021,6 +1087,60 @@ cleanUp:
     return err;
 }
 
+c2_status_t C2RKMpiDec::configTunneledPlayback(const std::unique_ptr<C2Work> &work) {
+    if (!mTunneledSession) {
+        mTunneledSession = new C2RKTunneledSession;
+    }
+
+    c2_status_t err = C2_OK;
+    TunnelParams params;
+
+    params.left   = mFbcCfg.mode ? mFbcCfg.paddingX : 0;
+    params.top    = mFbcCfg.mode ? mFbcCfg.paddingY : 0;
+    params.right  = mWidth;
+    params.bottom = mHeight;
+    params.width  = mHorStride;
+    params.height = mVerStride;
+    params.format = C2RKMediaUtils::getAndroidColorFmt(mColorFormat, mFbcCfg.mode);
+    params.usage  = 0;
+    params.dataSpace = 0;
+    params.compressMode = mFbcCfg.mode ? 1 : 0;
+
+    if (!mTunneledSession->congigure(params)) {
+        c2_err("failed to congigure tunneled session");
+        return C2_CORRUPTED;
+    }
+
+    c2_info("configuring TUNNELED video playback.");
+
+    int32_t handles[256];
+    std::unique_ptr<C2PortTunnelHandleTuning::output> tunnelHandle =
+            C2PortTunnelHandleTuning::output::AllocUnique(handles);
+
+    void *sideband = mTunneledSession->getTunnelSideband();
+    memcpy(tunnelHandle->m.values, sideband, sizeof(SidebandHandler));
+
+    // 1. When codec2 plugin start update stream sideband to native window, the
+    //    decoder has not yet received format information.
+    // 2. rebuild sideband configUpdate to update sideband here, so extra patch
+    //    in frameworks is needed to handle extend configUpdate.
+    // 3. TODO: Is there any way to without patch in frameworks ?
+    std::vector<std::unique_ptr<C2SettingResult>> failures;
+    err = mIntf->config({ tunnelHandle.get() }, C2_MAY_BLOCK, &failures);
+    if (err == C2_OK) {
+        C2StreamTunnelStartRender::output tunnel(0, true);
+        work->worklets.front()->output.configUpdate.push_back(C2Param::Copy(tunnel));
+
+        // enable fast out in tunnel mode
+        uint32_t fastOut = 1;
+        mMppMpi->control(mMppCtx, MPP_DEC_SET_IMMEDIATE_OUT, &fastOut);
+    } else {
+        c2_err("failed to config tunnel handle");
+    }
+
+    return err;
+}
+
 c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
     MPP_RET err = MPP_OK;
 
@@ -1033,6 +1153,7 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
         mPixelFormat = mIntf->getPixelFormat_l()->value;
         mLowLatencyMode = mIntf->getIsLowLatencyMode();
         mColorFormat = mIntf->getIs10bitVideo() ? MPP_FMT_YUV420SP_10BIT : MPP_FMT_YUV420SP;
+        mTunneled = mIntf->getIsTunnelMode();
     }
 
     c2_info("init: w %d h %d coding %s", mWidth, mHeight, toStr_Coding(mCodingType));
@@ -1254,6 +1375,15 @@ void C2RKMpiDec::finishWork(OutWorkEntry entry) {
         C2PortActualDelayTuning::output delay(mIntf->mActualOutputDelay->value);
         work->worklets.front()->output.configUpdate.push_back(C2Param::Copy(size));
         work->worklets.front()->output.configUpdate.push_back(C2Param::Copy(delay));
+
+        if (mTunneled) {
+            c2_status_t err = configTunneledPlayback(work);
+            if (err != C2_OK) {
+                work->result = C2_BAD_VALUE;
+                c2_err("failed to configure tunneled playback, signalled Error");
+                return;
+            }
+        }
     }
 
     finish(work, fillWork);
@@ -1298,6 +1428,14 @@ void C2RKMpiDec::process(
         if (err == C2_OK) {
             c2_info("surface config: surfaceMode %d graphicSource %d scaleMode %d",
                     !mBufferMode, mIsGBSource, mScaleMode);
+        }
+        if (mTunneled) {
+            err = configTunneledPlayback(work);
+            if (err != C2_OK) {
+                work->result = C2_BAD_VALUE;
+                c2_err("failed to configure tunneled playback, signalled Error");
+                return;
+            }
         }
     }
 
@@ -1569,16 +1707,55 @@ c2_status_t C2RKMpiDec::commitBufferToMpp(std::shared_ptr<C2GraphicBlock> block)
         newBuffer->block     = block;
         newBuffer->site      = BUFFER_SITE_BY_MPP;
 
+        mOutBuffers.push(newBuffer);
+
+        if (mTunneled) {
+            mTunneledSession->newVTBuffer(&newBuffer->tunnelBuffer);
+            newBuffer->tunnelBuffer->handle = UnwrapNativeCodec2GrallocHandle(c2Handle);
+            newBuffer->tunnelBuffer->uniqueId = bufferId;
+
+            // reserved buffer to tunneled surface
+            if (mTunneledSession->needReservedBuffer()) {
+                mTunneledSession->cancelBuffer(newBuffer->tunnelBuffer);
+                // signal buffer occupied by users
+                mpp_buffer_inc_ref(mppBuffer);
+                newBuffer->site = BUFFER_SITE_BY_US;
+            }
+        }
+
         // signal buffer available to decoder
         mpp_buffer_put(mppBuffer);
-
-        mOutBuffers.push(newBuffer);
 
         c2_trace("import this buffer, index %d size %d mppBuf %p listSize %d",
                  bufferId, info.size, mppBuffer, mOutBuffers.size());
     }
 
     freeGraphicBuffer(handle);
+
+    return err;
+}
+
+c2_status_t C2RKMpiDec::ensureTunneledState() {
+    c2_status_t err = C2_OK;
+    OutBuffer *outBuffer = nullptr;
+    int32_t count = mTunneledSession->getNeedDequeueCnt();
+
+    if (count <= 0) return err;
+
+    c2_trace("required dequeue %d tunnel buffers", count);
+
+    for (int32_t i = 0; i < count; i++) {
+        VTBuffer_t *tunnelBuffer = nullptr;
+        if (mTunneledSession->dequeueBuffer(&tunnelBuffer)) {
+            outBuffer = findOutBuffer(tunnelBuffer->uniqueId);
+            if (outBuffer) {
+                commitBufferToMpp(outBuffer->block);
+            } else {
+                c2_err("found unexpected buffer, index %d", tunnelBuffer->uniqueId);
+                err = C2_CORRUPTED;
+            }
+        }
+    }
 
     return err;
 }
@@ -1592,6 +1769,10 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
     }
 
     Mutex::Autolock autoLock(mBufferLock);
+
+    if (mTunneled && mOutBuffers.size() > 0) {
+        return ensureTunneledState();
+    }
 
     uint32_t videoW = mWidth;
     uint32_t videoH = mHeight;
@@ -1880,6 +2061,10 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
 
         Mutex::Autolock autoLock(mBufferLock);
 
+        if (mTunneled) {
+            mTunneledSession->reset();
+        }
+
         clearOutBuffers();
         mpp_buffer_group_clear(mFrmGrp);
 
@@ -1975,7 +2160,6 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
         }
         outBuffer->site = BUFFER_SITE_BY_MPP;
     } else {
-        outBuffer->site = BUFFER_SITE_BY_US;
         // signal buffer occupied by users
         mpp_buffer_inc_ref(mppBuffer);
 
@@ -1985,6 +2169,12 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
         if (mHdrMetaEnabled) {
             configFrameHdrMeta(frame, outBuffer->block);
         }
+        if (mTunneled) {
+            mTunneledSession->renderBuffer(outBuffer->tunnelBuffer);
+            // stop work output
+            ret = C2_CANCELED;
+        }
+        outBuffer->site = BUFFER_SITE_BY_US;
     }
 
     if (mCodingType == MPP_VIDEO_CodingAVC ||

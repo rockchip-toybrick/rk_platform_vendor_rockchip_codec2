@@ -26,6 +26,8 @@
 
 namespace android {
 
+class C2RKTunneledSession;
+struct VTBuffer;
 struct ColorAspects;
 
 class C2RKMpiDec : public C2RKComponent {
@@ -75,6 +77,8 @@ private:
         MppBuffer      mppBuffer;
         /* who own this buffer */
         OutBufferSite  site;
+        /* tunneled playback buffer */
+        VTBuffer      *tunnelBuffer;
         /* block shared by surface*/
         std::shared_ptr<C2GraphicBlock> block;
     } OutBuffer;
@@ -121,8 +125,9 @@ private:
     MppFrameFormat  mColorFormat;
     MppBufferGroup  mFrmGrp;
     // Indicates that these buffers should be decoded but not rendered.
-    Vector<uint64_t>   mDropFramesPts;
-    Vector<OutBuffer*> mOutBuffers;
+    Vector<uint64_t>     mDropFramesPts;
+    Vector<OutBuffer*>   mOutBuffers;
+    C2RKTunneledSession *mTunneledSession;
 
     uint32_t mWidth;
     uint32_t mHeight;
@@ -140,6 +145,7 @@ private:
     bool mLowLatencyMode;
     bool mIsGBSource;
     bool mHdrMetaEnabled;
+    bool mTunneled;
 
     /*
        1. BufferMode:  without surcace
@@ -189,6 +195,7 @@ private:
     uint32_t getFbcOutputMode(const std::unique_ptr<C2Work> &work = nullptr);
     c2_status_t updateOutputDelay();
     c2_status_t updateSurfaceConfig(const std::shared_ptr<C2BlockPool> &pool);
+    c2_status_t configTunneledPlayback(const std::unique_ptr<C2Work> &work);
     void finishWork(OutWorkEntry entry);
 
     c2_status_t initDecoder(const std::unique_ptr<C2Work> &work);
@@ -196,6 +203,7 @@ private:
     void getVuiParams(MppFrame frame);
     c2_status_t updateFbcModeIfNeeded();
     c2_status_t commitBufferToMpp(std::shared_ptr<C2GraphicBlock> block);
+    c2_status_t ensureTunneledState();
     c2_status_t ensureDecoderState();
     c2_status_t sendpacket(uint8_t *data, size_t size, uint64_t pts, uint32_t flags);
     c2_status_t getoutframe(OutWorkEntry *entry);
