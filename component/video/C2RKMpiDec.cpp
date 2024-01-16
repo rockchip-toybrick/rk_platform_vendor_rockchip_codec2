@@ -944,8 +944,11 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
         // P010 is different with decoding output compact 10bit, so reset to
         // output buffer mode and do one more extry copy to format P010.
         if (mColorFormat == MPP_FMT_YUV420SP_10BIT) {
-            if (!mBufferMode && mPixelFormat == HAL_PIXEL_FORMAT_YCBCR_P010) {
+            if (mPixelFormat == HAL_PIXEL_FORMAT_YCBCR_P010) {
                 c2_warn("got p010 format request, use output buffer mode.");
+                mBufferMode = true;
+            }
+            if (mWidth * mHeight <= 176 * 144) {
                 mBufferMode = true;
             }
         }
@@ -1501,24 +1504,20 @@ c2_status_t C2RKMpiDec::ensureDecoderState(
     uint32_t blockW = mHorStride;
     uint32_t blockH = mVerStride;
 
-    uint64_t usage  = 0;
+    uint64_t usage  = RK_GRALLOC_USAGE_SPECIFY_STRIDE;
     uint32_t format = C2RKMediaUtils::colorFormatMpiToAndroid(mColorFormat, mFbcCfg.mode);
 
     std::lock_guard<std::mutex> lock(mPoolMutex);
 
-    // NOTE: private grallc align flag only support in gralloc 4.0.
+    // NOTE: private gralloc stride usage only support in 4.0.
     if (mGrallocVersion == 4 && !mFbcCfg.mode && !mIsGBSource) {
-        uint64_t strideUsage = 0;
-        strideUsage = C2RKMediaUtils::getStrideUsage(mWidth, mHorStride);
-        if (strideUsage) {
-            blockW = mWidth;
-            usage |= strideUsage;
-        }
+        uint64_t widthUsage  = C2RKMediaUtils::getStrideUsage(mWidth, mHorStride);
+        uint64_t heightUsage = C2RKMediaUtils::getHStrideUsage(mHeight, mVerStride);
 
-        strideUsage = C2RKMediaUtils::getHStrideUsage(mHeight, mVerStride);
-        if (strideUsage) {
+        if (widthUsage != 0 && heightUsage != 0) {
+            blockW = mWidth;
             blockH = mHeight;
-            usage |= strideUsage;
+            usage = (widthUsage | heightUsage);
         }
     }
 
