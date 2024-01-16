@@ -809,13 +809,12 @@ bool C2RKMpiDec::checkPreferFbcOutput(const std::unique_ptr<C2Work> &work) {
 bool C2RKMpiDec::checkSurfaceConfig(const std::shared_ptr<C2BlockPool> &pool) {
     c2_status_t ret = C2_OK;
 
-    uint64_t usage = RK_GRALLOC_USAGE_SPECIFY_STRIDE;
     std::shared_ptr<C2GraphicBlock> block;
+    C2MemoryUsage usage = { C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE };
 
     // alloc a temporary graphicBuffer to get surface features.
     ret = pool->fetchGraphicBlock(
-            176, 144, HAL_PIXEL_FORMAT_YCrCb_NV12,
-            C2AndroidMemoryUsage::FromGrallocUsage(usage), &block);
+            176, 144, HAL_PIXEL_FORMAT_YCrCb_NV12, usage, &block);
     if (ret != C2_OK) {
         c2_err("failed to fetchGraphicBlock, err %d", ret);
         return false;
@@ -1502,7 +1501,7 @@ c2_status_t C2RKMpiDec::ensureDecoderState(
     uint32_t blockW = mHorStride;
     uint32_t blockH = mVerStride;
 
-    uint64_t usage  = RK_GRALLOC_USAGE_SPECIFY_STRIDE;
+    uint64_t usage  = 0;
     uint32_t format = C2RKMediaUtils::colorFormatMpiToAndroid(mColorFormat, mFbcCfg.mode);
 
     std::lock_guard<std::mutex> lock(mPoolMutex);
