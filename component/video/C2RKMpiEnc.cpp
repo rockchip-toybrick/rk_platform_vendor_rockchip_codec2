@@ -2273,7 +2273,7 @@ bool C2RKMpiEnc::needRgaConvert(uint32_t width, uint32_t height, MppFrameFormat 
             goto quit;
         }
     } else if (fmt == MPP_FMT_YUV420SP) {
-        if (mChipType == RK_CHIP_3588) {
+        if (mChipType == RK_CHIP_3588 && mCodingType != MPP_VIDEO_CodingVP8) {
             ret = false;
             goto quit;
         }
