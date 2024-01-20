@@ -413,6 +413,11 @@ std::list<std::unique_ptr<C2Work>> vec(std::unique_ptr<C2Work> &work) {
 
 }  // namespace
 
+bool C2RKComponent::isPendingFlushing() {
+    Mutexed<WorkQueue>::Locked queue(mWorkQueue);
+    return queue->isPendingFlushing();
+}
+
 void C2RKComponent::finish(
         uint64_t frameIndex,
         std::function<void(const std::unique_ptr<C2Work> &)> fillWork) {
@@ -438,20 +443,10 @@ void C2RKComponent::finish(
         return;
     }
 
-    bool isPendingFlushing = false;
-    {
-        Mutexed<WorkQueue>::Locked queue(mWorkQueue);
-        isPendingFlushing = queue->isPenddingFlushing();
-    }
-
-    if (!isPendingFlushing) {
-        fillWork(work);
-        std::shared_ptr<C2Component::Listener> listener = mExecState.lock()->mListener;
-        listener->onWorkDone_nb(shared_from_this(), vec(work));
-        c2_trace("returning pending work");
-    } else {
-        c2_trace("ignore work since pedding flushing");
-    }
+    fillWork(work);
+    std::shared_ptr<C2Component::Listener> listener = mExecState.lock()->mListener;
+    listener->onWorkDone_nb(shared_from_this(), vec(work));
+    c2_trace("returning pending work");
 }
 
 void C2RKComponent::cloneAndSend(
@@ -494,7 +489,7 @@ bool C2RKComponent::processQueue() {
 
         generation = queue->generation();
         drainMode = queue->drainMode();
-        isFlushPending = queue->popPendingFlush();
+        isFlushPending = queue->isPendingFlushing();
         work = queue->pop_front();
         hasQueuedWork = !queue->empty();
     }
@@ -505,6 +500,9 @@ bool C2RKComponent::processQueue() {
             c2_err("flush err: %d", err);
             // TODO: error
         }
+
+        Mutexed<WorkQueue>::Locked queue(mWorkQueue);
+        queue->popPendingFlush();
     }
 
     if (!mOutputBlockPool) {

@@ -54,7 +54,6 @@ struct MlvecParams {
 };
 
 c2_status_t importGraphicBuffer(const C2Handle *const c2Handle, buffer_handle_t *outHandle) {
-    c2_status_t ret = C2_OK;
     uint32_t bqSlot, width, height, format, stride, generation;
     uint64_t usage, bqId;
 
@@ -68,12 +67,11 @@ c2_status_t importGraphicBuffer(const C2Handle *const c2Handle, buffer_handle_t 
             gHandle, width, height, 1, format, usage,
             stride, outHandle);
     if (err != OK) {
-        ret = C2_CORRUPTED;
         c2_err("failed to import buffer %p", gHandle);
     }
 
     native_handle_delete(gHandle);
-    return ret;
+    return (c2_status_t)err;
 }
 
 void freeGraphicBuffer(buffer_handle_t outHandle) {
@@ -617,6 +615,43 @@ private:
     std::shared_ptr<MlvecParams> mMlvecParams;
 };
 
+static int32_t frameReadyCb(void *ctx, void *mppCtx, int32_t cmd, void *frame) {
+    (void)mppCtx;
+    (void)cmd;
+    (void)frame;
+    C2RKMpiDec *decoder = (C2RKMpiDec *)ctx;
+    decoder->postFrameReady();
+    return 0;
+}
+
+void C2RKMpiDec::WorkHandler::waitAllMsgFlushed() {
+    sp<AMessage> msg = new AMessage(WorkHandler::kWhatFlushMessage, this);
+
+    sp<AMessage> response;
+    msg->postAndAwaitResponse(&response);
+}
+
+void C2RKMpiDec::WorkHandler::onMessageReceived(const sp<AMessage> &msg) {
+    switch (msg->what()) {
+        case kWhatFrameReady: {
+            C2RKMpiDec *thiz = nullptr;
+            if (msg->findPointer("thiz", (void **)(&thiz)) && thiz) {
+                thiz->onFrameReady();
+            }
+        } break;
+        case kWhatFlushMessage: {
+            sp<AReplyToken> replyID;
+            msg->senderAwaitsResponse(&replyID);
+
+            sp<AMessage> response = new AMessage;
+            response->postReply(replyID);
+        } break;
+        default: {
+            c2_err("Unrecognized msg: %d", msg->what());
+        } break;
+    }
+}
+
 C2RKMpiDec::C2RKMpiDec(
         const char *name,
         const char *mime,
@@ -627,6 +662,8 @@ C2RKMpiDec::C2RKMpiDec(
       mMime(mime),
       mIntf(intfImpl),
       mDump(nullptr),
+      mLooper(nullptr),
+      mHandler(nullptr),
       mMppCtx(nullptr),
       mMppMpi(nullptr),
       mCodingType(MPP_VIDEO_CodingUnused),
@@ -678,12 +715,17 @@ c2_status_t C2RKMpiDec::onInit() {
         return C2_NO_MEMORY;
     }
 
-    c2_status_t ret = updateOutputDelay();
-    if (ret != C2_OK) {
+    c2_status_t err = updateOutputDelay();
+    if (err != C2_OK) {
         c2_err("failed to update output delay");
     }
 
-    return ret;
+    err = setupAndStartLooper();
+    if (err != C2_OK) {
+        c2_err("failed to start looper therad");
+    }
+
+    return err;
 }
 
 c2_status_t C2RKMpiDec::onStop() {
@@ -710,6 +752,10 @@ void C2RKMpiDec::onRelease() {
         onFlush_sm();
     }
 
+    if (mBlockPool) {
+        mBlockPool.reset();
+    }
+
     if (mOutBlock) {
         mOutBlock.reset();
     }
@@ -729,24 +775,29 @@ void C2RKMpiDec::onRelease() {
         mDump = nullptr;
     }
 
+    stopAndReleaseLooper();
+
     mStarted = false;
-    mIsGBSource = false;
 }
 
 c2_status_t C2RKMpiDec::onFlush_sm() {
-    c2_log_func_enter();
-
     if (!mFlushed) {
+        c2_log_func_enter();
         mOutputEos = false;
         mSignalledInputEos = false;
         mSignalledError = false;
 
-        clearOutBuffers();
-        mpp_buffer_group_clear(mFrmGrp);
-
         if (mMppMpi) {
             mMppMpi->reset(mMppCtx);
         }
+
+        if (mHandler) {
+            mHandler->waitAllMsgFlushed();
+        }
+
+        Mutex::Autolock autoLock(mBufferLock);
+        clearOutBuffers();
+        mpp_buffer_group_clear(mFrmGrp);
 
         mFlushed = true;
     }
@@ -754,32 +805,31 @@ c2_status_t C2RKMpiDec::onFlush_sm() {
     return C2_OK;
 }
 
-c2_status_t C2RKMpiDec::updateOutputDelay() {
-    c2_status_t err = C2_OK;
-    uint32_t width = 0, height = 0;
-    uint32_t level = 0, refCnt = 0;
+c2_status_t C2RKMpiDec::setupAndStartLooper() {
+    status_t err = OK;
+    if (mLooper == nullptr) {
+        status_t err = OK;
+        mLooper = new ALooper;
+        mHandler = new WorkHandler;
 
-    {
-        IntfImpl::Lock lock = mIntf->lock();
-        width  = mIntf->getSize_l()->width;
-        height = mIntf->getSize_l()->height;
-        level  = mIntf->getProfileLevel_l() ? mIntf->getProfileLevel_l()->level : 0;
+        mLooper->setName("C2DecLooper");
+        err = mLooper->start();
+        if (err == OK) {
+            mLooper->registerHandler(mHandler);
+        }
     }
+    return (c2_status_t)err;
+}
 
-    refCnt = C2RKMediaUtils::calculateVideoRefCount(mCodingType, width, height, level);
-
-    c2_info("Codec(%s %dx%d) level(%d) needs %d reference frames",
-            toStr_Coding(mCodingType), width, height, level, refCnt);
-
-    C2PortActualDelayTuning::output delayTuning(refCnt);
-    std::vector<std::unique_ptr<C2SettingResult>> failures;
-
-    err = mIntf->config({&delayTuning}, C2_MAY_BLOCK, &failures);
-    if (err != C2_OK) {
-        c2_err("failed to config delay tuning, err %d", err);
+void C2RKMpiDec::stopAndReleaseLooper() {
+    if (mLooper != nullptr) {
+        if (mHandler != nullptr) {
+            mLooper->unregisterHandler(mHandler->id());
+            mHandler.clear();
+        }
+        mLooper->stop();
+        mLooper.clear();
     }
-
-    return err;
 }
 
 bool C2RKMpiDec::preferFbcOutput(const std::unique_ptr<C2Work> &work) {
@@ -823,7 +873,35 @@ bool C2RKMpiDec::preferFbcOutput(const std::unique_ptr<C2Work> &work) {
     return false;
 }
 
-bool C2RKMpiDec::updateSurfaceConfig(const std::shared_ptr<C2BlockPool> &pool) {
+c2_status_t C2RKMpiDec::updateOutputDelay() {
+    c2_status_t err = C2_OK;
+    uint32_t width = 0, height = 0;
+    uint32_t level = 0, refCnt = 0;
+
+    {
+        IntfImpl::Lock lock = mIntf->lock();
+        width  = mIntf->getSize_l()->width;
+        height = mIntf->getSize_l()->height;
+        level  = mIntf->getProfileLevel_l() ? mIntf->getProfileLevel_l()->level : 0;
+    }
+
+    refCnt = C2RKMediaUtils::calculateVideoRefCount(mCodingType, width, height, level);
+
+    c2_info("Codec(%s %dx%d) level(%d) needs %d reference frames",
+            toStr_Coding(mCodingType), width, height, level, refCnt);
+
+    C2PortActualDelayTuning::output delayTuning(refCnt);
+    std::vector<std::unique_ptr<C2SettingResult>> failures;
+
+    err = mIntf->config({&delayTuning}, C2_MAY_BLOCK, &failures);
+    if (err != C2_OK) {
+        c2_err("failed to config delay tuning, err %d", err);
+    }
+
+    return err;
+}
+
+c2_status_t C2RKMpiDec::updateSurfaceConfig(const std::shared_ptr<C2BlockPool> &pool) {
     c2_status_t err = C2_OK;
     std::shared_ptr<C2GraphicBlock> block;
 
@@ -833,7 +911,7 @@ bool C2RKMpiDec::updateSurfaceConfig(const std::shared_ptr<C2BlockPool> &pool) {
             {C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE}, &block);
     if (err != C2_OK) {
         c2_err("failed to fetchGraphicBlock, err %d", err);
-        return false;
+        return err;
     }
 
     uint64_t usage = 0;
@@ -843,7 +921,7 @@ bool C2RKMpiDec::updateSurfaceConfig(const std::shared_ptr<C2BlockPool> &pool) {
     err = importGraphicBuffer(c2Handle, &handle);
     if (err != C2_OK) {
         c2_err("failed to import graphic buffer");
-        return false;
+        return err;
     }
 
     usage = C2RKGrallocOps::get()->getUsage(handle);
@@ -866,7 +944,7 @@ bool C2RKMpiDec::updateSurfaceConfig(const std::shared_ptr<C2BlockPool> &pool) {
 
     freeGraphicBuffer(handle);
 
-    return true;
+    return err;
 }
 
 c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
@@ -995,6 +1073,22 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
         mDump->initDump(mHorStride, mVerStride, false);
     }
 
+    {
+        /* set output frame callback  */
+        MppDecCfg cfg;
+        mpp_dec_cfg_init(&cfg);
+        mpp_dec_cfg_set_ptr(cfg, "cb:frm_rdy_cb", (void *)frameReadyCb);
+        mpp_dec_cfg_set_ptr(cfg, "cb:frm_rdy_ctx", this);
+
+        err = mMppMpi->control(mMppCtx, MPP_DEC_SET_CFG, cfg);
+        if (err != MPP_OK) {
+            c2_err("failed to set frame callback, err %d", err);
+            goto error;
+        }
+
+        mpp_dec_cfg_deinit(cfg);
+    }
+
     mStarted = true;
 
     return C2_OK;
@@ -1008,38 +1102,21 @@ error:
     return C2_CORRUPTED;
 }
 
-void C2RKMpiDec::fillEmptyWork(const std::unique_ptr<C2Work> &work) {
-    uint32_t flags = 0;
+void C2RKMpiDec::finishWork(OutWorkEntry entry) {
+    std::shared_ptr<C2Buffer> c2Buffer = nullptr;
 
-    c2_trace_func_enter();
+    std::shared_ptr<C2GraphicBlock> outblock = entry.outblock;
+    uint64_t timestamp = entry.timestamp;
 
-    if (work->input.flags & C2FrameData::FLAG_END_OF_STREAM) {
-        flags |= C2FrameData::FLAG_END_OF_STREAM;
-        c2_info("signalling eos");
-    }
+    if (outblock) {
+        uint32_t left = mFbcCfg.mode ? mFbcCfg.paddingX : 0;
+        uint32_t top  = mFbcCfg.mode ? mFbcCfg.paddingY : 0;
 
-    work->worklets.front()->output.flags = (C2FrameData::flags_t)flags;
-    work->worklets.front()->output.buffers.clear();
-    work->worklets.front()->output.ordinal = work->input.ordinal;
-    work->workletsProcessed = 1u;
-}
+        c2Buffer = createGraphicBuffer(
+                std::move(outblock), C2Rect(mWidth, mHeight).at(left, top));
 
-void C2RKMpiDec::finishWork(OutWorkEntry *entry) {
-    if (!entry->outblock) {
-        c2_err("empty block, finish work failed.");
-        return;
-    }
+        mOutBlock = nullptr;
 
-    uint32_t left = mFbcCfg.mode ? mFbcCfg.paddingX : 0;
-    uint32_t top  = mFbcCfg.mode ? mFbcCfg.paddingY : 0;
-
-    std::shared_ptr<C2Buffer> c2Buffer
-            = createGraphicBuffer(std::move(entry->outblock),
-                                  C2Rect(mWidth, mHeight).at(left, top));
-
-    mOutBlock = nullptr;
-
-    {
         if (mCodingType == MPP_VIDEO_CodingAVC ||
             mCodingType == MPP_VIDEO_CodingHEVC ||
             mCodingType == MPP_VIDEO_CodingAV1 ||
@@ -1049,28 +1126,39 @@ void C2RKMpiDec::finishWork(OutWorkEntry *entry) {
         }
     }
 
-    auto fillWork = [c2Buffer, entry, this](const std::unique_ptr<C2Work> &work) {
-        // now output work is new work, frame index remove by input work,
-        // output work set to incomplete to ignore frame index check
-        uint32_t outputFlags = C2FrameData::FLAG_INCOMPLETE;
-        if (isDropFrame(entry->timestamp)) {
-            work->input.flags = C2FrameData::FLAG_DROP_FRAME;
-        }
-        work->worklets.front()->output.flags = (C2FrameData::flags_t)outputFlags;
-        work->worklets.front()->output.buffers.clear();
-        work->worklets.front()->output.buffers.push_back(c2Buffer);
+    uint32_t inFlags = 0;
+    // TODO: work flags set to incomplete to ignore frame index check
+    uint32_t outFlags = C2FrameData::FLAG_INCOMPLETE;
+
+    if (isDropFrame(timestamp))
+        inFlags = C2FrameData::FLAG_DROP_FRAME;
+
+    if (mOutputEos) {
+        outFlags |= C2FrameData::FLAG_END_OF_STREAM;
+        c2_info("signalling eos");
+    }
+
+    auto fillWork = [c2Buffer, inFlags, outFlags, timestamp]
+            (const std::unique_ptr<C2Work> &work) {
+        work->input.ordinal.timestamp = 0;
+        work->input.ordinal.frameIndex = OUTPUT_WORK_INDEX;
+        work->input.ordinal.customOrdinal = 0;
+        work->input.flags = (C2FrameData::flags_t)inFlags;
+
+        work->worklets.front()->output.flags = (C2FrameData::flags_t)outFlags;
         work->worklets.front()->output.ordinal = work->input.ordinal;
-        work->worklets.front()->output.ordinal.timestamp = entry->timestamp;
+        work->worklets.front()->output.ordinal.timestamp = timestamp;
+        work->worklets.front()->output.buffers.clear();
+        if (c2Buffer) {
+            work->worklets.front()->output.buffers.push_back(c2Buffer);
+        }
         work->workletsProcessed = 1u;
+        work->result = C2_OK;
     };
 
     std::unique_ptr<C2Work> work(new C2Work);
     work->worklets.clear();
     work->worklets.emplace_back(new C2Worklet);
-    work->input.ordinal.timestamp = 0;
-    work->input.ordinal.frameIndex = OUTPUT_WORK_INDEX;
-    work->input.ordinal.customOrdinal = 0;
-    work->result = C2_OK;
 
     if (mSizeInfoUpdate) {
         c2_info("update new size %dx%d config to framework.", mWidth, mHeight);
@@ -1082,67 +1170,12 @@ void C2RKMpiDec::finishWork(OutWorkEntry *entry) {
     finish(work, fillWork);
 }
 
-c2_status_t C2RKMpiDec::drainInternal(
-        uint32_t drainMode,
-        const std::shared_ptr<C2BlockPool> &pool,
-        const std::unique_ptr<C2Work> &work) {
-    c2_log_func_enter();
-
-    if (!mStarted) {
-        c2_warn("decoder is not initialized: no-op");
-        return C2_OK;
-    }
-
-    if (drainMode == NO_DRAIN) {
-        c2_warn("drain with NO_DRAIN: no-op");
-        return C2_OK;
-    }
-    if (drainMode == DRAIN_CHAIN) {
-        c2_warn("DRAIN_CHAIN not supported");
-        return C2_OMITTED;
-    }
-
-    c2_status_t ret = C2_OK;
-    OutWorkEntry entry;
-    uint32_t kMaxRetryNum = 20;
-    uint32_t retry = 0;
-
-    while (true){
-        ret = ensureDecoderState(pool);
-        if (ret != C2_OK && work) {
-            mSignalledError = true;
-            work->workletsProcessed = 1u;
-            work->result = C2_CORRUPTED;
-            return C2_CORRUPTED;
-        }
-
-        ret = getoutframe(&entry, false);
-        if (ret == C2_OK && entry.outblock) {
-            finishWork(&entry);
-        }
-
-        if (mOutputEos && work) {
-            fillEmptyWork(work);
-            break;
-        }
-
-        if ((++retry) > kMaxRetryNum) {
-            mOutputEos = true;
-            c2_warn("drain: eos not found, force set output EOS.");
-        } else {
-            usleep(5 * 1000);
-        }
-    }
-
-    c2_log_func_leave();
-
-    return C2_OK;
-}
-
 c2_status_t C2RKMpiDec::drain(
         uint32_t drainMode,
         const std::shared_ptr<C2BlockPool> &pool) {
-    return drainInternal(drainMode, pool, nullptr);
+    (void)drainMode;
+    (void)pool;
+    return C2_OK;
 }
 
 void C2RKMpiDec::process(
@@ -1157,6 +1190,7 @@ void C2RKMpiDec::process(
 
     // Initialize decoder if not already initialized
     if (!mStarted) {
+        mBlockPool = pool;
         mBufferMode = (pool->getLocalId() <= C2BlockPool::PLATFORM_START);
         err = initDecoder(work);
         if (err != C2_OK) {
@@ -1164,7 +1198,8 @@ void C2RKMpiDec::process(
             c2_info("failed to initialize, signalled Error");
             return;
         }
-        if (updateSurfaceConfig(pool)) {
+        err = updateSurfaceConfig(pool);
+        if (err == C2_OK) {
             c2_info("surface config: surfaceMode %d graphicSource %d scale %d",
                     !mBufferMode, mIsGBSource, mScaleEnabled);
         }
@@ -1197,13 +1232,6 @@ void C2RKMpiDec::process(
     c2_trace("in buffer attr. size %zu timestamp %lld frameindex %lld, flags %x",
              inSize, timestamp, frameIndex, flags);
 
-    bool eos = ((flags & C2FrameData::FLAG_END_OF_STREAM) != 0);
-    bool hasPicture = false;
-    bool needGetFrame = false;
-    bool sendPacketFlag = true;
-    uint32_t outfrmCnt = 0;
-    OutWorkEntry entry;
-
     if (!(flags & C2FrameData::FLAG_CODEC_CONFIG)) {
         if (flags & C2FrameData::FLAG_DROP_FRAME) {
             mDropFramesPts.push_back(timestamp);
@@ -1211,7 +1239,7 @@ void C2RKMpiDec::process(
         mFlushed = false;
     }
 
-    err = ensureDecoderState(pool);
+    err = ensureDecoderState();
     if (err != C2_OK) {
         mSignalledError = true;
         work->workletsProcessed = 1u;
@@ -1219,76 +1247,23 @@ void C2RKMpiDec::process(
         return;
     }
 
-inPacket:
-    needGetFrame   = false;
-    sendPacketFlag = true;
-    // may block, quit util enqueue success.
     err = sendpacket(inData, inSize, timestamp, flags);
     if (err != C2_OK) {
-        c2_warn("failed to enqueue packet, pts %lld", timestamp);
-        needGetFrame = true;
-        sendPacketFlag = false;
-    } else {
-        if (!eos) {
-            fillEmptyWork(work);
-        }
+        c2_err("failed to send packet, pts %lld", timestamp);
+        mSignalledError = true;
+        work->workletsProcessed = 1u;
+        work->result = C2_CORRUPTED;
+        return;
     }
 
-outframe:
-    if (!eos) {
-        err = getoutframe(&entry, needGetFrame);
-        if (err == C2_OK) {
-            outfrmCnt++;
-            needGetFrame = false;
-            hasPicture = true;
-        } else if (err == C2_CORRUPTED) {
-            mSignalledError = true;
-            work->workletsProcessed = 1u;
-            work->result = C2_CORRUPTED;
-            return;
-        }
-    }
+    mSignalledInputEos = ((flags & C2FrameData::FLAG_END_OF_STREAM) != 0);
 
-    if (eos) {
-        drainInternal(DRAIN_COMPONENT_WITH_EOS, pool, work);
-        mSignalledInputEos = true;
-    } else if (hasPicture) {
-        finishWork(&entry);
-        /* Avoid stock frame, continue to search available output */
-        ensureDecoderState(pool);
-        hasPicture = false;
-
-        if (sendPacketFlag == false) {
-            goto inPacket;
-        }
-        goto outframe;
-    } else if (err == C2_NO_MEMORY) {
-        // update new size config.
-        C2StreamPictureSizeInfo::output size(0u, mWidth, mHeight);
-        std::vector<std::unique_ptr<C2SettingResult>> failures;
-        err = mIntf->config({&size}, C2_MAY_BLOCK, &failures);
-        if (err != OK) {
-            c2_err("failed to set width and height");
-            mSignalledError = true;
-            work->workletsProcessed = 1u;
-            work->result = C2_CORRUPTED;
-            return;
-        }
-        err = updateOutputDelay();
-        if (err != C2_OK) {
-            c2_err("failed to update output delay, ret %d", err);
-            return;
-        }
-        ensureDecoderState(pool);
-        // feekback config update to first output frame.
-        mSizeInfoUpdate = true;
-        goto outframe;
-    } else if (outfrmCnt == 0) {
-        usleep(1000);
-        if (mLowLatencyMode && flags == 0) {
-            goto outframe;
-        }
-    }
+    // fillEmpty for old worklet
+    flags = 0;
+    work->worklets.front()->output.flags = (C2FrameData::flags_t)flags;
+    work->worklets.front()->output.buffers.clear();
+    work->worklets.front()->output.ordinal = work->input.ordinal;
+    work->workletsProcessed = 1u;
 }
 
 void C2RKMpiDec::setDefaultCodecColorAspectsIfNeeded(ColorAspects &aspects) {
@@ -1491,8 +1466,7 @@ c2_status_t C2RKMpiDec::commitBufferToMpp(std::shared_ptr<C2GraphicBlock> block)
     return err;
 }
 
-c2_status_t C2RKMpiDec::ensureDecoderState(
-        const std::shared_ptr<C2BlockPool> &pool) {
+c2_status_t C2RKMpiDec::ensureDecoderState() {
     c2_status_t err = C2_OK;
 
     uint32_t blockW = mHorStride;
@@ -1505,13 +1479,13 @@ c2_status_t C2RKMpiDec::ensureDecoderState(
 
     // NOTE: private gralloc stride usage only support in 4.0.
     if (mGrallocVersion == 4 && !mFbcCfg.mode && !mIsGBSource) {
-        uint64_t widthUsage  = C2RKMediaUtils::getStrideUsage(mWidth, mHorStride);
-        uint64_t heightUsage = C2RKMediaUtils::getHStrideUsage(mHeight, mVerStride);
+        uint64_t wUsage = C2RKMediaUtils::getStrideUsage(mWidth, mHorStride);
+        uint64_t hUsage = C2RKMediaUtils::getHStrideUsage(mHeight, mVerStride);
 
-        if (widthUsage != 0 && heightUsage != 0) {
+        if (wUsage > 0 && hUsage > 0) {
             blockW = mWidth;
             blockH = mHeight;
-            usage = (widthUsage | heightUsage);
+            usage = (wUsage | hUsage);
         }
     }
 
@@ -1594,9 +1568,9 @@ c2_status_t C2RKMpiDec::ensureDecoderState(
             mOutBlock.reset();
         }
         if (!mOutBlock) {
-            err = pool->fetchGraphicBlock(blockW, blockH, bFormat,
-                                          C2AndroidMemoryUsage::FromGrallocUsage(bUsage),
-                                          &mOutBlock);
+            err = mBlockPool->fetchGraphicBlock(blockW, blockH, bFormat,
+                                                C2AndroidMemoryUsage::FromGrallocUsage(bUsage),
+                                                &mOutBlock);
             if (err != C2_OK) {
                 c2_err("failed to fetchGraphicBlock, err %d usage 0x%llx", err, bUsage);
                 return err;
@@ -1609,9 +1583,9 @@ c2_status_t C2RKMpiDec::ensureDecoderState(
 
     uint32_t i = 0;
     for (i = 0; i < count; i++) {
-        err = pool->fetchGraphicBlock(blockW, blockH, format,
-                                      C2AndroidMemoryUsage::FromGrallocUsage(usage),
-                                      &outblock);
+        err = mBlockPool->fetchGraphicBlock(blockW, blockH, format,
+                                            C2AndroidMemoryUsage::FromGrallocUsage(usage),
+                                            &outblock);
         if (err != C2_OK) {
             c2_err("failed to fetchGraphicBlock, err %d", err);
             break;
@@ -1626,6 +1600,37 @@ c2_status_t C2RKMpiDec::ensureDecoderState(
 
     c2_trace("required (%dx%d) usage 0x%llx format 0x%x, fetch %d/%d",
              blockW, blockH, usage, format, i, count);
+
+    return err;
+}
+
+void C2RKMpiDec::postFrameReady() {
+    sp<AMessage> msg = new AMessage(WorkHandler::kWhatFrameReady, mHandler);
+    msg->setPointer("thiz", this);
+    msg->post();
+}
+
+c2_status_t C2RKMpiDec::onFrameReady() {
+    c2_status_t err = C2_OK;
+    c2_trace_func_enter();
+
+outframe:
+    OutWorkEntry entry;
+    memset(&entry, 0, sizeof(entry));
+
+    err = getoutframe(&entry);
+    if (err == C2_OK) {
+        finishWork(entry);
+        /* Avoid stock frame, continue to search available output */
+        ensureDecoderState();
+        goto outframe;
+    } else if (err == C2_NO_MEMORY) {
+        ensureDecoderState();
+        goto outframe;
+    } else if (err == C2_CORRUPTED) {
+        c2_err("signalling error");
+        mSignalledError = true;
+    }
 
     return err;
 }
@@ -1649,7 +1654,7 @@ c2_status_t C2RKMpiDec::sendpacket(uint8_t *data, size_t size, uint64_t pts, uin
     }
 
     MPP_RET err = MPP_OK;
-    uint32_t kMaxRetryNum = 3;
+    static uint32_t kMaxRetryCnt = 1000;
     uint32_t retry = 0;
 
     while (true) {
@@ -1662,11 +1667,14 @@ c2_status_t C2RKMpiDec::sendpacket(uint8_t *data, size_t size, uint64_t pts, uin
             break;
         }
 
-        if ((++retry) > kMaxRetryNum) {
+        if ((++retry) > kMaxRetryCnt) {
             ret = C2_CORRUPTED;
             break;
+        } else if (retry % 100 == 0) {
+            c2_warn("try to resend packet, pts %lld", pts);
         }
-        usleep(4 * 1000);
+
+        usleep(3 * 1000);
     }
 
     mpp_packet_deinit(&packet);
@@ -1674,22 +1682,13 @@ c2_status_t C2RKMpiDec::sendpacket(uint8_t *data, size_t size, uint64_t pts, uin
     return ret;
 }
 
-c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry, bool needGetFrame) {
+c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
     c2_status_t ret = C2_OK;
     MPP_RET     err = MPP_OK;
     MppFrame  frame = nullptr;
 
-    uint32_t tryCount = 0;
-
-redo:
     err = mMppMpi->decode_get_frame(mMppCtx, &frame);
-    tryCount++;
-    if (MPP_OK != err || !frame) {
-        if (needGetFrame == true && tryCount < 10) {
-            c2_info("need to get frame");
-            usleep(5 * 1000);
-            goto redo;
-        }
+    if (err != MPP_OK || frame == nullptr) {
         return C2_NOT_FOUND;
     }
 
@@ -1717,34 +1716,46 @@ redo:
             goto cleanUp;
         }
 
+        Mutex::Autolock autoLock(mBufferLock);
+
         clearOutBuffers();
         mpp_buffer_group_clear(mFrmGrp);
 
         mWidth = width;
         mHeight = height;
-        mColorFormat = format;
         mHorStride = hstride;
         mVerStride = vstride;
+        mColorFormat = format;
+
+        // All buffer group config done. Set info change ready to let
+        // decoder continue decoding.
+        mMppMpi->control(mMppCtx, MPP_DEC_SET_INFO_CHANGE_READY, nullptr);
 
         // support fbc mode change on info change stage
         updateFbcModeIfNeeded();
 
-        /*
-         * All buffer group config done. Set info change ready to let
-         * decoder continue decoding
-         */
-        err = mMppMpi->control(mMppCtx, MPP_DEC_SET_INFO_CHANGE_READY, nullptr);
-        if (err) {
-            c2_err("failed to set info-change ready, ret %d", ret);
+        C2StreamPictureSizeInfo::output size(0u, mWidth, mHeight);
+        std::vector<std::unique_ptr<C2SettingResult>> failures;
+        ret = mIntf->config({&size}, C2_MAY_BLOCK, &failures);
+        if (ret != C2_OK) {
+            c2_err("failed to set width and height");
             ret = C2_CORRUPTED;
             goto cleanUp;
         }
 
-        ret = C2_NO_MEMORY;
-    }
+        ret = updateOutputDelay();
+        if (ret != C2_OK) {
+            c2_err("failed to update output delay");
+            ret = C2_CORRUPTED;
+            goto cleanUp;
+        }
 
-    c2_trace("get one frame [%d:%d] stride [%d:%d] pts %lld err %d eos %d",
-             width, height, hstride, vstride, pts, error, eos);
+        // feekback config update to first output frame.
+        mSizeInfoUpdate = true;
+
+        ret = C2_NO_MEMORY;
+        goto cleanUp;
+    }
 
     if (eos) {
         c2_info("get output eos.");
@@ -1753,12 +1764,21 @@ redo:
         if (!mppBuffer) goto cleanUp;
     }
 
+    if (isPendingFlushing()) {
+        ret = C2_CANCELED;
+        c2_trace("ignore frame output since pending flush");
+        goto cleanUp;
+    }
+
     outBuffer = findOutBuffer(mppBuffer);
     if (!outBuffer) {
-        //ret = C2_CORRUPTED;
+        ret = C2_CORRUPTED;
         c2_err("get outdated mppBuffer %p", mppBuffer);
         goto cleanUp;
     }
+
+    c2_trace("get one frame [%d:%d] stride [%d:%d] pts %lld err %d index %d",
+             width, height, hstride, vstride, pts, error, outBuffer->index);
 
     if (mBufferMode) {
         if (mColorFormat & MPP_FMT_YUV420SP_10BIT) {
@@ -1821,8 +1841,6 @@ redo:
 
     entry->outblock = mBufferMode ? mOutBlock : outBuffer->block;
     entry->timestamp = pts;
-
-    ret = C2_OK;
 
 cleanUp:
     if (frame) {

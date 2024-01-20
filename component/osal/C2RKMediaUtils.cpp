@@ -122,6 +122,7 @@ uint32_t C2RKMediaUtils::getAndroidColorFmt(uint32_t format, bool fbcMode) {
 }
 
 uint64_t C2RKMediaUtils::getStrideUsage(int32_t width, int32_t stride) {
+#ifdef RK_GRALLOC_USAGE_STRIDE_ALIGN_256_ODD_TIMES
     if (stride == C2_ALIGN_ODD(width, 256)) {
         return RK_GRALLOC_USAGE_STRIDE_ALIGN_256_ODD_TIMES;
     } else if (stride == C2_ALIGN(width, 128)) {
@@ -130,21 +131,22 @@ uint64_t C2RKMediaUtils::getStrideUsage(int32_t width, int32_t stride) {
         return RK_GRALLOC_USAGE_STRIDE_ALIGN_64;
     } else if (stride == C2_ALIGN(width, 16)) {
         return RK_GRALLOC_USAGE_STRIDE_ALIGN_16;
-    } else {
-        return 0;
     }
+#endif
+    return 0;
 }
 
 uint64_t C2RKMediaUtils::getHStrideUsage(int32_t height, int32_t hstride) {
+#ifdef RK_GRALLOC_USAGE_ALLOC_HEIGHT_ALIGN_64
     if (hstride == C2_ALIGN(height, 64)) {
         return RK_GRALLOC_USAGE_ALLOC_HEIGHT_ALIGN_64;
     } else if (hstride == C2_ALIGN(height, 16)) {
         return  RK_GRALLOC_USAGE_ALLOC_HEIGHT_ALIGN_16;
     } else if (hstride == C2_ALIGN(height, 8)) {
         return RK_GRALLOC_USAGE_ALLOC_HEIGHT_ALIGN_8;
-    } else {
-        return 0;
     }
+#endif
+    return 0;
 }
 
 uint32_t C2RKMediaUtils::calculateVideoRefCount(

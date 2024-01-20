@@ -52,6 +52,9 @@ public:
             uint32_t drainMode,
             const std::shared_ptr<C2BlockPool> &pool) override;
 
+    void postFrameReady();
+    c2_status_t onFrameReady();
+
 private:
     enum OutBufferSite {
         BUFFER_SITE_BY_MPP = 0,
@@ -75,11 +78,31 @@ private:
         uint64_t timestamp;
     } OutWorkEntry;
 
+    class WorkHandler : public AHandler {
+    public:
+        enum {
+            kWhatFrameReady,
+            kWhatFlushMessage,
+        };
+
+        WorkHandler() {}
+        ~WorkHandler() override = default;
+
+        void waitAllMsgFlushed();
+
+    protected:
+        void onMessageReceived(const sp<AMessage> &msg) override;
+    };
+
     const char* mName;
     const char* mMime;
     std::shared_ptr<IntfImpl> mIntf;
+
     Mutex     mBufferLock;
     C2RKDump *mDump;
+
+    sp<ALooper>     mLooper;
+    sp<WorkHandler> mHandler;
 
     /* MPI interface parameters */
     MppCtx          mMppCtx;
@@ -122,6 +145,7 @@ private:
     } mFbcCfg;
 
     std::shared_ptr<C2GraphicBlock> mOutBlock;
+    std::shared_ptr<C2BlockPool>    mBlockPool;
 
     // Color aspects. These are ISO values and are meant to detect changes
     // in aspects to avoid converting them to C2 values for each frame.
@@ -141,25 +165,22 @@ private:
         }
     } mBitstreamColorAspects;
 
-    c2_status_t updateOutputDelay();
+    c2_status_t setupAndStartLooper();
+    void stopAndReleaseLooper();
 
     bool preferFbcOutput(const std::unique_ptr<C2Work> &work = nullptr);
-    bool updateSurfaceConfig(const std::shared_ptr<C2BlockPool> &pool);
-    void fillEmptyWork(const std::unique_ptr<C2Work> &work);
-    void finishWork(OutWorkEntry *entry);
-    c2_status_t drainInternal(
-            uint32_t drainMode,
-            const std::shared_ptr<C2BlockPool> &pool,
-            const std::unique_ptr<C2Work> &work);
+    c2_status_t updateOutputDelay();
+    c2_status_t updateSurfaceConfig(const std::shared_ptr<C2BlockPool> &pool);
+    void finishWork(OutWorkEntry entry);
 
     c2_status_t initDecoder(const std::unique_ptr<C2Work> &work);
     void setDefaultCodecColorAspectsIfNeeded(ColorAspects &aspects);
     void getVuiParams(MppFrame frame);
     c2_status_t updateFbcModeIfNeeded();
     c2_status_t commitBufferToMpp(std::shared_ptr<C2GraphicBlock> block);
-    c2_status_t ensureDecoderState(const std::shared_ptr<C2BlockPool> &pool);
+    c2_status_t ensureDecoderState();
     c2_status_t sendpacket(uint8_t *data, size_t size, uint64_t pts, uint32_t flags);
-    c2_status_t getoutframe(OutWorkEntry *entry, bool needGetFrame);
+    c2_status_t getoutframe(OutWorkEntry *entry);
 
     c2_status_t configFrameScaleMeta(MppFrame frame, std::shared_ptr<C2GraphicBlock> block);
 

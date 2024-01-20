@@ -108,6 +108,8 @@ protected:
             uint32_t drainMode,
             const std::shared_ptr<C2BlockPool> &pool) = 0;
 
+    bool isPendingFlushing();
+
     // for derived classes
     /**
      * Finish pending work.
@@ -231,7 +233,7 @@ private:
             mFlush = false;
             return flush;
         }
-        inline bool isPenddingFlushing() {
+        inline bool isPendingFlushing() {
             return mFlush;
         }
         void clear();
