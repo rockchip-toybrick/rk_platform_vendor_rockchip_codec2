@@ -33,11 +33,11 @@ using namespace android;
 
 class C2RKMediaUtils {
 public:
-    static uint32_t colorFormatMpiToAndroid(uint32_t format, bool fbcMode);
+    static uint32_t getAndroidColorFmt(uint32_t format, bool fbcMode);
     static uint64_t getStrideUsage(int32_t width, int32_t stride);
     static uint64_t getHStrideUsage(int32_t height, int32_t hstride);
-    static uint32_t calculateOutputDelay(
-                int32_t width, int32_t height, MppCodingType type, int32_t level);
+    static uint32_t calculateVideoRefCount(
+                MppCodingType type, int32_t width, int32_t height, int32_t level);
     static bool isP010Allowed();
     static void convert10BitNV12ToRequestFmt(
                 uint32_t dstFormat, uint8_t *dstY, uint8_t *dstUV,

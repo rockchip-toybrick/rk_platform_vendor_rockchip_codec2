@@ -23,8 +23,8 @@
 /* Codec2 Component Verison */
 #define C2_MAJOR_VERSION       1
 #define C2_MINOR_VERSION       14
-#define C2_REVISION_VERSION    0
-#define C2_BUILD_VERSION       9
+#define C2_REVISION_VERSION    1
+#define C2_BUILD_VERSION       1
 
 #define C2_COMPONENT_FULL_VERSION \
     C2_VERSION_STR(C2_MAJOR_VERSION) "." \

@@ -22,7 +22,6 @@
 #include "C2RKDump.h"
 #include "rk_mpi.h"
 
-#include <mutex>
 #include <utils/Vector.h>
 
 namespace android {
@@ -55,9 +54,9 @@ public:
 
 private:
     enum OutBufferSite {
-        BUFFER_SITE_BY_MPI = 0,
-        BUFFER_SITE_BY_C2,
-        BUFFER_SITE_BY_ABANDON,
+        BUFFER_SITE_BY_MPP = 0,
+        BUFFER_SITE_BY_US,
+        BUFFER_SITE_BY_BUTT,
     };
 
     typedef struct {
@@ -79,7 +78,7 @@ private:
     const char* mName;
     const char* mMime;
     std::shared_ptr<IntfImpl> mIntf;
-    std::mutex mPoolMutex;
+    Mutex     mBufferLock;
     C2RKDump *mDump;
 
     /* MPI interface parameters */
@@ -89,7 +88,7 @@ private:
     MppFrameFormat  mColorFormat;
     MppBufferGroup  mFrmGrp;
     // Indicates that these buffers should be decoded but not rendered.
-    Vector<uint64_t> mDropFramesPts;
+    Vector<uint64_t>   mDropFramesPts;
     Vector<OutBuffer*> mOutBuffers;
 
     uint32_t mWidth;
@@ -97,10 +96,6 @@ private:
     uint32_t mHorStride;
     uint32_t mVerStride;
     uint32_t mGrallocVersion;
-    uint32_t mPrimaries;
-    uint32_t mTransfer;
-    uint32_t mRange;
-    uint32_t mProfile;
     uint32_t mPixelFormat;
 
     bool mStarted;
@@ -148,8 +143,8 @@ private:
 
     c2_status_t updateOutputDelay();
 
-    bool checkPreferFbcOutput(const std::unique_ptr<C2Work> &work = nullptr);
-    bool checkSurfaceConfig(const std::shared_ptr<C2BlockPool> &pool);
+    bool preferFbcOutput(const std::unique_ptr<C2Work> &work = nullptr);
+    bool updateSurfaceConfig(const std::shared_ptr<C2BlockPool> &pool);
     void fillEmptyWork(const std::unique_ptr<C2Work> &work);
     void finishWork(OutWorkEntry *entry);
     c2_status_t drainInternal(
@@ -205,8 +200,8 @@ private:
     void clearOutBuffers() {
         while (!mOutBuffers.isEmpty()) {
             OutBuffer *buffer = mOutBuffers.editItemAt(0);
-            if (buffer != NULL) {
-                if (buffer->site != BUFFER_SITE_BY_MPI) {
+            if (buffer != nullptr) {
+                if (buffer->site != BUFFER_SITE_BY_MPP) {
                     mpp_buffer_put(buffer->mppBuffer);
                 }
                 delete buffer;
@@ -219,7 +214,7 @@ private:
         int count = 0;
         for (int i = 0; i < mOutBuffers.size(); i++) {
             OutBuffer *buffer = mOutBuffers.editItemAt(i);
-            if (buffer->site == BUFFER_SITE_BY_MPI) {
+            if (buffer->site == BUFFER_SITE_BY_MPP) {
                 count++;
             }
         }

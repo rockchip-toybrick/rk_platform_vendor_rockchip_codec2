@@ -53,8 +53,8 @@ struct MlvecParams {
     std::shared_ptr<C2LowLatencyMode::output> lowLatencyMode;
 };
 
-status_t importGraphicBuffer(const C2Handle *const c2Handle, buffer_handle_t *outHandle) {
-    status_t err = OK;
+c2_status_t importGraphicBuffer(const C2Handle *const c2Handle, buffer_handle_t *outHandle) {
+    c2_status_t ret = C2_OK;
     uint32_t bqSlot, width, height, format, stride, generation;
     uint64_t usage, bqId;
 
@@ -64,19 +64,22 @@ status_t importGraphicBuffer(const C2Handle *const c2Handle, buffer_handle_t *ou
             c2Handle, &width, &height, &format, &usage,
             &stride, &generation, &bqId, &bqSlot);
 
-    err = GraphicBufferMapper::get().importBuffer(
+    status_t err = GraphicBufferMapper::get().importBuffer(
             gHandle, width, height, 1, format, usage,
             stride, outHandle);
     if (err != OK) {
+        ret = C2_CORRUPTED;
         c2_err("failed to import buffer %p", gHandle);
     }
 
     native_handle_delete(gHandle);
-    return err;
+    return ret;
 }
 
-status_t freeGraphicBuffer(buffer_handle_t outHandle) {
-    return GraphicBufferMapper::get().freeBuffer(outHandle);
+void freeGraphicBuffer(buffer_handle_t outHandle) {
+    if (outHandle) {
+        GraphicBufferMapper::get().freeBuffer(outHandle);
+    }
 }
 
 class C2RKMpiDec::IntfImpl : public C2RKInterface<void>::BaseParams {
@@ -574,8 +577,28 @@ public:
         return mPixelFormat;
     }
 
-    std::shared_ptr<MlvecParams> getMlvecParams_l() {
-        return mMlvecParams;
+    bool getIsLowLatencyMode() {
+        if (mLowLatency && mLowLatency->value > 0) {
+            return true;
+        }
+        if (mMlvecParams->lowLatencyMode
+                && mMlvecParams->lowLatencyMode->enable != 0) {
+            return true;
+        }
+        return false;
+    }
+
+    bool getIs10bitVideo() {
+        uint32_t profile = mProfileLevel ? mProfileLevel->profile : 0;
+        if (profile == PROFILE_AVC_HIGH_10 ||
+            profile == PROFILE_HEVC_MAIN_10 ||
+            profile == PROFILE_VP9_2) {
+            return true;
+        }
+        if (mDefaultColorAspects->transfer == 6 /* SMPTEST2084 */) {
+            return true;
+        }
+        return false;
     }
 
 private:
@@ -657,7 +680,7 @@ c2_status_t C2RKMpiDec::onInit() {
 
     c2_status_t ret = updateOutputDelay();
     if (ret != C2_OK) {
-        c2_err("failed to update output delay, ret %d", ret);
+        c2_err("failed to update output delay");
     }
 
     return ret;
@@ -678,10 +701,10 @@ void C2RKMpiDec::onReset() {
 }
 
 void C2RKMpiDec::onRelease() {
+    c2_log_func_enter();
+
     if (!mStarted)
         return;
-
-    c2_log_func_enter();
 
     if (!mFlushed) {
         onFlush_sm();
@@ -689,11 +712,6 @@ void C2RKMpiDec::onRelease() {
 
     if (mOutBlock) {
         mOutBlock.reset();
-    }
-
-    if (mDump != nullptr) {
-        delete mDump;
-        mDump = nullptr;
     }
 
     if (mFrmGrp != nullptr) {
@@ -706,13 +724,16 @@ void C2RKMpiDec::onRelease() {
         mMppCtx = nullptr;
     }
 
+    if (mDump != nullptr) {
+        delete mDump;
+        mDump = nullptr;
+    }
+
     mStarted = false;
     mIsGBSource = false;
 }
 
 c2_status_t C2RKMpiDec::onFlush_sm() {
-    c2_status_t ret = C2_OK;
-
     c2_log_func_enter();
 
     if (!mFlushed) {
@@ -721,10 +742,7 @@ c2_status_t C2RKMpiDec::onFlush_sm() {
         mSignalledError = false;
 
         clearOutBuffers();
-
-        if (mFrmGrp) {
-            mpp_buffer_group_clear(mFrmGrp);
-        }
+        mpp_buffer_group_clear(mFrmGrp);
 
         if (mMppMpi) {
             mMppMpi->reset(mMppCtx);
@@ -733,36 +751,38 @@ c2_status_t C2RKMpiDec::onFlush_sm() {
         mFlushed = true;
     }
 
-    return ret;
+    return C2_OK;
 }
 
 c2_status_t C2RKMpiDec::updateOutputDelay() {
     c2_status_t err = C2_OK;
-    uint32_t outputDelay = 0;
-    C2StreamPictureSizeInfo::output size(0u, mWidth, mHeight);
-    C2StreamProfileLevelInfo::input profileLevel(0u, PROFILE_UNUSED, LEVEL_UNUSED);
+    uint32_t width = 0, height = 0;
+    uint32_t level = 0, refCnt = 0;
 
-    err = mIntf->query(
-            { &size, &profileLevel },
-            {},
-            C2_DONT_BLOCK,
-            nullptr);
+    {
+        IntfImpl::Lock lock = mIntf->lock();
+        width  = mIntf->getSize_l()->width;
+        height = mIntf->getSize_l()->height;
+        level  = mIntf->getProfileLevel_l() ? mIntf->getProfileLevel_l()->level : 0;
+    }
 
-    outputDelay = C2RKMediaUtils::calculateOutputDelay(
-            size.width, size.height, mCodingType, profileLevel.level);
+    refCnt = C2RKMediaUtils::calculateVideoRefCount(mCodingType, width, height, level);
 
-    c2_info("Codec(%s %dx%d) profileLevel(%d %d) needs %d reference frames",
-            toStr_Coding(mCodingType), size.width, size.height,
-            profileLevel.profile, profileLevel.level, outputDelay);
+    c2_info("Codec(%s %dx%d) level(%d) needs %d reference frames",
+            toStr_Coding(mCodingType), width, height, level, refCnt);
 
-    C2PortActualDelayTuning::output tuningOutputDelay(outputDelay);
+    C2PortActualDelayTuning::output delayTuning(refCnt);
     std::vector<std::unique_ptr<C2SettingResult>> failures;
-    err = mIntf->config({&tuningOutputDelay}, C2_MAY_BLOCK, &failures);
+
+    err = mIntf->config({&delayTuning}, C2_MAY_BLOCK, &failures);
+    if (err != C2_OK) {
+        c2_err("failed to config delay tuning, err %d", err);
+    }
 
     return err;
 }
 
-bool C2RKMpiDec::checkPreferFbcOutput(const std::unique_ptr<C2Work> &work) {
+bool C2RKMpiDec::preferFbcOutput(const std::unique_ptr<C2Work> &work) {
     if (mIsGBSource) {
         c2_info("graphicBufferSource not support fbc mode");
         return false;
@@ -773,28 +793,25 @@ bool C2RKMpiDec::checkPreferFbcOutput(const std::unique_ptr<C2Work> &work) {
         return false;
     }
 
-    if (mProfile == PROFILE_AVC_HIGH_10 ||
-        mProfile == PROFILE_HEVC_MAIN_10 ||
-        mProfile == PROFILE_VP9_2 ||
-        mTransfer == 6 /* SMPTEST2084 = 6 */ ||
-        mColorFormat & MPP_FMT_YUV420SP_10BIT) {
-        c2_info("10bit video source, perfer use fbc output mode");
+    if (mColorFormat & MPP_FMT_YUV420SP_10BIT) {
+        c2_info("10bit video source, perfer use output mode");
         return true;
     }
 
-    // kodi/photos/files does not transmit profile level(10bit etc) to C2, so
-    // get bitDepth info from spspps in this case.
+    /*
+     * For 10bit flim source, we agreed that force fbc rendering.
+     * Some apps(Kodi/Photos/Files) does not transmit profile info, so do extra
+     * detection from spspps to search bitInfo in this case.
+     */
     if (work != nullptr && work->input.flags & C2FrameData::FLAG_CODEC_CONFIG) {
         if (!work->input.buffers.empty()) {
             C2ReadView rView = mDummyReadView;
             rView = work->input.buffers[0]->data().linearBlocks().front().map().get();
-            if (!rView.error()) {
-                int32_t depth = C2RKNaluParser::detectBitDepth(
-                        const_cast<uint8_t *>(rView.data()), rView.capacity(), mCodingType);
-                if (depth == 10) {
-                    c2_info("10bit video profile detached, prefer use fbc output mode");
-                    return true;
-                }
+            int32_t depth = C2RKNaluParser::detectBitDepth(
+                    const_cast<uint8_t *>(rView.data()), rView.capacity(), mCodingType);
+            if (depth == 10) {
+                c2_info("10bit video profile detached, prefer fbc output mode");
+                return true;
             }
         }
     }
@@ -806,36 +823,37 @@ bool C2RKMpiDec::checkPreferFbcOutput(const std::unique_ptr<C2Work> &work) {
     return false;
 }
 
-bool C2RKMpiDec::checkSurfaceConfig(const std::shared_ptr<C2BlockPool> &pool) {
-    c2_status_t ret = C2_OK;
-
+bool C2RKMpiDec::updateSurfaceConfig(const std::shared_ptr<C2BlockPool> &pool) {
+    c2_status_t err = C2_OK;
     std::shared_ptr<C2GraphicBlock> block;
-    C2MemoryUsage usage = { C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE };
 
     // alloc a temporary graphicBuffer to get surface features.
-    ret = pool->fetchGraphicBlock(
-            176, 144, HAL_PIXEL_FORMAT_YCrCb_NV12, usage, &block);
-    if (ret != C2_OK) {
-        c2_err("failed to fetchGraphicBlock, err %d", ret);
+    err = pool->fetchGraphicBlock(
+            176, 144, HAL_PIXEL_FORMAT_YCrCb_NV12,
+            {C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE}, &block);
+    if (err != C2_OK) {
+        c2_err("failed to fetchGraphicBlock, err %d", err);
         return false;
     }
 
-    uint64_t getUsage = 0;
-    buffer_handle_t outHandle = nullptr;
+    uint64_t usage = 0;
+    buffer_handle_t handle = nullptr;
     auto c2Handle = block->handle();
 
-    if (importGraphicBuffer(c2Handle, &outHandle) != OK) {
+    err = importGraphicBuffer(c2Handle, &handle);
+    if (err != C2_OK) {
+        c2_err("failed to import graphic buffer");
         return false;
     }
 
-    getUsage = C2RKGrallocOps::get()->getUsage(outHandle);
-    if (getUsage & GRALLOC_USAGE_HW_VIDEO_ENCODER) {
+    usage = C2RKGrallocOps::get()->getUsage(handle);
+    if (usage & GRALLOC_USAGE_HW_VIDEO_ENCODER) {
         mIsGBSource = true;
         updateFbcModeIfNeeded();
     }
 
     if (C2RKChipCapDef::get()->getScaleMetaCap()
-            && C2RKVdecExtendFeature::checkNeedScale(outHandle) == 1) {
+            && C2RKVdecExtendFeature::checkNeedScale(handle) == 1) {
         MppDecCfg cfg;
         mpp_dec_cfg_init(&cfg);
         mMppMpi->control(mMppCtx, MPP_DEC_GET_CFG, cfg);
@@ -846,8 +864,7 @@ bool C2RKMpiDec::checkSurfaceConfig(const std::shared_ptr<C2BlockPool> &pool) {
         mpp_dec_cfg_deinit(cfg);
     }
 
-    block.reset();
-    freeGraphicBuffer(outHandle);
+    freeGraphicBuffer(handle);
 
     return true;
 }
@@ -861,20 +878,9 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
         IntfImpl::Lock lock = mIntf->lock();
         mWidth = mIntf->getSize_l()->width;
         mHeight = mIntf->getSize_l()->height;
-        mPrimaries = (uint32_t)mIntf->getDefaultColorAspects_l()->primaries;
-        mTransfer = (uint32_t)mIntf->getDefaultColorAspects_l()->transfer;
-        mRange = (uint32_t)mIntf->getDefaultColorAspects_l()->range;
         mPixelFormat = mIntf->getPixelFormat_l()->value;
-        if (mIntf->getLowLatency_l() != nullptr) {
-            mLowLatencyMode = (mIntf->getLowLatency_l()->value > 0) ? true : false ;
-        }
-        if (!mLowLatencyMode && mIntf->getMlvecParams_l()->lowLatencyMode != nullptr) {
-            mLowLatencyMode = (mIntf->getMlvecParams_l()->lowLatencyMode->enable != 0);
-        }
-
-        if (mIntf->getProfileLevel_l() != nullptr) {
-            mProfile = (uint32_t)mIntf->getProfileLevel_l()->profile;
-        }
+        mLowLatencyMode = mIntf->getIsLowLatencyMode();
+        mColorFormat = mIntf->getIs10bitVideo() ? MPP_FMT_YUV420SP_10BIT : MPP_FMT_YUV420SP;
     }
 
     c2_info("init: w %d h %d coding %s", mWidth, mHeight, toStr_Coding(mCodingType));
@@ -918,22 +924,14 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
         mMppMpi->control(mMppCtx, MPP_DEC_SET_ENABLE_FAST_PLAY, &fastPlay);
 
         if (mLowLatencyMode) {
-            uint32_t deinterlace = 0, immediate = 1;
-            c2_info("enable lowLatency, enable mpp immediate-out mode");
-            mMppMpi->control(mMppCtx, MPP_DEC_SET_ENABLE_DEINTERLACE, &deinterlace);
+            uint32_t immediate = 1;
             mMppMpi->control(mMppCtx, MPP_DEC_SET_IMMEDIATE_OUT, &immediate);
+            c2_info("enable lowLatency, enable mpp immediate-out mode");
         }
     }
 
     {
         MppFrame frame  = nullptr;
-
-        if (mProfile == PROFILE_AVC_HIGH_10 ||
-            mProfile == PROFILE_HEVC_MAIN_10 ||
-            mProfile == PROFILE_VP9_2 ||
-            mTransfer == 6 /* SMPTEST2084 = 6 */) {
-            mColorFormat = MPP_FMT_YUV420SP_10BIT;
-        }
 
         // av1 support convert to user-set format internally.
         if (mCodingType == MPP_VIDEO_CodingAV1
@@ -956,7 +954,7 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
         uint32_t mppFmt = mColorFormat;
 
         mFbcCfg.mode = C2RKChipCapDef::get()->getFbcOutputMode(mCodingType);
-        if (mFbcCfg.mode && checkPreferFbcOutput(work)) {
+        if (mFbcCfg.mode && preferFbcOutput(work)) {
             mppFmt |= MPP_FRAME_FBC_AFBC_V2;
             /* fbc decode output has padding inside, set crop before display */
             C2RKChipCapDef::get()->getFbcOutputOffset(
@@ -1035,7 +1033,7 @@ void C2RKMpiDec::finishWork(OutWorkEntry *entry) {
     uint32_t left = mFbcCfg.mode ? mFbcCfg.paddingX : 0;
     uint32_t top  = mFbcCfg.mode ? mFbcCfg.paddingY : 0;
 
-    std::shared_ptr<C2Buffer> buffer
+    std::shared_ptr<C2Buffer> c2Buffer
             = createGraphicBuffer(std::move(entry->outblock),
                                   C2Rect(mWidth, mHeight).at(left, top));
 
@@ -1047,11 +1045,11 @@ void C2RKMpiDec::finishWork(OutWorkEntry *entry) {
             mCodingType == MPP_VIDEO_CodingAV1 ||
             mCodingType == MPP_VIDEO_CodingMPEG2) {
             IntfImpl::Lock lock = mIntf->lock();
-            buffer->setInfo(mIntf->getColorAspects_l());
+            c2Buffer->setInfo(mIntf->getColorAspects_l());
         }
     }
 
-    auto fillWork = [buffer, entry, this](const std::unique_ptr<C2Work> &work) {
+    auto fillWork = [c2Buffer, entry, this](const std::unique_ptr<C2Work> &work) {
         // now output work is new work, frame index remove by input work,
         // output work set to incomplete to ignore frame index check
         uint32_t outputFlags = C2FrameData::FLAG_INCOMPLETE;
@@ -1060,28 +1058,28 @@ void C2RKMpiDec::finishWork(OutWorkEntry *entry) {
         }
         work->worklets.front()->output.flags = (C2FrameData::flags_t)outputFlags;
         work->worklets.front()->output.buffers.clear();
-        work->worklets.front()->output.buffers.push_back(buffer);
+        work->worklets.front()->output.buffers.push_back(c2Buffer);
         work->worklets.front()->output.ordinal = work->input.ordinal;
         work->worklets.front()->output.ordinal.timestamp = entry->timestamp;
         work->workletsProcessed = 1u;
     };
 
-    std::unique_ptr<C2Work> outputWork(new C2Work);
-    outputWork->worklets.clear();
-    outputWork->worklets.emplace_back(new C2Worklet);
-    outputWork->input.ordinal.timestamp = 0;
-    outputWork->input.ordinal.frameIndex = OUTPUT_WORK_INDEX;
-    outputWork->input.ordinal.customOrdinal = 0;
-    outputWork->result = C2_OK;
+    std::unique_ptr<C2Work> work(new C2Work);
+    work->worklets.clear();
+    work->worklets.emplace_back(new C2Worklet);
+    work->input.ordinal.timestamp = 0;
+    work->input.ordinal.frameIndex = OUTPUT_WORK_INDEX;
+    work->input.ordinal.customOrdinal = 0;
+    work->result = C2_OK;
 
     if (mSizeInfoUpdate) {
         c2_info("update new size %dx%d config to framework.", mWidth, mHeight);
         C2StreamPictureSizeInfo::output size(0u, mWidth, mHeight);
-        outputWork->worklets.front()->output.configUpdate.push_back(C2Param::Copy(size));
+        work->worklets.front()->output.configUpdate.push_back(C2Param::Copy(size));
         mSizeInfoUpdate = false;
     }
 
-    finish(outputWork, fillWork);
+    finish(work, fillWork);
 }
 
 c2_status_t C2RKMpiDec::drainInternal(
@@ -1166,14 +1164,15 @@ void C2RKMpiDec::process(
             c2_info("failed to initialize, signalled Error");
             return;
         }
-        if (checkSurfaceConfig(pool)) {
+        if (updateSurfaceConfig(pool)) {
             c2_info("surface config: surfaceMode %d graphicSource %d scale %d",
                     !mBufferMode, mIsGBSource, mScaleEnabled);
         }
     }
 
     if (mSignalledInputEos || mSignalledError) {
-        work->result = C2_BAD_VALUE;
+        work->workletsProcessed = 1u;
+        work->result = C2_CORRUPTED;
         return;
     }
 
@@ -1205,13 +1204,10 @@ void C2RKMpiDec::process(
     uint32_t outfrmCnt = 0;
     OutWorkEntry entry;
 
-    if (!(flags & C2FrameData::FLAG_CODEC_CONFIG)
-            && (flags & C2FrameData::FLAG_DROP_FRAME)) {
-        mDropFramesPts.push_back(timestamp);
-    }
-
-    if ((flags & C2FrameData::FLAG_CODEC_CONFIG) == 0) {
-        // reset flush flag when get non-config frame.
+    if (!(flags & C2FrameData::FLAG_CODEC_CONFIG)) {
+        if (flags & C2FrameData::FLAG_DROP_FRAME) {
+            mDropFramesPts.push_back(timestamp);
+        }
         mFlushed = false;
     }
 
@@ -1394,8 +1390,8 @@ void C2RKMpiDec::getVuiParams(MppFrame frame) {
 
 c2_status_t C2RKMpiDec::updateFbcModeIfNeeded() {
     uint32_t format = mColorFormat;
-    bool needUpdate = false;
-    bool preferFbc = checkPreferFbcOutput();
+    bool update = false;
+    bool preferFbc = preferFbcOutput();
 
     if (!MPP_FRAME_FMT_IS_FBC(format)) {
         int32_t fbcMode = C2RKChipCapDef::get()->getFbcOutputMode(mCodingType);
@@ -1405,7 +1401,7 @@ c2_status_t C2RKMpiDec::updateFbcModeIfNeeded() {
             /* fbc decode output has padding inside, set crop before display */
             C2RKChipCapDef::get()->getFbcOutputOffset(
                     mCodingType, &mFbcCfg.paddingX, &mFbcCfg.paddingY);
-            needUpdate = true;
+            update = true;
             c2_info("change use mpp fbc output mode, padding offset(%d, %d)",
                     mFbcCfg.paddingX, mFbcCfg.paddingY);
         }
@@ -1413,12 +1409,12 @@ c2_status_t C2RKMpiDec::updateFbcModeIfNeeded() {
         if (!preferFbc) {
             format &= ~MPP_FRAME_FBC_AFBC_V2;
             memset(&mFbcCfg, 0, sizeof(mFbcCfg));
-            needUpdate = true;
+            update = true;
             c2_info("change use mpp non-fbc output mode");
         }
     }
 
-    if (needUpdate) {
+    if (update) {
         MppFrame frame = nullptr;
 
         mMppMpi->control(mMppCtx, MPP_DEC_SET_OUTPUT_FORMAT, (MppParam)&format);
@@ -1440,15 +1436,15 @@ c2_status_t C2RKMpiDec::updateFbcModeIfNeeded() {
 }
 
 c2_status_t C2RKMpiDec::commitBufferToMpp(std::shared_ptr<C2GraphicBlock> block) {
-    uint32_t bufferId = 0;
+    c2_status_t err = C2_OK;
     auto c2Handle = block->handle();
     uint32_t fd = c2Handle->data[0];
-    buffer_handle_t outHandle = nullptr;
+    buffer_handle_t handle = nullptr;
 
-    // Import new buffer to get metadata of graphicBuffer
-    importGraphicBuffer(c2Handle, &outHandle);
+    err = importGraphicBuffer(c2Handle, &handle);
+    if (err != C2_OK) return err;
 
-    bufferId = C2RKGrallocOps::get()->getBufferId(outHandle);
+    uint32_t bufferId = C2RKGrallocOps::get()->getBufferId(handle);
 
     OutBuffer *buffer = findOutBuffer(bufferId);
     if (buffer) {
@@ -1458,7 +1454,7 @@ c2_status_t C2RKMpiDec::commitBufferToMpp(std::shared_ptr<C2GraphicBlock> block)
             mpp_buffer_put(mppBuffer);
         }
         buffer->block = block;
-        buffer->site = BUFFER_SITE_BY_MPI;
+        buffer->site = BUFFER_SITE_BY_MPP;
 
         c2_trace("put this buffer, index %d mppBuf %p", bufferId, mppBuffer);
     } else {
@@ -1467,47 +1463,45 @@ c2_status_t C2RKMpiDec::commitBufferToMpp(std::shared_ptr<C2GraphicBlock> block)
         MppBufferInfo info;
         memset(&info, 0, sizeof(info));
 
-        info.type = MPP_BUFFER_TYPE_ION;
-        info.fd = fd;
-        info.ptr = nullptr;
-        info.hnd = nullptr;
-        info.size = C2RKGrallocOps::get()->getAllocationSize(outHandle);
+        info.type  = MPP_BUFFER_TYPE_ION;
+        info.fd    = fd;
+        info.size  = C2RKGrallocOps::get()->getAllocationSize(handle);
         info.index = bufferId;
 
         mpp_buffer_import_with_tag(
                 mFrmGrp, &info, &mppBuffer, "codec2", __FUNCTION__);
 
-        OutBuffer *buffer = new OutBuffer;
-        buffer->index = bufferId;
-        buffer->mppBuffer = mppBuffer;
-        buffer->block = block;
-        buffer->site = BUFFER_SITE_BY_MPI;
+        OutBuffer *newBuffer = new OutBuffer;
+        newBuffer->index     = bufferId;
+        newBuffer->mppBuffer = mppBuffer;
+        newBuffer->block     = block;
+        newBuffer->site      = BUFFER_SITE_BY_MPP;
 
-        // signal buffer available to mpp
+        // signal buffer available to decoder
         mpp_buffer_put(mppBuffer);
 
-        mOutBuffers.push(buffer);
+        mOutBuffers.push(newBuffer);
 
         c2_trace("import this buffer, index %d size %d mppBuf %p listSize %d",
                  bufferId, info.size, mppBuffer, mOutBuffers.size());
     }
 
-    freeGraphicBuffer(outHandle);
+    freeGraphicBuffer(handle);
 
-    return C2_OK;
+    return err;
 }
 
 c2_status_t C2RKMpiDec::ensureDecoderState(
         const std::shared_ptr<C2BlockPool> &pool) {
-    c2_status_t ret = C2_OK;
+    c2_status_t err = C2_OK;
 
     uint32_t blockW = mHorStride;
     uint32_t blockH = mVerStride;
 
     uint64_t usage  = RK_GRALLOC_USAGE_SPECIFY_STRIDE;
-    uint32_t format = C2RKMediaUtils::colorFormatMpiToAndroid(mColorFormat, mFbcCfg.mode);
+    uint32_t format = C2RKMediaUtils::getAndroidColorFmt(mColorFormat, mFbcCfg.mode);
 
-    std::lock_guard<std::mutex> lock(mPoolMutex);
+    Mutex::Autolock autoLock(mBufferLock);
 
     // NOTE: private gralloc stride usage only support in 4.0.
     if (mGrallocVersion == 4 && !mFbcCfg.mode && !mIsGBSource) {
@@ -1532,34 +1526,43 @@ c2_status_t C2RKMpiDec::ensureDecoderState(
             blockW = C2_ALIGN(mWidth, 64);
         }
     } else if (mCodingType == MPP_VIDEO_CodingVP9 && mGrallocVersion < 4) {
-        // vp9 need odd 256 align
         blockW = C2_ALIGN_ODD(mWidth, 256);
     }
 
-    switch(mTransfer) {
-        case ColorTransfer::kColorTransferST2084:
-            usage |= ((GRALLOC_NV12_10_HDR_10 << 24) & GRALLOC_COLOR_SPACE_MASK);  // hdr10;
-            break;
-        case ColorTransfer::kColorTransferHLG:
-            usage |= ((GRALLOC_NV12_10_HDR_HLG << 24) & GRALLOC_COLOR_SPACE_MASK);  // hdr-hlg
-            break;
-    }
+    {
+        IntfImpl::Lock lock = mIntf->lock();
+        std::shared_ptr<C2StreamColorAspectsTuning::output> colorAspects
+                = mIntf->getDefaultColorAspects_l();
 
-    switch (mPrimaries) {
-        case C2Color::PRIMARIES_BT601_525:
-            usage |= MALI_GRALLOC_USAGE_YUV_COLOR_SPACE_BT601;
-            break;
-        case C2Color::PRIMARIES_BT709:
-            usage |= MALI_GRALLOC_USAGE_YUV_COLOR_SPACE_BT709;
-            break;
-    }
-    switch (mRange) {
-        case C2Color::RANGE_FULL:
-            usage |= MALI_GRALLOC_USAGE_RANGE_WIDE;
-            break;
-        case C2Color::RANGE_LIMITED:
-            usage |= MALI_GRALLOC_USAGE_RANGE_NARROW;
-            break;
+        switch(colorAspects->transfer) {
+            case ColorTransfer::kColorTransferST2084:
+                usage |= ((GRALLOC_NV12_10_HDR_10 << 24) & GRALLOC_COLOR_SPACE_MASK);  // hdr10;
+                break;
+            case ColorTransfer::kColorTransferHLG:
+                usage |= ((GRALLOC_NV12_10_HDR_HLG << 24) & GRALLOC_COLOR_SPACE_MASK);  // hdr-hlg
+                break;
+            default:
+                break;
+        }
+
+        switch (colorAspects->primaries) {
+            case C2Color::PRIMARIES_BT601_525:
+                usage |= MALI_GRALLOC_USAGE_YUV_COLOR_SPACE_BT601;
+                break;
+            case C2Color::PRIMARIES_BT709:
+                usage |= MALI_GRALLOC_USAGE_YUV_COLOR_SPACE_BT709;
+                break;
+            default:
+                break;
+        }
+        switch (colorAspects->range) {
+            case C2Color::RANGE_FULL:
+                usage |= MALI_GRALLOC_USAGE_RANGE_WIDE;
+                break;
+            default:
+                usage |= MALI_GRALLOC_USAGE_RANGE_NARROW;
+                break;
+        }
     }
 
     // only large than gralloc 4 can support int64 usage.
@@ -1575,7 +1578,7 @@ c2_status_t C2RKMpiDec::ensureDecoderState(
 
     if (mBufferMode) {
         uint32_t bFormat = (mColorFormat & MPP_FMT_YUV420SP_10BIT) ? mPixelFormat : format;
-        uint64_t bUsage = (usage | GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN);
+        uint64_t bUsage  = (usage | GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN);
 
         // allocate buffer within 4G to avoid rga2 error.
         if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_3588 ||
@@ -1591,12 +1594,12 @@ c2_status_t C2RKMpiDec::ensureDecoderState(
             mOutBlock.reset();
         }
         if (!mOutBlock) {
-            ret = pool->fetchGraphicBlock(blockW, blockH, bFormat,
+            err = pool->fetchGraphicBlock(blockW, blockH, bFormat,
                                           C2AndroidMemoryUsage::FromGrallocUsage(bUsage),
                                           &mOutBlock);
-            if (ret != C2_OK) {
-                c2_err("failed to fetchGraphicBlock, err %d usage 0x%llx", ret, bUsage);
-                return ret;
+            if (err != C2_OK) {
+                c2_err("failed to fetchGraphicBlock, err %d usage 0x%llx", err, bUsage);
+                return err;
             }
         }
     }
@@ -1605,25 +1608,26 @@ c2_status_t C2RKMpiDec::ensureDecoderState(
     uint32_t count = mIntf->mActualOutputDelay->value - getOutBufferCountOwnByMpi();
 
     uint32_t i = 0;
-    while (i < count) {
-        ret = pool->fetchGraphicBlock(blockW, blockH, format,
+    for (i = 0; i < count; i++) {
+        err = pool->fetchGraphicBlock(blockW, blockH, format,
                                       C2AndroidMemoryUsage::FromGrallocUsage(usage),
                                       &outblock);
-        if (ret != C2_OK) {
-            c2_err("failed to fetchGraphicBlock, err %d", ret);
+        if (err != C2_OK) {
+            c2_err("failed to fetchGraphicBlock, err %d", err);
             break;
         }
 
-        if (outblock) {
-            commitBufferToMpp(outblock);
-            i++;
+        err = commitBufferToMpp(outblock);
+        if (err != C2_OK) {
+            c2_err("failed to commit buffer");
+            break;
         }
     }
 
     c2_trace("required (%dx%d) usage 0x%llx format 0x%x, fetch %d/%d",
              blockW, blockH, usage, format, i, count);
 
-    return ret;
+    return err;
 }
 
 c2_status_t C2RKMpiDec::sendpacket(uint8_t *data, size_t size, uint64_t pts, uint32_t flags) {
@@ -1672,12 +1676,10 @@ c2_status_t C2RKMpiDec::sendpacket(uint8_t *data, size_t size, uint64_t pts, uin
 
 c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry, bool needGetFrame) {
     c2_status_t ret = C2_OK;
-    MPP_RET err = MPP_OK;
-    MppFrame frame = nullptr;
+    MPP_RET     err = MPP_OK;
+    MppFrame  frame = nullptr;
 
-    uint64_t pts = 0;
     uint32_t tryCount = 0;
-    std::shared_ptr<C2GraphicBlock> outblock = nullptr;
 
 redo:
     err = mMppMpi->decode_get_frame(mMppCtx, &frame);
@@ -1691,11 +1693,17 @@ redo:
         return C2_NOT_FOUND;
     }
 
-    uint32_t width  = mpp_frame_get_width(frame);
-    uint32_t height = mpp_frame_get_height(frame);
+    uint32_t width   = mpp_frame_get_width(frame);
+    uint32_t height  = mpp_frame_get_height(frame);
     uint32_t hstride = mpp_frame_get_hor_stride(frame);
     uint32_t vstride = mpp_frame_get_ver_stride(frame);
+    uint32_t error   = mpp_frame_get_errinfo(frame);
+    uint32_t eos     = mpp_frame_get_eos(frame);
+    uint64_t pts     = mpp_frame_get_pts(frame);
+
     MppFrameFormat format = mpp_frame_get_fmt(frame);
+    MppBuffer   mppBuffer = mpp_frame_get_buffer(frame);
+    OutBuffer  *outBuffer = nullptr;
 
     if (mpp_frame_get_info_change(frame)) {
         c2_info("info-change with old dimensions(%dx%d) stride(%dx%d) fmt %d", \
@@ -1706,7 +1714,7 @@ redo:
         if (width > kMaxVideoWidth || height > kMaxVideoWidth) {
             c2_err("unsupport video size %dx%d, signalled Error.", width, height);
             ret = C2_CORRUPTED;
-            goto exit;
+            goto cleanUp;
         }
 
         clearOutBuffers();
@@ -1729,109 +1737,105 @@ redo:
         if (err) {
             c2_err("failed to set info-change ready, ret %d", ret);
             ret = C2_CORRUPTED;
-            goto exit;
+            goto cleanUp;
         }
 
         ret = C2_NO_MEMORY;
-    } else {
-        uint32_t err = mpp_frame_get_errinfo(frame);
-        uint32_t eos = mpp_frame_get_eos(frame);
-        MppBuffer mppBuffer = mpp_frame_get_buffer(frame);
-        pts = mpp_frame_get_pts(frame);
-
-        c2_trace("get one frame [%d:%d] stride [%d:%d] pts %lld err %d eos %d",
-                 width, height, hstride, vstride, pts, err, eos);
-
-        if (eos) {
-            c2_info("get output eos.");
-            mOutputEos = true;
-            // ignore null frame with eos
-            if (!mppBuffer) goto exit;
-        }
-
-        if (mBufferMode) {
-            if (mColorFormat & MPP_FMT_YUV420SP_10BIT) {
-                C2GraphicView wView = mOutBlock->map().get();
-                C2PlanarLayout layout = wView.layout();
-                uint8_t *src = (uint8_t*)mpp_buffer_get_ptr(mppBuffer);
-                uint8_t *dstY = const_cast<uint8_t *>(wView.data()[C2PlanarLayout::PLANE_Y]);
-                uint8_t *dstUV = const_cast<uint8_t *>(wView.data()[C2PlanarLayout::PLANE_U]);
-                size_t dstYStride = layout.planes[C2PlanarLayout::PLANE_Y].rowInc;
-                size_t dstUVStride = layout.planes[C2PlanarLayout::PLANE_U].rowInc;
-
-                C2RKMediaUtils::convert10BitNV12ToRequestFmt(
-                        mPixelFormat, dstY, dstUV, dstYStride,
-                        dstUVStride, src, hstride, vstride, width, height);
-            } else {
-                RgaInfo srcInfo, dstInfo;
-                int32_t srcFd = 0, dstFd = 0;
-
-                auto c2Handle = mOutBlock->handle();
-                srcFd = mpp_buffer_get_fd(mppBuffer);
-                dstFd = c2Handle->data[0];
-
-                C2RKRgaDef::SetRgaInfo(
-                        &srcInfo, srcFd, mWidth, mHeight, mHorStride, mVerStride);
-                C2RKRgaDef::SetRgaInfo(
-                        &dstInfo, dstFd, mWidth, mHeight, mHorStride, mVerStride);
-                if (!C2RKRgaDef::NV12ToNV12(srcInfo, dstInfo)) {
-                    // use cpu copy if got rga error
-                    uint8_t *srcPtr = (uint8_t*)mpp_buffer_get_ptr(mppBuffer);
-                    uint8_t *dstPtr = mOutBlock->map().get().data()[C2PlanarLayout::PLANE_Y];
-                    memcpy(dstPtr, srcPtr, mHorStride * mVerStride * 3 / 2);
-                }
-            }
-            outblock = mOutBlock;
-        } else {
-            OutBuffer *outBuffer = findOutBuffer(mppBuffer);
-            if (outBuffer) {
-                mpp_buffer_inc_ref(mppBuffer);
-            } else {
-                c2_err("get outdated mppBuffer %p, release it.", mppBuffer);
-                goto exit;
-            }
-            outBuffer->site = BUFFER_SITE_BY_C2;
-            outblock = outBuffer->block;
-        }
-
-        if (mCodingType == MPP_VIDEO_CodingAVC ||
-            mCodingType == MPP_VIDEO_CodingHEVC ||
-            mCodingType == MPP_VIDEO_CodingAV1 ||
-            mCodingType == MPP_VIDEO_CodingMPEG2) {
-            getVuiParams(frame);
-        }
-
-        if (mScaleEnabled) {
-            configFrameScaleMeta(frame, outblock);
-        }
-
-        /* dump output data if neccessary */
-        if (C2RKDump::getDumpFlag() & C2_DUMP_RECORD_DEC_OUT) {
-            void *data = mpp_buffer_get_ptr(mppBuffer);
-            mDump->recordOutFile(data, hstride, vstride, RAW_TYPE_YUV420SP);
-        }
-
-        /* dump show output process fps if neccessary */
-        mDump->showDebugFps(DUMP_ROLE_OUTPUT);
-
-        ret = C2_OK;
     }
 
-exit:
+    c2_trace("get one frame [%d:%d] stride [%d:%d] pts %lld err %d eos %d",
+             width, height, hstride, vstride, pts, error, eos);
+
+    if (eos) {
+        c2_info("get output eos.");
+        mOutputEos = true;
+        // ignore null frame with eos
+        if (!mppBuffer) goto cleanUp;
+    }
+
+    outBuffer = findOutBuffer(mppBuffer);
+    if (!outBuffer) {
+        //ret = C2_CORRUPTED;
+        c2_err("get outdated mppBuffer %p", mppBuffer);
+        goto cleanUp;
+    }
+
+    if (mBufferMode) {
+        if (mColorFormat & MPP_FMT_YUV420SP_10BIT) {
+            C2GraphicView wView = mOutBlock->map().get();
+            C2PlanarLayout layout = wView.layout();
+            uint8_t *src = (uint8_t*)mpp_buffer_get_ptr(mppBuffer);
+            uint8_t *dstY = const_cast<uint8_t *>(wView.data()[C2PlanarLayout::PLANE_Y]);
+            uint8_t *dstUV = const_cast<uint8_t *>(wView.data()[C2PlanarLayout::PLANE_U]);
+            size_t dstYStride = layout.planes[C2PlanarLayout::PLANE_Y].rowInc;
+            size_t dstUVStride = layout.planes[C2PlanarLayout::PLANE_U].rowInc;
+
+            C2RKMediaUtils::convert10BitNV12ToRequestFmt(
+                    mPixelFormat, dstY, dstUV, dstYStride,
+                    dstUVStride, src, hstride, vstride, width, height);
+        } else {
+            RgaInfo srcInfo, dstInfo;
+            int32_t srcFd = 0, dstFd = 0;
+
+            auto c2Handle = mOutBlock->handle();
+            srcFd = mpp_buffer_get_fd(mppBuffer);
+            dstFd = c2Handle->data[0];
+
+            C2RKRgaDef::SetRgaInfo(
+                    &srcInfo, srcFd, mWidth, mHeight, mHorStride, mVerStride);
+            C2RKRgaDef::SetRgaInfo(
+                    &dstInfo, dstFd, mWidth, mHeight, mHorStride, mVerStride);
+            if (!C2RKRgaDef::NV12ToNV12(srcInfo, dstInfo)) {
+                // fallback software copy
+                uint8_t *srcPtr = (uint8_t*)mpp_buffer_get_ptr(mppBuffer);
+                uint8_t *dstPtr = mOutBlock->map().get().data()[C2PlanarLayout::PLANE_Y];
+                memcpy(dstPtr, srcPtr, mHorStride * mVerStride * 3 / 2);
+            }
+        }
+        outBuffer->site = BUFFER_SITE_BY_MPP;
+    } else {
+        outBuffer->site = BUFFER_SITE_BY_US;
+        // signal buffer occupied by users
+        mpp_buffer_inc_ref(mppBuffer);
+
+        if (mScaleEnabled) {
+            configFrameScaleMeta(frame, outBuffer->block);
+        }
+    }
+
+    if (mCodingType == MPP_VIDEO_CodingAVC ||
+        mCodingType == MPP_VIDEO_CodingHEVC ||
+        mCodingType == MPP_VIDEO_CodingAV1 ||
+        mCodingType == MPP_VIDEO_CodingMPEG2) {
+        getVuiParams(frame);
+    }
+
+    /* dump output data if neccessary */
+    if (C2RKDump::getDumpFlag() & C2_DUMP_RECORD_DEC_OUT) {
+        void *data = mpp_buffer_get_ptr(mppBuffer);
+        mDump->recordOutFile(data, hstride, vstride, RAW_TYPE_YUV420SP);
+    }
+
+    /* show output process fps if neccessary */
+    mDump->showDebugFps(DUMP_ROLE_OUTPUT);
+
+    entry->outblock = mBufferMode ? mOutBlock : outBuffer->block;
+    entry->timestamp = pts;
+
+    ret = C2_OK;
+
+cleanUp:
     if (frame) {
         mpp_frame_deinit(&frame);
         frame = nullptr;
     }
-
-    entry->outblock = outblock;
-    entry->timestamp = pts;
 
     return ret;
 }
 
 c2_status_t C2RKMpiDec::configFrameScaleMeta(
         MppFrame frame, std::shared_ptr<C2GraphicBlock> block) {
-    if (block && block->handle()
+    if (block->handle()
             && mpp_frame_has_meta(frame) && mpp_frame_get_thumbnail_en(frame)) {
         MppMeta meta = NULL;
         int32_t scaleYOffset = 0;

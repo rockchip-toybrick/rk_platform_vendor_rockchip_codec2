@@ -79,7 +79,7 @@ static C2LevelInfo vp9LevelInfos[] = {
     {   C2Config::LEVEL_VP9_6_2,   35651584 * 4,    "vp9 level 6.2" },
 };
 
-uint32_t C2RKMediaUtils::colorFormatMpiToAndroid(uint32_t format, bool fbcMode) {
+uint32_t C2RKMediaUtils::getAndroidColorFmt(uint32_t format, bool fbcMode) {
     uint32_t aFormat = HAL_PIXEL_FORMAT_YCrCb_NV12;
 
     switch (format & MPP_FRAME_FMT_MASK) {
@@ -147,8 +147,8 @@ uint64_t C2RKMediaUtils::getHStrideUsage(int32_t height, int32_t hstride) {
     }
 }
 
-uint32_t C2RKMediaUtils::calculateOutputDelay(
-        int32_t width, int32_t height, MppCodingType type, int32_t level) {
+uint32_t C2RKMediaUtils::calculateVideoRefCount(
+        MppCodingType type, int32_t width, int32_t height, int32_t level) {
     uint32_t maxDpbPixs = 0;
     uint32_t outputDelay = 0;
 
