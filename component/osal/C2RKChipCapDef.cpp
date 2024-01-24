@@ -174,6 +174,16 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .grallocVersion = 4,
         .reserved       = 0,
     },
+    {
+        .chipName       = "rk3576",
+        .chipType       = RK_CHIP_3576,
+        .fbcCapNum      = 0,
+        .fbcCaps        = nullptr,
+        .scaleMetaCap   = 0,
+        .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
+        .grallocVersion = 4,
+        .reserved       = 0,
+    },
 };
 
 

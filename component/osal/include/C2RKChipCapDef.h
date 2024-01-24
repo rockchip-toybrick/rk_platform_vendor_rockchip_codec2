@@ -61,6 +61,7 @@ typedef enum _C2ChipType {
     RK_CHIP_8K_SUPPORT_BEGIN,
     RK_CHIP_356X,
     RK_CHIP_3528,
+    RK_CHIP_3576,
     RK_CHIP_3588,
     RK_CHIP_8K_SUPPORT_END,
 
