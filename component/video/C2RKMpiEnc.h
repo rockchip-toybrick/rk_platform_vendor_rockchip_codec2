@@ -111,6 +111,7 @@ private:
             const std::unique_ptr<C2Work> &work);
 
     c2_status_t setupBaseCodec();
+    c2_status_t setupRotation();
     c2_status_t setupSceneMode();
     c2_status_t setupSliceSize();
     c2_status_t setupReencTimes();

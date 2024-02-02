@@ -145,6 +145,14 @@ public:
                 .build());
 
         addParameter(
+                DefineParam(mRotation, C2_PARAMKEY_ROTATION)
+                .withDefault(new C2StreamRotationInfo::output(0u, 0))
+                .withFields({C2F(mRotation, flip).any(),
+                             C2F(mRotation, value).any()})
+                .withSetter(RotationSetter)
+                .build());
+
+        addParameter(
                 DefineParam(mPictureQuantization, C2_PARAMKEY_PICTURE_QUANTIZATION)
                 .withDefault(C2StreamPictureQuantizationTuning::output::AllocShared(
                         0 /* flexCount */, 0u /* stream */))
@@ -531,6 +539,13 @@ public:
         return C2R::Ok();
     }
 
+    static C2R RotationSetter(bool mayBlock, C2P<C2StreamRotationInfo::output> &me) {
+        (void)mayBlock;
+        // Note: SDK rotation is clock-wise, while C2 rotation is counter-clock-wise
+        me.set().value = -(me.v.value);
+        return C2R::Ok();
+    }
+
     static C2R PictureQuantizationSetter(bool mayBlock,
                                          C2P<C2StreamPictureQuantizationTuning::output> &me) {
         (void)mayBlock;
@@ -863,6 +878,8 @@ public:
     { return mRequestSync; }
     std::shared_ptr<C2StreamGopTuning::output> getGop_l() const
     { return mGop; }
+    std::shared_ptr<C2StreamRotationInfo::output> getRotation_l() const
+    { return mRotation; }
     std::shared_ptr<C2StreamPictureQuantizationTuning::output> getPictureQuantization_l() const
     { return mPictureQuantization; }
     std::shared_ptr<C2StreamColorAspectsInfo::output> getCodedColorAspects_l() const
@@ -890,6 +907,7 @@ private:
     std::shared_ptr<C2StreamProfileLevelInfo::output> mProfileLevel;
     std::shared_ptr<C2StreamSyncFrameIntervalTuning::output> mSyncFramePeriod;
     std::shared_ptr<C2StreamGopTuning::output> mGop;
+    std::shared_ptr<C2StreamRotationInfo::output> mRotation;
     std::shared_ptr<C2StreamPictureQuantizationTuning::output> mPictureQuantization;
     std::shared_ptr<C2StreamBitrateModeTuning::output> mBitrateMode;
     std::shared_ptr<C2StreamColorAspectsInfo::input> mColorAspects;
@@ -1005,7 +1023,34 @@ c2_status_t C2RKMpiEnc::setupBaseCodec() {
     mpp_enc_cfg_set_s32(mEncCfg, "prep:hor_stride", mHorStride);
     mpp_enc_cfg_set_s32(mEncCfg, "prep:ver_stride", mVerStride);
     mpp_enc_cfg_set_s32(mEncCfg, "prep:format", MPP_FMT_YUV420SP);
-    mpp_enc_cfg_set_s32(mEncCfg, "prep:rotation", MPP_ENC_ROT_0);
+
+    return C2_OK;
+}
+
+c2_status_t C2RKMpiEnc::setupRotation() {
+    IntfImpl::Lock lock = mIntf->lock();
+    std::shared_ptr<C2StreamRotationInfo::output> c2Rotation
+            = mIntf->getRotation_l();
+    int32_t degrees = c2Rotation->value;
+
+    if (degrees > 0) {
+        c2_err("setupRotation: degrees %d", degrees);
+
+        switch (degrees) {
+        case 90:
+            mpp_enc_cfg_set_s32(mEncCfg, "prep:rotation", MPP_ENC_ROT_90);
+            break;
+        case 180:
+            mpp_enc_cfg_set_s32(mEncCfg, "prep:rotation", MPP_ENC_ROT_180);
+            break;
+        case 270:
+            mpp_enc_cfg_set_s32(mEncCfg, "prep:rotation", MPP_ENC_ROT_270);
+            break;
+        default:
+            c2_warn("We only support 0,90,180,270 degree rotation");
+            break;
+        }
+    }
 
     return C2_OK;
 }
@@ -1636,6 +1681,9 @@ c2_status_t C2RKMpiEnc::setupEncCfg() {
 
     /* Video control Set Base Codec */
     setupBaseCodec();
+
+    /* Video control Set Rotation */
+    setupRotation();
 
     /* Video control Set Scene Mode */
     setupSceneMode();
