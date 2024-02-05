@@ -22,9 +22,8 @@
 #include <C2AllocatorGralloc.h>
 #include <ui/GraphicBufferMapper.h>
 #include <ui/GraphicBufferAllocator.h>
+#include <hardware/gralloc_rockchip.h>
 
-#include "hardware/hardware_rockchip.h"
-#include "hardware/gralloc_rockchip.h"
 #include "C2RKMpiEnc.h"
 #include "C2RKLog.h"
 #include "C2RKPlatformSupport.h"
@@ -158,8 +157,8 @@ public:
                         0 /* flexCount */, 0u /* stream */))
                 .withFields({C2F(mPictureQuantization, m.values[0].type_).oneOf(
                                 {C2Config::picture_type_t(I_FRAME),
-                                  C2Config::picture_type_t(P_FRAME),
-                                  C2Config::picture_type_t(B_FRAME)}),
+                                 C2Config::picture_type_t(P_FRAME),
+                                 C2Config::picture_type_t(B_FRAME)}),
                              C2F(mPictureQuantization, m.values[0].min).any(),
                              C2F(mPictureQuantization, m.values[0].max).any()})
                 .withSetter(PictureQuantizationSetter)
@@ -220,27 +219,13 @@ public:
                             0u, PROFILE_AVC_BASELINE, LEVEL_AVC_3_1))
                     .withFields({
                         C2F(mProfileLevel, profile).oneOf({
-                            PROFILE_AVC_BASELINE,
-                            PROFILE_AVC_MAIN,
-                            PROFILE_AVC_HIGH,
+                            PROFILE_AVC_BASELINE, PROFILE_AVC_MAIN, PROFILE_AVC_HIGH,
                         }),
                         C2F(mProfileLevel, level).oneOf({
-                            LEVEL_AVC_1,
-                            LEVEL_AVC_1B,
-                            LEVEL_AVC_1_1,
-                            LEVEL_AVC_1_2,
-                            LEVEL_AVC_1_3,
-                            LEVEL_AVC_2,
-                            LEVEL_AVC_2_1,
-                            LEVEL_AVC_2_2,
-                            LEVEL_AVC_3,
-                            LEVEL_AVC_3_1,
-                            LEVEL_AVC_3_2,
-                            LEVEL_AVC_4,
-                            LEVEL_AVC_4_1,
-                            LEVEL_AVC_4_2,
-                            LEVEL_AVC_5,
-                            LEVEL_AVC_5_1,
+                            LEVEL_AVC_1,   LEVEL_AVC_1B,  LEVEL_AVC_1_1,  LEVEL_AVC_1_2,
+                            LEVEL_AVC_1_3, LEVEL_AVC_2,   LEVEL_AVC_2_1,  LEVEL_AVC_2_2,
+                            LEVEL_AVC_3,   LEVEL_AVC_3_1, LEVEL_AVC_3_2,  LEVEL_AVC_4,
+                            LEVEL_AVC_4_1, LEVEL_AVC_4_2, LEVEL_AVC_5,    LEVEL_AVC_5_1,
                         }),
                     })
                     .withSetter(AVCProfileLevelSetter, mSize, mFrameRate, mBitrate)
@@ -255,15 +240,9 @@ public:
                             PROFILE_HEVC_MAIN,
                         }),
                         C2F(mProfileLevel, level).oneOf({
-                            LEVEL_HEVC_MAIN_1,
-                            LEVEL_HEVC_MAIN_2,
-                            LEVEL_HEVC_MAIN_2_1,
-                            LEVEL_HEVC_MAIN_3,
-                            LEVEL_HEVC_MAIN_3_1,
-                            LEVEL_HEVC_MAIN_4,
-                            LEVEL_HEVC_MAIN_4_1,
-                            LEVEL_HEVC_MAIN_5,
-                            LEVEL_HEVC_MAIN_5_1,
+                            LEVEL_HEVC_MAIN_1,   LEVEL_HEVC_MAIN_2,   LEVEL_HEVC_MAIN_2_1,
+                            LEVEL_HEVC_MAIN_3,   LEVEL_HEVC_MAIN_3_1, LEVEL_HEVC_MAIN_4,
+                            LEVEL_HEVC_MAIN_4_1, LEVEL_HEVC_MAIN_5,   LEVEL_HEVC_MAIN_5_1,
                         }),
                     })
                     .withSetter(HEVCProfileLevelSetter, mSize, mFrameRate, mBitrate)
@@ -726,16 +705,16 @@ public:
     static C2R ColorAspectsSetter(bool mayBlock, C2P<C2StreamColorAspectsInfo::input> &me) {
         (void)mayBlock;
         if (me.v.range > C2Color::RANGE_OTHER) {
-                me.set().range = C2Color::RANGE_OTHER;
+            me.set().range = C2Color::RANGE_OTHER;
         }
         if (me.v.primaries > C2Color::PRIMARIES_OTHER) {
-                me.set().primaries = C2Color::PRIMARIES_OTHER;
+            me.set().primaries = C2Color::PRIMARIES_OTHER;
         }
         if (me.v.transfer > C2Color::TRANSFER_OTHER) {
-                me.set().transfer = C2Color::TRANSFER_OTHER;
+            me.set().transfer = C2Color::TRANSFER_OTHER;
         }
         if (me.v.matrix > C2Color::MATRIX_OTHER) {
-                me.set().matrix = C2Color::MATRIX_OTHER;
+            me.set().matrix = C2Color::MATRIX_OTHER;
         }
         return C2R::Ok();
     }
@@ -946,8 +925,7 @@ C2RKMpiEnc::C2RKMpiEnc(
       mHorStride(0),
       mVerStride(0),
       mCurLayerCount(0),
-      mInputCount(0),
-      mOutputCount(0) {
+      mInputCount(0) {
     c2_info("[%s] version %s", name, C2_COMPONENT_FULL_VERSION);
     mCodingType = (MppCodingType)GetMppCodingFromComponentName(name);
     if (mCodingType == MPP_VIDEO_CodingUnused) {
@@ -984,18 +962,50 @@ c2_status_t C2RKMpiEnc::onInit() {
 
 c2_status_t C2RKMpiEnc::onStop() {
     c2_log_func_enter();
-    releaseEncoder();
     return C2_OK;
 }
 
 void C2RKMpiEnc::onReset() {
     c2_log_func_enter();
-    releaseEncoder();
 }
 
 void C2RKMpiEnc::onRelease() {
     c2_log_func_enter();
-    releaseEncoder();
+
+    if (!mStarted)
+        return;
+
+    if (mEncCfg) {
+        mpp_enc_cfg_deinit(mEncCfg);
+        mEncCfg = nullptr;
+    }
+
+    if (mMppCtx){
+        mpp_destroy(mMppCtx);
+        mMppCtx = nullptr;
+    }
+
+    if (mDmaMem != nullptr) {
+        GraphicBufferAllocator::get().free((buffer_handle_t)mDmaMem->handler);
+        free(mDmaMem);
+        mDmaMem = nullptr;
+    }
+
+    if (mMlvec != nullptr) {
+        delete mMlvec;
+        mMlvec = nullptr;
+    }
+
+    if (mDump != nullptr) {
+        delete mDump;
+        mDump = nullptr;
+    }
+
+    mStarted = false;
+    mSpsPpsHeaderReceived = false;
+    mSawInputEOS = false;
+    mOutputEOS = false;
+    mSignalledError = false;
 }
 
 c2_status_t C2RKMpiEnc::onFlush_sm() {
@@ -1008,7 +1018,6 @@ c2_status_t C2RKMpiEnc::setupBaseCodec() {
     mHorStride = C2_ALIGN(mSize->width, 16);
     if (mCodingType == MPP_VIDEO_CodingVP8) {
         mVerStride = C2_ALIGN(mSize->height, 16);
-        mpp_enc_cfg_set_s32(mEncCfg, "vp8:disable_ivf", 1);
     } else {
         mVerStride = C2_ALIGN(mSize->height, 8);
     }
@@ -1017,6 +1026,7 @@ c2_status_t C2RKMpiEnc::setupBaseCodec() {
             toStr_Coding(mCodingType), mSize->width, mSize->height, mHorStride, mVerStride);
 
     mpp_enc_cfg_set_s32(mEncCfg, "codec:type", mCodingType);
+    mpp_enc_cfg_set_s32(mEncCfg, "vp8:disable_ivf", 1);
 
     mpp_enc_cfg_set_s32(mEncCfg, "prep:width", mSize->width);
     mpp_enc_cfg_set_s32(mEncCfg, "prep:height", mSize->height);
@@ -1034,7 +1044,7 @@ c2_status_t C2RKMpiEnc::setupRotation() {
     int32_t degrees = c2Rotation->value;
 
     if (degrees > 0) {
-        c2_err("setupRotation: degrees %d", degrees);
+        c2_info("setupRotation: degrees %d", degrees);
 
         switch (degrees) {
         case 90:
@@ -1383,7 +1393,7 @@ c2_status_t C2RKMpiEnc::setupTemporalLayers() {
      * 2. only support tsvc layer 2 ~ 4.
      */
 
-    int ret = 0;
+    MPP_RET err = MPP_OK;
     MppEncRefCfg ref;
     MppEncRefLtFrmCfg ltRef[4];
     MppEncRefStFrmCfg stRef[16];
@@ -1560,9 +1570,9 @@ c2_status_t C2RKMpiEnc::setupTemporalLayers() {
         mpp_enc_ref_cfg_check(ref);
     }
 
-    ret = mMppMpi->control(mMppCtx, MPP_ENC_SET_REF_CFG, ref);
-    if (ret) {
-        c2_err("setupTemporalLayers: failed to set ref cfg ret %d", ret);
+    err = mMppMpi->control(mMppCtx, MPP_ENC_SET_REF_CFG, ref);
+    if (err != MPP_OK) {
+        c2_err("setupTemporalLayers: failed to set ref cfg, err %d", err);
         return C2_CORRUPTED;
     }
 
@@ -1581,9 +1591,9 @@ c2_status_t C2RKMpiEnc::setupPrependHeaderSetting() {
     if (prepend->value == C2Config::PREPEND_HEADER_TO_ALL_SYNC) {
         c2_info("setupPrependHeaderSetting: prepend sps pps to idr frames.");
         MppEncHeaderMode mode = MPP_ENC_HEADER_MODE_EACH_IDR;
-        int ret = mMppMpi->control(mMppCtx, MPP_ENC_SET_HEADER_MODE, &mode);
-        if (ret) {
-            c2_err("setupPrependHeaderSetting: failed to set mode ret %d", ret);
+        MPP_RET err = mMppMpi->control(mMppCtx, MPP_ENC_SET_HEADER_MODE, &mode);
+        if (err != MPP_OK) {
+            c2_err("setupPrependHeaderSetting: failed to set mode, err %d", err);
             return C2_CORRUPTED;
         }
     }
@@ -1664,18 +1674,17 @@ c2_status_t C2RKMpiEnc::setupMlvecIfNeeded() {
 }
 
 c2_status_t C2RKMpiEnc::setupEncCfg() {
-    c2_status_t ret = C2_OK;
-    int err = 0;
+    MPP_RET err = MPP_OK;
 
     err = mpp_enc_cfg_init(&mEncCfg);
-    if (err) {
-        c2_err("failed to get enc_cfg, ret %d", err);
+    if (err != MPP_OK) {
+        c2_err("failed to get enc_cfg, err %d", err);
         return C2_CORRUPTED;
     }
 
     err = mMppMpi->control(mMppCtx, MPP_ENC_GET_CFG, mEncCfg);
-    if (err) {
-        c2_err("failed to get codec cfg, ret %d", err);
+    if (err != MPP_OK) {
+        c2_err("failed to get codec cfg, err %d", err);
         return C2_CORRUPTED;
     }
 
@@ -1719,25 +1728,20 @@ c2_status_t C2RKMpiEnc::setupEncCfg() {
     setupMlvecIfNeeded();
 
     err = mMppMpi->control(mMppCtx, MPP_ENC_SET_CFG, mEncCfg);
-    if (err) {
+    if (err != MPP_OK) {
         c2_err("failed to setup codec cfg, ret %d", err);
-        ret = C2_CORRUPTED;
+        return C2_CORRUPTED;
     } else {
         /* optional */
         MppEncSeiMode seiMode = MPP_ENC_SEI_MODE_ONE_FRAME;
-        err = mMppMpi->control(mMppCtx, MPP_ENC_SET_SEI_CFG, &seiMode);
-        if (err) {
-            c2_err("failed to setup sei cfg, ret %d", err);
-            ret = C2_CORRUPTED;
-        }
+        mMppMpi->control(mMppCtx, MPP_ENC_SET_SEI_CFG, &seiMode);
     }
 
-    return ret;
+    return C2_OK;
 }
 
 c2_status_t C2RKMpiEnc::initEncoder() {
-    c2_status_t ret = C2_OK;
-    int err = 0;
+    MPP_RET err = MPP_OK;
     MppPollType timeout = MPP_POLL_BLOCK;
 
     c2_log_func_enter();
@@ -1784,35 +1788,29 @@ c2_status_t C2RKMpiEnc::initEncoder() {
 
     // create mpp and init mpp
     err = mpp_create(&mMppCtx, &mMppMpi);
-    if (err) {
-        c2_err("failed to mpp_create, ret %d", err);
-        ret = C2_CORRUPTED;
+    if (err != MPP_OK) {
+        c2_err("failed to mpp_create, err %d", err);
         goto error;
     }
 
     err = mMppMpi->control(mMppCtx, MPP_SET_OUTPUT_TIMEOUT, &timeout);
-    if (MPP_OK != err) {
-        c2_err("failed to set output timeout %d, ret %d", timeout, err);
-        ret = C2_CORRUPTED;
+    if (err != MPP_OK) {
+        c2_err("failed to set output timeout %d, err %d", timeout, err);
         goto error;
     }
 
     err = mpp_init(mMppCtx, MPP_CTX_ENC, mCodingType);
-    if (err) {
-        c2_err("failed to mpp_init, ret %d", err);
-        ret = C2_CORRUPTED;
+    if (err != MPP_OK) {
+        c2_err("failed to mpp_init, err %d", err);
         goto error;
     }
 
-    ret = setupEncCfg();
-    if (ret) {
-        c2_err("failed to set config, ret=0x%x", ret);
-        ret = C2_CORRUPTED;
+    if (setupEncCfg() != C2_OK) {
+        c2_err("failed to set config");
         goto error;
     }
 
     if (!mDump) {
-        // init dump object.
         mDump = new C2RKDump();
         mDump->initDump(mSize->width, mSize->height, true);
     }
@@ -1822,53 +1820,12 @@ c2_status_t C2RKMpiEnc::initEncoder() {
     return C2_OK;
 
 error:
-    releaseEncoder();
-
-    return ret;
-}
-
-c2_status_t C2RKMpiEnc::releaseEncoder() {
-    if (!mStarted)
-        return C2_OK;
-
-    if (mInputCount != mOutputCount) {
-        c2_warn("release but input count %d doesn't equal to output count %d.",
-                mInputCount, mOutputCount);
-    }
-
-    if (mEncCfg) {
-        mpp_enc_cfg_deinit(mEncCfg);
-        mEncCfg = nullptr;
-    }
-
-    if (mMppCtx){
+    if (mMppCtx) {
         mpp_destroy(mMppCtx);
         mMppCtx = nullptr;
     }
 
-    if (mDmaMem != nullptr) {
-        GraphicBufferAllocator::get().free((buffer_handle_t)mDmaMem->handler);
-        free(mDmaMem);
-        mDmaMem = nullptr;
-    }
-
-    if (mMlvec != nullptr) {
-        delete mMlvec;
-        mMlvec = nullptr;
-    }
-
-    if (mDump != nullptr) {
-        delete mDump;
-        mDump = nullptr;
-    }
-
-    mStarted = false;
-    mSpsPpsHeaderReceived = false;
-    mSawInputEOS = false;
-    mOutputEOS = false;
-    mSignalledError = false;
-
-    return C2_OK;
+    return C2_CORRUPTED;
 }
 
 void C2RKMpiEnc::fillEmptyWork(const std::unique_ptr<C2Work>& work) {
@@ -1954,45 +1911,12 @@ void C2RKMpiEnc::finishWork(
     }
 }
 
-c2_status_t C2RKMpiEnc::drainInternal(
-        uint32_t drainMode,
-        const std::shared_ptr<C2BlockPool> &pool,
-        const std::unique_ptr<C2Work> &work) {
-    c2_log_func_enter();
-
-    if (drainMode != DRAIN_COMPONENT_WITH_EOS) {
-        c2_info("drainMode %d: no-op", drainMode);
-        return C2_OK;
-    }
-
-    if (mInputCount == mOutputCount) {
-        // no need
-        return C2_OK;
-    }
-
-    c2_status_t ret = C2_OK;
-    OutWorkEntry entry;
-
-    while (true) {
-        memset(&entry, 0, sizeof(entry));
-        ret = getoutpacket(&entry);
-        if (ret == C2_OK) {
-            finishWork(work, pool, entry);
-        } else {
-            if (work && work->workletsProcessed != 1u) fillEmptyWork(work);
-            break;
-        }
-    }
-
-    c2_log_func_leave();
-
-    return C2_OK;
-}
-
 c2_status_t C2RKMpiEnc::drain(
         uint32_t drainMode,
         const std::shared_ptr<C2BlockPool> &pool) {
-    return drainInternal(drainMode, pool, nullptr);
+    (void)drainMode;
+    (void)pool;
+    return C2_OK;
 }
 
 void C2RKMpiEnc::process(
@@ -2016,8 +1940,9 @@ void C2RKMpiEnc::process(
     }
 
     if (mSignalledError) {
-        work->result = C2_BAD_VALUE;
         c2_info("Signalled Error");
+        work->result = C2_BAD_VALUE;
+        work->workletsProcessed = 1u;
         return;
     }
 
@@ -2057,45 +1982,41 @@ void C2RKMpiEnc::process(
     mSawInputEOS = (flags & C2FrameData::FLAG_END_OF_STREAM);
 
     if (!mSpsPpsHeaderReceived) {
-        MppPacket hdrPkt = nullptr;
-        void *hdrBuf = nullptr;
-        void *extradata = nullptr;
-        uint32_t hdrBufSize = 1024;
-        uint32_t extradataSize = 0;
+        MppPacket hdrPkt   = nullptr;
+        void     *hdrBuf   = nullptr;
+        void     *data     = nullptr;
+        uint32_t  hdrSize  = 1024;
+        uint32_t  dataSize = 0;
 
-        hdrBuf = malloc(hdrBufSize * sizeof(uint8_t));
+        hdrBuf = malloc(hdrSize * sizeof(uint8_t));
         if (hdrBuf)
-            mpp_packet_init(&hdrPkt, hdrBuf, hdrBufSize);
+            mpp_packet_init(&hdrPkt, hdrBuf, hdrSize);
 
         if (hdrPkt) {
             mMppMpi->control(mMppCtx, MPP_ENC_GET_HDR_SYNC, hdrPkt);
-            extradataSize = mpp_packet_get_length(hdrPkt);
-            extradata = mpp_packet_get_data(hdrPkt);
+            data = mpp_packet_get_data(hdrPkt);
+            dataSize = mpp_packet_get_length(hdrPkt);
         }
 
         std::unique_ptr<C2StreamInitDataInfo::output> csd =
-                C2StreamInitDataInfo::output::AllocUnique(extradataSize, 0u);
-        if (!csd) {
-            c2_err("CSD allocation failed");
-            work->result = C2_NO_MEMORY;
-            work->workletsProcessed = 1u;
-            C2_SAFE_FREE(hdrBuf);
-            return;
-        }
+                C2StreamInitDataInfo::output::AllocUnique(dataSize, 0u);
 
-        memcpy(csd->m.value, extradata, extradataSize);
+        memcpy(csd->m.value, data, dataSize);
         work->worklets.front()->output.configUpdate.push_back(std::move(csd));
 
         /* dump output data if neccessary */
-        mDump->recordOutFile(extradata, extradataSize);
+        mDump->recordOutFile(data, dataSize);
 
         mSpsPpsHeaderReceived = true;
 
-        if (hdrPkt){
+        if (hdrPkt) {
             mpp_packet_deinit(&hdrPkt);
-            hdrPkt = NULL;
+            hdrPkt = nullptr;
         }
-        C2_SAFE_FREE(hdrBuf);
+        if (hdrBuf) {
+            free(hdrBuf);
+            hdrBuf = nullptr;
+        }
 
         if (work->input.buffers.empty()) {
             work->workletsProcessed = 1u;
@@ -2143,10 +2064,6 @@ void C2RKMpiEnc::process(
     if (!mSawInputEOS && work->input.buffers.empty()) {
         fillEmptyWork(work);
     }
-
-    if (mSawInputEOS && !mOutputEOS) {
-        drainInternal(DRAIN_COMPONENT_WITH_EOS, pool, work);
-    }
 }
 
 c2_status_t C2RKMpiEnc::handleCommonDynamicCfg() {
@@ -2192,8 +2109,8 @@ c2_status_t C2RKMpiEnc::handleCommonDynamicCfg() {
     }
 
     if (change) {
-        int32_t err = mMppMpi->control(mMppCtx, MPP_ENC_SET_CFG, mEncCfg);
-        if (err) {
+        MPP_RET err = mMppMpi->control(mMppCtx, MPP_ENC_SET_CFG, mEncCfg);
+        if (err != MPP_OK) {
             c2_err("failed to setup dynamic config, ret %d", err);
         }
     }
@@ -2299,45 +2216,33 @@ c2_status_t C2RKMpiEnc::handleMlvecDynamicCfg(MppMeta meta) {
     return C2_OK;
 }
 
-// check if codec2 input can be received by mpp driver directly, if not, we need
-// convert input to align yuv420sp format by rga.
+// Note: Check if the input can be received by mpp driver directly
 bool C2RKMpiEnc::needRgaConvert(uint32_t width, uint32_t height, MppFrameFormat fmt) {
-    bool ret = true;
+    bool needsRga = true;
 
     if (fmt == MPP_FMT_RGBA8888) {
         if (!C2RKChipCapDef::get()->hasRkVenc()) {
-            ret = true;
-            goto quit;
-        }
-
-        if ((mChipType == RK_CHIP_3588 || mChipType == RK_CHIP_3562)
-                && mCodingType != MPP_VIDEO_CodingVP8) {
-            ret = false;
-            goto quit;
-        }
-
-        if (C2_IS_ALIGNED(width, 16) && C2_IS_ALIGNED(height, 16)) {
-            ret = false;
-            goto quit;
-        }
-    } else if (fmt == MPP_FMT_YUV420SP) {
-        if (mChipType == RK_CHIP_3588 && mCodingType != MPP_VIDEO_CodingVP8) {
-            ret = false;
-            goto quit;
-        }
-
-        if (C2_IS_ALIGNED(width, 16) && C2_IS_ALIGNED(height, 16)) {
-            ret = false;
-            goto quit;
+            needsRga = true;
+            goto cleanUp;
         }
     }
 
-quit:
+    if (mChipType == RK_CHIP_3588 ||
+        mChipType == RK_CHIP_3562 ||
+        mChipType == RK_CHIP_3576) {
+        needsRga = (mCodingType == MPP_VIDEO_CodingVP8);
+    }
+
+    if (needsRga && C2_IS_ALIGNED(width, 16) && C2_IS_ALIGNED(height, 16)) {
+        needsRga = false;
+    }
+
+cleanUp:
     if (mInputCount == 0) {
         c2_info("check: hor %d ver %d fmt %s %s extra convert",
-                width, height, toStr_Format(fmt), ret ? "need" : "no need");
+                width, height, toStr_Format(fmt), needsRga ? "need" : "no need");
     }
-    return ret;
+    return needsRga;
 }
 
 c2_status_t C2RKMpiEnc::getInBufferFromWork(
@@ -2483,8 +2388,9 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
         }
         mpp_enc_cfg_set_s32(mEncCfg, "prep:ver_stride", mVerStride);
         mpp_enc_cfg_set_s32(mEncCfg, "prep:format", mInputMppFmt);
-        int err = mMppMpi->control(mMppCtx, MPP_ENC_SET_CFG, mEncCfg);
-        if (err) {
+
+        MPP_RET err = mMppMpi->control(mMppCtx, MPP_ENC_SET_CFG, mEncCfg);
+        if (err != MPP_OK) {
             c2_err("failed to setup new mpp config.");
             ret = C2_CORRUPTED;
         }
@@ -2495,8 +2401,8 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
 
 c2_status_t C2RKMpiEnc::sendframe(
         MyDmaBuffer_t dBuffer, uint64_t pts, uint32_t flags) {
-    int err = 0;
     c2_status_t ret = C2_OK;
+    MPP_RET err = MPP_OK;
     MppFrame frame = nullptr;
 
     mpp_frame_init(&frame);
@@ -2559,7 +2465,7 @@ c2_status_t C2RKMpiEnc::sendframe(
     handleRequestSyncFrame();
 
     err = mMppMpi->encode_put_frame(mMppCtx, frame);
-    if (err) {
+    if (err != MPP_OK) {
         c2_err("failed to put_frame, err %d", err);
         ret = C2_NOT_FOUND;
         goto error;
@@ -2570,8 +2476,6 @@ c2_status_t C2RKMpiEnc::sendframe(
 
     mInputCount++;
 
-    ret = C2_OK;
-
 error:
     if (frame) {
         mpp_frame_deinit(&frame);
@@ -2581,11 +2485,11 @@ error:
 }
 
 c2_status_t C2RKMpiEnc::getoutpacket(OutWorkEntry *entry) {
-    int err = 0;
+    MPP_RET err = MPP_OK;
     MppPacket packet = nullptr;
 
     err = mMppMpi->encode_get_packet(mMppCtx, &packet);
-    if (err) {
+    if (err != MPP_OK) {
         return C2_NOT_FOUND;
     } else {
         int64_t  pts = mpp_packet_get_pts(packet);
@@ -2593,7 +2497,6 @@ c2_status_t C2RKMpiEnc::getoutpacket(OutWorkEntry *entry) {
         uint32_t eos = mpp_packet_get_eos(packet);
         void   *data = mpp_packet_get_data(packet);
 
-        mOutputCount++;
         c2_trace("get outpacket pts %lld size %d eos %d", pts, len, eos);
 
         /* dump output data if neccessary */

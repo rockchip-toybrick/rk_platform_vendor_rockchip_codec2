@@ -92,7 +92,6 @@ private:
     int32_t        mVerStride;
     int32_t        mCurLayerCount;
     int32_t        mInputCount;
-    int32_t        mOutputCount;
 
     // configurations used by component in process
     // (TODO: keep this in intf but make them internal only)
@@ -106,9 +105,6 @@ private:
             const std::unique_ptr<C2Work> &work,
             const std::shared_ptr<C2BlockPool>& pool,
             OutWorkEntry entry);
-    c2_status_t drainInternal(uint32_t drainMode,
-            const std::shared_ptr<C2BlockPool> &pool,
-            const std::unique_ptr<C2Work> &work);
 
     c2_status_t setupBaseCodec();
     c2_status_t setupRotation();
@@ -126,8 +122,6 @@ private:
     c2_status_t setupEncCfg();
 
     c2_status_t initEncoder();
-    c2_status_t releaseEncoder();
-
     c2_status_t handleCommonDynamicCfg();
     c2_status_t handleRequestSyncFrame();
     c2_status_t handleMlvecDynamicCfg(MppMeta meta);
