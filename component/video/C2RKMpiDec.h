@@ -62,6 +62,11 @@ private:
         BUFFER_SITE_BY_BUTT,
     };
 
+    enum OutBufferFlags {
+        BUFFER_FLAGS_EOS         = 0x1,
+        BUFFER_FLAGS_ERROR_FRAME = 0x2,
+    };
+
     typedef struct {
         /* index to find this buffer */
         uint32_t       index;
@@ -76,6 +81,7 @@ private:
     typedef struct {
         std::shared_ptr<C2GraphicBlock> outblock;
         uint64_t timestamp;
+        uint32_t flags;
     } OutWorkEntry;
 
     class WorkHandler : public AHandler {
@@ -123,7 +129,6 @@ private:
 
     bool mStarted;
     bool mFlushed;
-    bool mOutputEos;
     bool mSignalledInputEos;
     bool mSignalledError;
     bool mSizeInfoUpdate;

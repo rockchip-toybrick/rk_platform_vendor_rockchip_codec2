@@ -676,7 +676,6 @@ C2RKMpiDec::C2RKMpiDec(
       mGrallocVersion(C2RKChipCapDef::get()->getGrallocVersion()),
       mStarted(false),
       mFlushed(true),
-      mOutputEos(false),
       mSignalledInputEos(false),
       mSignalledError(false),
       mSizeInfoUpdate(false),
@@ -783,7 +782,6 @@ void C2RKMpiDec::onRelease() {
 c2_status_t C2RKMpiDec::onFlush_sm() {
     if (!mFlushed) {
         c2_log_func_enter();
-        mOutputEos = false;
         mSignalledInputEos = false;
         mSignalledError = false;
 
@@ -972,40 +970,33 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
     // TODO: workround: CTS-CodecDecoderTest
     // testFlushNative[15(c2.rk.mpeg2.decoder_video/mpeg2)
     if (mCodingType == MPP_VIDEO_CodingMPEG2) {
-        uint32_t vmode = 0, split = 1;
-        mMppMpi->control(mMppCtx, MPP_DEC_SET_ENABLE_DEINTERLACE, &vmode);
+        uint32_t mode = 0, split = 1;
+        mMppMpi->control(mMppCtx, MPP_DEC_SET_ENABLE_DEINTERLACE, &mode);
         mMppMpi->control(mMppCtx, MPP_DEC_SET_PARSER_SPLIT_MODE, &split);
     } else {
         // enable deinterlace, but not decting
-        uint32_t vmode = 1;
-        mMppMpi->control(mMppCtx, MPP_DEC_SET_ENABLE_DEINTERLACE, &vmode);
+        uint32_t mode = 1;
+        mMppMpi->control(mMppCtx, MPP_DEC_SET_ENABLE_DEINTERLACE, &mode);
     }
 
     {
-        // enable fast mode
-        uint32_t fastParser = 1;
-        mMppMpi->control(mMppCtx, MPP_DEC_SET_PARSER_FAST_MODE, &fastParser);
+        uint32_t fastParse = 1;
+        mMppMpi->control(mMppCtx, MPP_DEC_SET_PARSER_FAST_MODE, &fastParse);
 
-        uint32_t disableErr = 1;
-        mMppMpi->control(mMppCtx, MPP_DEC_SET_DISABLE_ERROR, &disableErr);
-    }
-
-    err = mpp_init(mMppCtx, MPP_CTX_DEC, mCodingType);
-    if (err != MPP_OK) {
-        c2_err("failed to mpp_init, ret %d", err);
-        goto error;
-    }
-
-    {
-        // enable fast-play mode, ignore the effect of B-frame.
         uint32_t fastPlay = 1;
         mMppMpi->control(mMppCtx, MPP_DEC_SET_ENABLE_FAST_PLAY, &fastPlay);
 
         if (mLowLatencyMode) {
-            uint32_t immediate = 1;
-            mMppMpi->control(mMppCtx, MPP_DEC_SET_IMMEDIATE_OUT, &immediate);
-            c2_info("enable lowLatency, enable mpp immediate-out mode");
+            uint32_t fastOut = 1;
+            mMppMpi->control(mMppCtx, MPP_DEC_SET_IMMEDIATE_OUT, &fastOut);
+            c2_info("enable lowLatency, enable mpp fast-out mode");
         }
+    }
+
+    err = mpp_init(mMppCtx, MPP_CTX_DEC, mCodingType);
+    if (err != MPP_OK) {
+        c2_err("failed to mpp_init, err %d", err);
+        goto error;
     }
 
     {
@@ -1049,7 +1040,13 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
         mpp_frame_set_width(frame, mWidth);
         mpp_frame_set_height(frame, mHeight);
         mpp_frame_set_fmt(frame, (MppFrameFormat)mppFmt);
-        mMppMpi->control(mMppCtx, MPP_DEC_SET_FRAME_INFO, (MppParam)frame);
+
+        err = mMppMpi->control(mMppCtx, MPP_DEC_SET_FRAME_INFO, (MppParam)frame);
+        if (err != MPP_OK) {
+            c2_err("failed to set frame info, err %d", err);
+            mpp_frame_deinit(&frame);
+            goto error;
+        }
 
         mHorStride = mpp_frame_get_hor_stride(frame);
         mVerStride = mpp_frame_get_ver_stride(frame);
@@ -1067,6 +1064,10 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
     }
 
     mMppMpi->control(mMppCtx, MPP_DEC_SET_EXT_BUF_GROUP, mFrmGrp);
+    if (err != MPP_OK) {
+        c2_err("failed to set buffer group, err %d", err);
+        goto error;
+    }
 
     if (!mDump) {
         mDump = new C2RKDump();
@@ -1107,6 +1108,7 @@ void C2RKMpiDec::finishWork(OutWorkEntry entry) {
 
     std::shared_ptr<C2GraphicBlock> outblock = entry.outblock;
     uint64_t timestamp = entry.timestamp;
+    uint32_t flags = entry.flags;
 
     if (outblock) {
         uint32_t left = mFbcCfg.mode ? mFbcCfg.paddingX : 0;
@@ -1130,12 +1132,13 @@ void C2RKMpiDec::finishWork(OutWorkEntry entry) {
     // TODO: work flags set to incomplete to ignore frame index check
     uint32_t outFlags = C2FrameData::FLAG_INCOMPLETE;
 
-    if (isDropFrame(timestamp))
-        inFlags = C2FrameData::FLAG_DROP_FRAME;
-
-    if (mOutputEos) {
+    if (flags & BUFFER_FLAGS_EOS) {
         outFlags |= C2FrameData::FLAG_END_OF_STREAM;
         c2_info("signalling eos");
+    }
+
+    if ((flags & BUFFER_FLAGS_ERROR_FRAME) || isDropFrame(timestamp)) {
+        inFlags = C2FrameData::FLAG_DROP_FRAME;
     }
 
     auto fillWork = [c2Buffer, inFlags, outFlags, timestamp]
@@ -1364,9 +1367,9 @@ void C2RKMpiDec::getVuiParams(MppFrame frame) {
 }
 
 c2_status_t C2RKMpiDec::updateFbcModeIfNeeded() {
-    uint32_t format = mColorFormat;
-    bool update = false;
-    bool preferFbc = preferFbcOutput();
+    bool needsUpdate = false;
+    bool preferFbc   = preferFbcOutput();
+    uint32_t format  = mColorFormat;
 
     if (!MPP_FRAME_FMT_IS_FBC(format)) {
         int32_t fbcMode = C2RKChipCapDef::get()->getFbcOutputMode(mCodingType);
@@ -1376,7 +1379,7 @@ c2_status_t C2RKMpiDec::updateFbcModeIfNeeded() {
             /* fbc decode output has padding inside, set crop before display */
             C2RKChipCapDef::get()->getFbcOutputOffset(
                     mCodingType, &mFbcCfg.paddingX, &mFbcCfg.paddingY);
-            update = true;
+            needsUpdate = true;
             c2_info("change use mpp fbc output mode, padding offset(%d, %d)",
                     mFbcCfg.paddingX, mFbcCfg.paddingY);
         }
@@ -1384,12 +1387,13 @@ c2_status_t C2RKMpiDec::updateFbcModeIfNeeded() {
         if (!preferFbc) {
             format &= ~MPP_FRAME_FBC_AFBC_V2;
             memset(&mFbcCfg, 0, sizeof(mFbcCfg));
-            update = true;
+            needsUpdate = true;
             c2_info("change use mpp non-fbc output mode");
         }
     }
 
-    if (update) {
+    if (needsUpdate) {
+        MPP_RET err = MPP_OK;
         MppFrame frame = nullptr;
 
         mMppMpi->control(mMppCtx, MPP_DEC_SET_OUTPUT_FORMAT, (MppParam)&format);
@@ -1398,7 +1402,13 @@ c2_status_t C2RKMpiDec::updateFbcModeIfNeeded() {
         mpp_frame_set_width(frame, mWidth);
         mpp_frame_set_height(frame, mHeight);
         mpp_frame_set_fmt(frame, (MppFrameFormat)format);
-        mMppMpi->control(mMppCtx, MPP_DEC_SET_FRAME_INFO, (MppParam)frame);
+
+        err = mMppMpi->control(mMppCtx, MPP_DEC_SET_FRAME_INFO, (MppParam)frame);
+        if (err != MPP_OK) {
+            c2_err("failed to set frame info, err %d", err);
+            mpp_frame_deinit(&frame);
+            return C2_CORRUPTED;
+        }
 
         mHorStride = mpp_frame_get_hor_stride(frame);
         mVerStride = mpp_frame_get_ver_stride(frame);
@@ -1699,6 +1709,7 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
     uint32_t error   = mpp_frame_get_errinfo(frame);
     uint32_t eos     = mpp_frame_get_eos(frame);
     uint64_t pts     = mpp_frame_get_pts(frame);
+    uint32_t flags   = 0;
 
     MppFrameFormat format = mpp_frame_get_fmt(frame);
     MppBuffer   mppBuffer = mpp_frame_get_buffer(frame);
@@ -1759,9 +1770,14 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
 
     if (eos) {
         c2_info("get output eos.");
-        mOutputEos = true;
+        flags |= BUFFER_FLAGS_EOS;
         // ignore null frame with eos
         if (!mppBuffer) goto cleanUp;
+    }
+
+    if (error) {
+        c2_warn("skip error frame with pts %lld", pts);
+        flags |= BUFFER_FLAGS_ERROR_FRAME;
     }
 
     if (isPendingFlushing()) {
@@ -1843,6 +1859,8 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
     entry->timestamp = pts;
 
 cleanUp:
+    entry->flags = flags;
+
     if (frame) {
         mpp_frame_deinit(&frame);
         frame = nullptr;
