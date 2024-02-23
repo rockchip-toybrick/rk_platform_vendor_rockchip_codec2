@@ -1132,11 +1132,6 @@ void C2RKMpiDec::finishWork(OutWorkEntry entry) {
     // TODO: work flags set to incomplete to ignore frame index check
     uint32_t outFlags = C2FrameData::FLAG_INCOMPLETE;
 
-    if (flags & BUFFER_FLAGS_EOS) {
-        outFlags |= C2FrameData::FLAG_END_OF_STREAM;
-        c2_info("signalling eos");
-    }
-
     if ((flags & BUFFER_FLAGS_ERROR_FRAME) || isDropFrame(timestamp)) {
         inFlags = C2FrameData::FLAG_DROP_FRAME;
     }
@@ -1171,6 +1166,12 @@ void C2RKMpiDec::finishWork(OutWorkEntry entry) {
     }
 
     finish(work, fillWork);
+
+    if (flags & BUFFER_FLAGS_EOS) {
+        c2_info("signalling eos");
+        Mutex::Autolock autoLock(mEosLock);
+        mEosCondition.signal();
+    }
 }
 
 c2_status_t C2RKMpiDec::drain(
@@ -1259,10 +1260,17 @@ void C2RKMpiDec::process(
         return;
     }
 
-    mSignalledInputEos = ((flags & C2FrameData::FLAG_END_OF_STREAM) != 0);
-
     // fillEmpty for old worklet
-    flags = 0;
+    if (flags & C2FrameData::FLAG_END_OF_STREAM) {
+        flags = C2FrameData::FLAG_END_OF_STREAM;
+        mSignalledInputEos = true;
+        // wait output eos stream
+        Mutex::Autolock autoLock(mEosLock);
+        mEosCondition.wait(mEosLock);
+    } else {
+        flags = 0;
+    }
+
     work->worklets.front()->output.flags = (C2FrameData::flags_t)flags;
     work->worklets.front()->output.buffers.clear();
     work->worklets.front()->output.ordinal = work->input.ordinal;
@@ -1622,7 +1630,6 @@ void C2RKMpiDec::postFrameReady() {
 
 c2_status_t C2RKMpiDec::onFrameReady() {
     c2_status_t err = C2_OK;
-    c2_trace_func_enter();
 
 outframe:
     OutWorkEntry entry;

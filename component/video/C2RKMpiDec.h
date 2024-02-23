@@ -107,6 +107,9 @@ private:
     Mutex     mBufferLock;
     C2RKDump *mDump;
 
+    Mutex     mEosLock;
+    Condition mEosCondition;
+
     sp<ALooper>     mLooper;
     sp<WorkHandler> mHandler;
 
