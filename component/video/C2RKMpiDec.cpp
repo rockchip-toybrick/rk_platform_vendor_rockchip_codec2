@@ -1236,11 +1236,9 @@ void C2RKMpiDec::process(
     c2_trace("in buffer attr. size %zu timestamp %lld frameindex %lld, flags %x",
              inSize, timestamp, frameIndex, flags);
 
-    if (!(flags & C2FrameData::FLAG_CODEC_CONFIG)) {
-        if (flags & C2FrameData::FLAG_DROP_FRAME) {
-            mDropFramesPts.push_back(timestamp);
-        }
-        mFlushed = false;
+    if (!(flags & C2FrameData::FLAG_CODEC_CONFIG)
+            && (flags & C2FrameData::FLAG_DROP_FRAME)) {
+        mDropFramesPts.push_back(timestamp);
     }
 
     err = ensureDecoderState();
@@ -1275,6 +1273,8 @@ void C2RKMpiDec::process(
     work->worklets.front()->output.buffers.clear();
     work->worklets.front()->output.ordinal = work->input.ordinal;
     work->workletsProcessed = 1u;
+
+    mFlushed = false;
 }
 
 void C2RKMpiDec::setDefaultCodecColorAspectsIfNeeded(ColorAspects &aspects) {
