@@ -125,6 +125,10 @@ uint64_t C2RKMediaUtils::getStrideUsage(int32_t width, int32_t stride) {
 #ifdef RK_GRALLOC_USAGE_STRIDE_ALIGN_256_ODD_TIMES
     if (stride == C2_ALIGN_ODD(width, 256)) {
         return RK_GRALLOC_USAGE_STRIDE_ALIGN_256_ODD_TIMES;
+#ifdef RK_GRALLOC_USAGE_STRIDE_ALIGN_128_ODD_TIMES_PLUS_64
+    } else if (stride == (C2_ALIGN_ODD(width, 128) + 64)) {
+        return RK_GRALLOC_USAGE_STRIDE_ALIGN_128_ODD_TIMES_PLUS_64;
+#endif
     } else if (stride == C2_ALIGN(width, 128)) {
         return  RK_GRALLOC_USAGE_STRIDE_ALIGN_128;
     } else if (stride == C2_ALIGN(width, 64)) {

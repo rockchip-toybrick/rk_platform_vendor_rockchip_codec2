@@ -841,7 +841,7 @@ bool C2RKMpiDec::preferFbcOutput(const std::unique_ptr<C2Work> &work) {
         return false;
     }
 
-    if (mColorFormat & MPP_FMT_YUV420SP_10BIT) {
+    if (MPP_FRAME_FMT_IS_YUV_10BIT(mColorFormat)) {
         c2_info("10bit video source, perfer use output mode");
         return true;
     }
@@ -1496,14 +1496,21 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
     Mutex::Autolock autoLock(mBufferLock);
 
     // NOTE: private gralloc stride usage only support in 4.0.
+    // Update use stride usage if we are able config available stride.
     if (mGrallocVersion == 4 && !mFbcCfg.mode && !mIsGBSource) {
-        uint64_t wUsage = C2RKMediaUtils::getStrideUsage(mWidth, mHorStride);
-        uint64_t hUsage = C2RKMediaUtils::getHStrideUsage(mHeight, mVerStride);
+        uint64_t horUsage = C2RKMediaUtils::getStrideUsage(mWidth, mHorStride);
+        uint64_t verUsage = C2RKMediaUtils::getHStrideUsage(mHeight, mVerStride);
 
-        if (wUsage > 0 && hUsage > 0) {
+        // 10bit video calculate stride base on (width * 10 / 8)
+        if (horUsage == 0 && MPP_FRAME_FMT_IS_YUV_10BIT(mColorFormat)) {
+            horUsage = C2RKMediaUtils::getStrideUsage(mWidth * 10 / 8, mHorStride);
+        }
+
+        if (horUsage > 0 && verUsage > 0) {
             blockW = mWidth;
             blockH = mHeight;
-            usage = (wUsage | hUsage);
+            usage = (horUsage | verUsage);
+            c2_trace("update stride usage 0x%llx", (long long)usage);
         }
     }
 
@@ -1569,7 +1576,7 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
     }
 
     if (mBufferMode) {
-        uint32_t bFormat = (mColorFormat & MPP_FMT_YUV420SP_10BIT) ? mPixelFormat : format;
+        uint32_t bFormat = (MPP_FRAME_FMT_IS_YUV_10BIT(mColorFormat)) ? mPixelFormat : format;
         uint64_t bUsage  = (usage | GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN);
 
         // allocate buffer within 4G to avoid rga2 error.
@@ -1804,7 +1811,7 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
              width, height, hstride, vstride, pts, error, outBuffer->index);
 
     if (mBufferMode) {
-        if (mColorFormat & MPP_FMT_YUV420SP_10BIT) {
+        if (MPP_FRAME_FMT_IS_YUV_10BIT(mColorFormat)) {
             C2GraphicView wView = mOutBlock->map().get();
             C2PlanarLayout layout = wView.layout();
             uint8_t *src = (uint8_t*)mpp_buffer_get_ptr(mppBuffer);
@@ -1904,7 +1911,7 @@ c2_status_t C2RKMpiDec::configFrameScaleMeta(
         scaleParam.thumbHorStride = C2_ALIGN(mHorStride >> 1, 16);
         scaleParam.yOffset = scaleYOffset;
         scaleParam.uvOffset = scaleUVOffset;
-        if ((format & MPP_FRAME_FMT_MASK) == MPP_FMT_YUV420SP_10BIT) {
+        if (MPP_FRAME_FMT_IS_YUV_10BIT(format)) {
             scaleParam.format = HAL_PIXEL_FORMAT_YCrCb_NV12_10;
         } else {
             scaleParam.format = HAL_PIXEL_FORMAT_YCrCb_NV12;
