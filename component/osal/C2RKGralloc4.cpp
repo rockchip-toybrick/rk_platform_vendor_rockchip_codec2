@@ -62,10 +62,39 @@ const static IMapper::MetadataType ArmMetadataType_PLANE_FDS {
     1
 };
 
+#define OFFSET_OF_DYNAMIC_HDR_METADATA      (1)
+#define GRALLOC_RK_METADATA_TYPE_NAME       "rk.graphics.RkMetadataType"
+const static IMapper::MetadataType RkMetadataType_OFFSET_OF_DYNAMIC_HDR_METADATA {
+    GRALLOC_RK_METADATA_TYPE_NAME,
+    OFFSET_OF_DYNAMIC_HDR_METADATA
+};
+
 static IMapper &get_service()
 {
     static android::sp<IMapper> cached_service = IMapper::getService();
     return *cached_service;
+}
+
+static android::status_t decodeRkOffsetOfVideoMetadata(
+        const hidl_vec<uint8_t>& input, int64_t* offset_of_metadata)
+{
+    int64_t offset = 0;
+
+    memcpy(&offset, input.data(), sizeof(offset));
+
+    *offset_of_metadata = offset;
+
+    return android::NO_ERROR;
+}
+
+static android::status_t encodeRkOffsetOfVideoMetadata(
+        const int64_t offset, hidl_vec<uint8_t>* output)
+{
+    output->resize(1 * sizeof(int64_t));
+
+    memcpy(output->data(), &offset, sizeof(offset));
+
+    return android::OK;
 }
 
 template <typename T>
@@ -275,15 +304,52 @@ uint64_t C2RKGralloc4::getBufferId(buffer_handle_t handle) {
 }
 
 int32_t C2RKGralloc4::setDynamicHdrMeta(buffer_handle_t handle, int64_t offset) {
-    (void)handle;
-    (void)offset;
-    c2_err("not implement");
+    int32_t err = android::OK;
+    auto &mapper = get_service();
+    hidl_vec<uint8_t> encodedOffset;
+
+    err = encodeRkOffsetOfVideoMetadata(offset, &encodedOffset);
+    if (err != android::OK) {
+        c2_err("Failed to encode offset_of_dynamic_hdr_metadata. err : %d", err);
+        return err;
+    }
+
+    auto ret = mapper.set(const_cast<native_handle_t*>(handle),
+                          RkMetadataType_OFFSET_OF_DYNAMIC_HDR_METADATA,
+                          encodedOffset);
+    const Error error = ret.withDefault(Error::NO_RESOURCES);
+    switch (error) {
+        case Error::BAD_DESCRIPTOR:
+        case Error::BAD_BUFFER:
+        case Error::BAD_VALUE:
+        case Error::NO_RESOURCES:
+            c2_err("set(%s, %lld, ...) failed with %d",
+                RkMetadataType_OFFSET_OF_DYNAMIC_HDR_METADATA.name.c_str(),
+                (long long)RkMetadataType_OFFSET_OF_DYNAMIC_HDR_METADATA.value,
+                error);
+            err = -1;
+            break;
+        // It is not an error to attempt to set metadata that a particular gralloc implementation
+        // happens to not support.
+        case Error::UNSUPPORTED:
+        case Error::NONE:
+            break;
+    }
+
     return -1;
 }
 
 int64_t C2RKGralloc4::getDynamicHdrMeta(buffer_handle_t handle) {
-    (void)handle;
-    c2_err("not implement");
+    auto &mapper = get_service();
+    int64_t offset = 0;
+
+    int err = get_metadata(mapper, handle, RkMetadataType_OFFSET_OF_DYNAMIC_HDR_METADATA,
+                           decodeRkOffsetOfVideoMetadata, &offset);
+    if (err != android::OK) {
+        c2_err("Failed to get buffer id. err : %d", err);
+        return 0;
+    }
+
     return -1;
 }
 

@@ -138,6 +138,7 @@ private:
     bool mLowLatencyMode;
     bool mIsGBSource;
     bool mScaleEnabled;
+    bool mHdrMetaEnabled;
 
     /*
        1. BufferMode:  without surcace
@@ -191,6 +192,7 @@ private:
     c2_status_t getoutframe(OutWorkEntry *entry);
 
     c2_status_t configFrameScaleMeta(MppFrame frame, std::shared_ptr<C2GraphicBlock> block);
+    c2_status_t configFrameHdrMeta(MppFrame frame, std::shared_ptr<C2GraphicBlock> block);
 
     bool isDropFrame(uint64_t pts) {
         Vector<uint64_t>::iterator it;

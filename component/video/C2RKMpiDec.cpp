@@ -680,6 +680,7 @@ C2RKMpiDec::C2RKMpiDec(
       mLowLatencyMode(false),
       mIsGBSource(false),
       mScaleEnabled(false),
+      mHdrMetaEnabled(false),
       mBufferMode(false) {
     c2_info("[%s] version %s", name, C2_COMPONENT_FULL_VERSION);
     mCodingType = (MppCodingType)GetMppCodingFromComponentName(name);
@@ -1067,6 +1068,12 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
         mpp_dec_cfg_init(&cfg);
         mpp_dec_cfg_set_ptr(cfg, "cb:frm_rdy_cb", (void *)frameReadyCb);
         mpp_dec_cfg_set_ptr(cfg, "cb:frm_rdy_ctx", this);
+
+        /* check HDR Vivid support */
+        if (!mBufferMode && C2RKChipCapDef::get()->getHdrMetaCap()) {
+            mpp_dec_cfg_set_u32(cfg, "base:enable_hdr_meta", 1);
+            mHdrMetaEnabled = true;
+        }
 
         err = mMppMpi->control(mMppCtx, MPP_DEC_SET_CFG, cfg);
         if (err != MPP_OK) {
@@ -1564,6 +1571,9 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
     if (mScaleEnabled) {
         usage |= GRALLOC_USAGE_RKVDEC_SCALING;
     }
+    if (mHdrMetaEnabled) {
+        usage |= GRALLOC_USAGE_DYNAMIC_HDR;
+    }
 
     if (mBufferMode) {
         uint32_t bFormat = (MPP_FRAME_FMT_IS_YUV_10BIT(mColorFormat)) ? mPixelFormat : format;
@@ -1841,6 +1851,9 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
         if (mScaleEnabled) {
             configFrameScaleMeta(frame, outBuffer->block);
         }
+        if (mHdrMetaEnabled) {
+            configFrameHdrMeta(frame, outBuffer->block);
+        }
     }
 
     if (mCodingType == MPP_VIDEO_CodingAVC ||
@@ -1877,7 +1890,7 @@ c2_status_t C2RKMpiDec::configFrameScaleMeta(
         MppFrame frame, std::shared_ptr<C2GraphicBlock> block) {
     if (block->handle()
             && mpp_frame_has_meta(frame) && mpp_frame_get_thumbnail_en(frame)) {
-        MppMeta meta = NULL;
+        MppMeta meta = nullptr;
         int32_t scaleYOffset = 0;
         int32_t scaleUVOffset = 0;
         int32_t width = 0, height = 0;
@@ -1912,6 +1925,32 @@ c2_status_t C2RKMpiDec::configFrameScaleMeta(
                sizeof(int) * (nHandle->numFds + nHandle->numInts));
 
         native_handle_delete(nHandle);
+    }
+
+    return C2_OK;
+}
+
+c2_status_t C2RKMpiDec::configFrameHdrMeta(
+        MppFrame frame, std::shared_ptr<C2GraphicBlock> block) {
+    if (block->handle() && mpp_frame_has_meta(frame)
+            && MPP_FRAME_FMT_IS_HDR(mpp_frame_get_fmt(frame))) {
+        int32_t hdrMetaOffset = 0;
+        int32_t hdrMetaSize = 0;
+
+        MppMeta meta = mpp_frame_get_meta(frame);
+        mpp_meta_get_s32(meta, KEY_HDR_META_OFFSET, &hdrMetaOffset);
+        mpp_meta_get_s32(meta, KEY_HDR_META_SIZE, &hdrMetaSize);
+
+        if (hdrMetaOffset && hdrMetaSize) {
+            native_handle_t *handle = nullptr;
+            handle = UnwrapNativeCodec2GrallocHandle(block->handle());
+
+            if (!C2RKVdecExtendFeature::configFrameHdrDynamicMeta(handle, hdrMetaOffset)) {
+                c2_trace("failed to config HdrDynamicMeta");
+            }
+
+            native_handle_delete(handle);
+        }
     }
 
     return C2_OK;

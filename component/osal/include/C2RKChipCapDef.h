@@ -102,7 +102,8 @@ typedef struct {
     uint32_t      scaleMetaCap     : 1;
     uint32_t      cap10bit         : 3;
     uint32_t      grallocVersion   : 4;
-    uint32_t      reserved         : 24;
+    uint32_t      hdrMetaCap       : 1;
+    uint32_t      reserved         : 23;
 } C2ChipCapInfo;
 
 class C2RKChipCapDef {
@@ -114,6 +115,7 @@ public:
 
     const char* getChipName();
     C2ChipType  getChipType();
+    uint32_t    getHdrMetaCap();
     uint32_t    getScaleMetaCap();
     uint32_t    getGrallocVersion();
 

@@ -66,6 +66,7 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .chipType       = RK_CHIP_3288,
         .fbcCapNum      = 0,
         .fbcCaps        = nullptr,
+        .hdrMetaCap     = 0,
         .scaleMetaCap   = 0,
         .cap10bit       = C2_CAP_10BIT_NONE,
         .grallocVersion = 4,
@@ -76,6 +77,7 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .chipType       = RK_CHIP_3328,
         .fbcCapNum      = 0,
         .fbcCaps        = nullptr,
+        .hdrMetaCap     = 0,
         .scaleMetaCap   = 0,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
         .grallocVersion = 3,
@@ -86,6 +88,7 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .chipType       = RK_CHIP_3399,
         .fbcCapNum      = 0,
         .fbcCaps        = nullptr,
+        .hdrMetaCap     = 0,
         .scaleMetaCap   = 0,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC,
         .grallocVersion = 4,
@@ -96,6 +99,7 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .chipType       = RK_CHIP_3368,
         .fbcCapNum      = 0,
         .fbcCaps        = nullptr,
+        .hdrMetaCap     = 0,
         .scaleMetaCap   = 0,
         .cap10bit       = C2_CAP_10BIT_HEVC,
         .grallocVersion = 4,
@@ -106,6 +110,7 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .chipType       = RK_CHIP_3326,
         .fbcCapNum      = 0,
         .fbcCaps        = nullptr,
+        .hdrMetaCap     = 0,
         .scaleMetaCap   = 0,
         .cap10bit       = C2_CAP_10BIT_NONE,
         .grallocVersion = 4,
@@ -116,6 +121,7 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .chipType       = RK_CHIP_3326,
         .fbcCapNum      = 0,
         .fbcCaps        = nullptr,
+        .hdrMetaCap     = 0,
         .scaleMetaCap   = 0,
         .cap10bit       = C2_CAP_10BIT_NONE,
         .grallocVersion = 4,
@@ -126,6 +132,7 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .chipType       = RK_CHIP_356X,
         .fbcCapNum      = 3,
         .fbcCaps        = fbcCaps_rk356x,
+        .hdrMetaCap     = 0,
         .scaleMetaCap   = 0,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
         .grallocVersion = 4,
@@ -136,6 +143,7 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .chipType       = RK_CHIP_356X,
         .fbcCapNum      = 3,
         .fbcCaps        = fbcCaps_rk356x,
+        .hdrMetaCap     = 0,
         .scaleMetaCap   = 0,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
         .grallocVersion = 4,
@@ -146,6 +154,7 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .chipType       = RK_CHIP_356X,
         .fbcCapNum      = 3,
         .fbcCaps        = fbcCaps_rk356x,
+        .hdrMetaCap     = 0,
         .scaleMetaCap   = 0,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
         .grallocVersion = 4,
@@ -156,6 +165,7 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .chipType       = RK_CHIP_3528,
         .fbcCapNum      = 4,
         .fbcCaps        = fbcCaps_rk3588,
+        .hdrMetaCap     = 1,
         .scaleMetaCap   = 0,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
         .grallocVersion = 3,
@@ -166,6 +176,7 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .chipType       = RK_CHIP_3588,
         .fbcCapNum      = 4,
         .fbcCaps        = fbcCaps_rk3588,
+        .hdrMetaCap     = 0,
         .scaleMetaCap   = 0,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
         .grallocVersion = 4,
@@ -176,6 +187,7 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .chipType       = RK_CHIP_3562,
         .fbcCapNum      = 0,
         .fbcCaps        = nullptr,
+        .hdrMetaCap     = 0,
         .scaleMetaCap   = 0,
         .cap10bit       = C2_CAP_10BIT_NONE,
         .grallocVersion = 4,
@@ -186,6 +198,7 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .chipType       = RK_CHIP_3576,
         .fbcCapNum      = 4,
         .fbcCaps        = fbcCaps_rk3576,
+        .hdrMetaCap     = 1,
         .scaleMetaCap   = 0,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
         .grallocVersion = 4,
@@ -255,6 +268,14 @@ const char* C2RKChipCapDef::getChipName() {
 
 C2ChipType C2RKChipCapDef::getChipType() {
     return mChipCapInfo->chipType;
+}
+
+uint32_t C2RKChipCapDef::getHdrMetaCap() {
+    if (property_get_int32("codec2_hdr_meta_disable", 0)) {
+        return 0;
+    }
+
+    return mChipCapInfo->hdrMetaCap;
 }
 
 uint32_t C2RKChipCapDef::getScaleMetaCap() {
