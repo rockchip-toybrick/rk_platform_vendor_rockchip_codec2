@@ -80,7 +80,8 @@ typedef enum _C2Cap10bit {
 
 typedef enum _C2CompressMode {
     C2_COMPRESS_MODE_NONE = 0,   /* no compress */
-    C2_COMPRESS_AFBC_16x16,
+    C2_COMPRESS_AFBC_16x16 = 1,
+    C2_COMPRESS_RFBC_64x4 = 2,
     C2_COMPRESS_MODE_BUTT
 } C2CompressMode;
 

@@ -18,11 +18,29 @@
 #define ANDROID_C2_RK_MEDIA_UTILS_H_
 
 #include "rk_mpi.h"
+#include "hardware/hardware_rockchip.h"
+#include "hardware/gralloc_rockchip.h"
 
 using namespace android;
 
-#define C2_DEFAULT_OUTPUT_DELAY     12
-#define C2_MAX_OUTPUT_DELAY         21
+#ifndef HAL_PIXEL_FORMAT_YUV420_8BIT_RFBC
+#define HAL_PIXEL_FORMAT_YUV420_8BIT_RFBC 0x200
+#endif
+
+#ifndef HAL_PIXEL_FORMAT_YUV422_8BIT_RFBC
+#define HAL_PIXEL_FORMAT_YUV422_8BIT_RFBC 0x202
+#endif
+
+#ifndef HAL_PIXEL_FORMAT_YUV420_10BIT_RFBC
+#define HAL_PIXEL_FORMAT_YUV420_10BIT_RFBC 0x201
+#endif
+
+#ifndef HAL_PIXEL_FORMAT_YUV422_10BIT_RFBC
+#define HAL_PIXEL_FORMAT_YUV422_10BIT_RFBC 0x203
+#endif
+
+#define C2_DEFAULT_REF_FRAME_COUNT  12
+#define C2_MAX_REF_FRAME_COUNT      21
 
 #define C2_ALIGN(x, a)              (((x)+(a)-1)&~((a)-1))
 #define C2_IS_ALIGNED(x, a)         (!((x) & ((a)-1)))
@@ -32,7 +50,7 @@ using namespace android;
 
 class C2RKMediaUtils {
 public:
-    static uint32_t getAndroidColorFmt(uint32_t format, bool fbcMode);
+    static uint32_t getAndroidColorFmt(uint32_t format, uint32_t fbcMode);
     static uint64_t getStrideUsage(int32_t width, int32_t stride);
     static uint64_t getHStrideUsage(int32_t height, int32_t hstride);
     static uint32_t calculateVideoRefCount(

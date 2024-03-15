@@ -42,6 +42,13 @@ static C2FbcCaps fbcCaps_rk3588[] = {
     { MPP_VIDEO_CodingAVS2, C2_COMPRESS_AFBC_16x16, 0, 8 },
 };
 
+static C2FbcCaps fbcCaps_rk3576[] = {
+    { MPP_VIDEO_CodingAVC,  C2_COMPRESS_RFBC_64x4, 0, 0 },
+    { MPP_VIDEO_CodingHEVC, C2_COMPRESS_RFBC_64x4, 0, 0 },
+    { MPP_VIDEO_CodingVP9,  C2_COMPRESS_RFBC_64x4, 0, 0 },
+    { MPP_VIDEO_CodingAVS2, C2_COMPRESS_RFBC_64x4, 0, 0 },
+};
+
 static C2ChipCapInfo sChipCapDefault = {
     .chipName       = "unknown",
     .chipType       = RK_CHIP_UNKOWN,
@@ -177,8 +184,8 @@ static C2ChipCapInfo sChipCapInfos[] = {
     {
         .chipName       = "rk3576",
         .chipType       = RK_CHIP_3576,
-        .fbcCapNum      = 0,
-        .fbcCaps        = nullptr,
+        .fbcCapNum      = 4,
+        .fbcCaps        = fbcCaps_rk3576,
         .scaleMetaCap   = 0,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
         .grallocVersion = 4,

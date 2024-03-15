@@ -22,8 +22,6 @@
 #include <Codec2Mapper.h>
 #include <media/stagefright/foundation/ALookup.h>
 
-#include "hardware/hardware_rockchip.h"
-#include "hardware/gralloc_rockchip.h"
 #include "C2RKMpiDec.h"
 #include "C2RKPlatformSupport.h"
 #include "C2RKLog.h"
@@ -93,8 +91,8 @@ public:
 
         addParameter(
                 DefineParam(mActualOutputDelay, C2_PARAMKEY_OUTPUT_DELAY)
-                .withDefault(new C2PortActualDelayTuning::output(C2_DEFAULT_OUTPUT_DELAY))
-                .withFields({C2F(mActualOutputDelay, value).inRange(0, C2_MAX_OUTPUT_DELAY)})
+                .withDefault(new C2PortActualDelayTuning::output(C2_MAX_REF_FRAME_COUNT))
+                .withFields({C2F(mActualOutputDelay, value).inRange(0, C2_MAX_REF_FRAME_COUNT)})
                 .withSetter(Setter<decltype(*mActualOutputDelay)>::StrictValueWithNoDeps)
                 .build());
 
@@ -661,7 +659,7 @@ C2RKMpiDec::C2RKMpiDec(
       mName(name),
       mMime(mime),
       mIntf(intfImpl),
-      mDump(nullptr),
+      mDump(new C2RKDump),
       mLooper(nullptr),
       mHandler(nullptr),
       mMppCtx(nullptr),
@@ -831,18 +829,12 @@ void C2RKMpiDec::stopAndReleaseLooper() {
 }
 
 bool C2RKMpiDec::preferFbcOutput(const std::unique_ptr<C2Work> &work) {
-    if (mIsGBSource) {
-        c2_info("graphicBufferSource not support fbc mode");
-        return false;
-    }
-
-    if (mBufferMode) {
-        c2_info("buffer mode not support fbc mode");
+    if (mIsGBSource || mBufferMode) {
         return false;
     }
 
     if (MPP_FRAME_FMT_IS_YUV_10BIT(mColorFormat)) {
-        c2_info("10bit video source, perfer use output mode");
+        c2_info("10bit video source, perfer fbc output mode");
         return true;
     }
 
@@ -1069,11 +1061,6 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
         goto error;
     }
 
-    if (!mDump) {
-        mDump = new C2RKDump();
-        mDump->initDump(mHorStride, mVerStride, false);
-    }
-
     {
         /* set output frame callback  */
         MppDecCfg cfg;
@@ -1089,6 +1076,8 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
 
         mpp_dec_cfg_deinit(cfg);
     }
+
+    mDump->initDump(mHorStride, mVerStride, false);
 
     mStarted = true;
 
@@ -1506,11 +1495,11 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
             horUsage = C2RKMediaUtils::getStrideUsage(mWidth * 10 / 8, mHorStride);
         }
 
+
         if (horUsage > 0 && verUsage > 0) {
             blockW = mWidth;
             blockH = mHeight;
             usage = (horUsage | verUsage);
-            c2_trace("update stride usage 0x%llx", (long long)usage);
         }
     }
 
@@ -1519,9 +1508,11 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
         // should aligned to 16.
         blockH = C2_ALIGN(mVerStride + mFbcCfg.paddingY, 16);
 
-        // In fbc 10bit mode, treat width of buffer as pixer_stride.
+        // In fbc 10bit mode, surfaceCB treat width as pixel stride.
         if (format == HAL_PIXEL_FORMAT_YUV420_10BIT_I ||
-            format == HAL_PIXEL_FORMAT_Y210) {
+            format == HAL_PIXEL_FORMAT_Y210 ||
+            format == HAL_PIXEL_FORMAT_YUV420_10BIT_RFBC ||
+            format == HAL_PIXEL_FORMAT_YUV422_10BIT_RFBC) {
             blockW = C2_ALIGN(mWidth, 64);
         }
     } else if (mCodingType == MPP_VIDEO_CodingVP9 && mGrallocVersion < 4) {

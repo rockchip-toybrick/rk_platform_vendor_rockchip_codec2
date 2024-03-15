@@ -21,27 +21,76 @@
 #include <C2Config.h>
 #include <cutils/properties.h>
 
-#include "hardware/hardware_rockchip.h"
-#include "hardware/gralloc_rockchip.h"
 #include "C2RKMediaUtils.h"
 #include "C2RKLog.h"
 
 using namespace android;
-
-#define AVC_MIN_OUTPUT_DELAY            4
-#define AVC_MAX_OUTPUT_DELAY           16
-#define HEVC_MIN_OUTPUT_DELAY           6
-#define HEVC_MAX_OUTPUT_DELAY          16
-#define VP9_MIN_OUTPUT_DELAY            5
-#define VP9_MAX_OUTPUT_DELAY            8
-#define AV1_OUTPUT_DELAY               10
-#define IEP_MAX_OUTPUT_DELAY            5
 
 typedef struct {
     int32_t      level;
     uint32_t     maxDpbPixs;     /* Max dpb picture total pixels */
     const char  *name;
 } C2LevelInfo;
+
+typedef struct {
+    uint32_t c2Format;
+    uint32_t androidFormat[3];
+} C2FormatMap;
+
+static const C2FormatMap gFormatList[] = {
+    {
+        MPP_FMT_YUV420SP,
+        {
+            HAL_PIXEL_FORMAT_YCrCb_NV12,       // RT_COMPRESS_MODE_NONE
+            HAL_PIXEL_FORMAT_YUV420_8BIT_I,    // RT_COMPRESS_AFBC_16x16
+            HAL_PIXEL_FORMAT_YUV420_8BIT_RFBC  // RT_COMPRESS_RFBC_64x4
+        }
+    },
+    {
+        MPP_FMT_YUV420P,
+        {
+            HAL_PIXEL_FORMAT_YCrCb_NV12,
+            HAL_PIXEL_FORMAT_YUV420_8BIT_I,
+            HAL_PIXEL_FORMAT_YUV420_8BIT_RFBC
+        }
+    },
+    {
+        MPP_FMT_YUV420SP_10BIT,
+        {
+            HAL_PIXEL_FORMAT_YCrCb_NV12_10,
+            HAL_PIXEL_FORMAT_YUV420_10BIT_I,
+            HAL_PIXEL_FORMAT_YUV420_10BIT_RFBC
+        }
+    },
+    {
+        MPP_FMT_YUV422SP,
+        {
+            HAL_PIXEL_FORMAT_YCbCr_422_SP,
+            HAL_PIXEL_FORMAT_YCbCr_422_I,
+            HAL_PIXEL_FORMAT_YUV422_8BIT_RFBC,
+        }
+    },
+    {
+        MPP_FMT_YUV422P,
+        {
+            HAL_PIXEL_FORMAT_YCbCr_422_SP,
+            HAL_PIXEL_FORMAT_YCbCr_422_I,
+            HAL_PIXEL_FORMAT_YUV422_8BIT_RFBC,
+        }
+    },
+    {
+        MPP_FMT_YUV422SP_10BIT,
+        {
+            HAL_PIXEL_FORMAT_YCbCr_422_SP_10,
+            HAL_PIXEL_FORMAT_Y210,
+            HAL_PIXEL_FORMAT_YUV422_10BIT_RFBC,
+        }
+    },
+};
+
+static const size_t gNumFormatList =
+        sizeof(gFormatList) / sizeof(gFormatList[0]);
+
 
 static C2LevelInfo h264LevelInfos[] = {
     /*  level            maxDpbPixs(maxDpbMbs * 256) name    */
@@ -79,46 +128,26 @@ static C2LevelInfo vp9LevelInfos[] = {
     {   C2Config::LEVEL_VP9_6_2,   35651584 * 4,    "vp9 level 6.2" },
 };
 
-uint32_t C2RKMediaUtils::getAndroidColorFmt(uint32_t format, bool fbcMode) {
-    uint32_t aFormat = HAL_PIXEL_FORMAT_YCrCb_NV12;
+uint32_t C2RKMediaUtils::getAndroidColorFmt(uint32_t format, uint32_t fbcMode) {
+    uint32_t androidFormat = HAL_PIXEL_FORMAT_YCrCb_NV12;
 
-    switch (format & MPP_FRAME_FMT_MASK) {
-        case MPP_FMT_YUV422SP:
-        case MPP_FMT_YUV422P: {
-            if (fbcMode) {
-                aFormat = HAL_PIXEL_FORMAT_YCbCr_422_I;
+    int32_t i = 0;
+    for (i = 0; i < gNumFormatList; i++) {
+        if (gFormatList[i].c2Format == (format & MPP_FRAME_FMT_MASK)) {
+            if (gFormatList[i].androidFormat[fbcMode] > 0) {
+                androidFormat = gFormatList[i].androidFormat[fbcMode];
             } else {
-                aFormat = HAL_PIXEL_FORMAT_YCbCr_422_SP;
+                c2_err("unable to get available fmt from fbcMode %d", fbcMode);
             }
-        } break;
-        case MPP_FMT_YUV420SP:
-        case MPP_FMT_YUV420P: {
-            if (fbcMode) {
-                aFormat = HAL_PIXEL_FORMAT_YUV420_8BIT_I;
-            } else {
-                aFormat = HAL_PIXEL_FORMAT_YCrCb_NV12;
-            }
-        } break;
-        case MPP_FMT_YUV420SP_10BIT: {
-            if (fbcMode) {
-                aFormat = HAL_PIXEL_FORMAT_YUV420_10BIT_I;
-            } else {
-                aFormat = HAL_PIXEL_FORMAT_YCrCb_NV12_10;
-            }
-        } break;
-        case MPP_FMT_YUV422SP_10BIT: {
-            if (fbcMode) {
-                aFormat = HAL_PIXEL_FORMAT_Y210;
-            } else {
-                aFormat = HAL_PIXEL_FORMAT_YCbCr_422_SP_10;
-            }
-        } break;
-        default: {
-            c2_err("unsupport color format: 0x%x", format);
+            break;
         }
     }
 
-    return aFormat;
+    if (i == gNumFormatList) {
+        c2_err("unsupport c2Format 0x%x fbcMode %d", format, fbcMode);
+    }
+
+    return androidFormat;
 }
 
 uint64_t C2RKMediaUtils::getStrideUsage(int32_t width, int32_t stride) {
@@ -155,8 +184,17 @@ uint64_t C2RKMediaUtils::getHStrideUsage(int32_t height, int32_t hstride) {
 
 uint32_t C2RKMediaUtils::calculateVideoRefCount(
         MppCodingType type, int32_t width, int32_t height, int32_t level) {
+    static const int32_t g264MinRefCount = 4;
+    static const int32_t g264MaxRefCount = 16;
+    static const int32_t g265MinRefCount = 6;
+    static const int32_t g265MaxRefCount = 16;
+    static const int32_t gVP9MinRefCount = 5;
+    static const int32_t gVP9MaxRefCount = 8;
+    static const int32_t gAV1DefRefCount = 10;
+    static const int32_t gIepDefRefCount = 5;
+
     uint32_t maxDpbPixs = 0;
-    uint32_t outputDelay = 0;
+    uint32_t refCount = 0;
 
     switch (type) {
       case MPP_VIDEO_CodingAVC: {
@@ -167,11 +205,11 @@ uint32_t C2RKMediaUtils::calculateVideoRefCount(
                 maxDpbPixs = h264LevelInfos[idx].maxDpbPixs;
             }
         }
-        outputDelay = maxDpbPixs / (width * height);
-        outputDelay = C2_CLIP(outputDelay, AVC_MIN_OUTPUT_DELAY, AVC_MAX_OUTPUT_DELAY);
+        refCount = maxDpbPixs / (width * height);
+        refCount = C2_CLIP(refCount, g264MinRefCount, g264MaxRefCount);
         if (width <= 1920 || height <= 1920) {
             // reserved for deinterlace
-            outputDelay += IEP_MAX_OUTPUT_DELAY;
+            refCount += gIepDefRefCount;
         }
       } break;
       case MPP_VIDEO_CodingHEVC: {
@@ -182,8 +220,8 @@ uint32_t C2RKMediaUtils::calculateVideoRefCount(
                 maxDpbPixs = h265LevelInfos[idx].maxDpbPixs;
             }
         }
-        outputDelay = maxDpbPixs / (width * height);
-        outputDelay = C2_CLIP(outputDelay, HEVC_MIN_OUTPUT_DELAY, HEVC_MAX_OUTPUT_DELAY);
+        refCount = maxDpbPixs / (width * height);
+        refCount = C2_CLIP(refCount, g265MinRefCount, g265MaxRefCount);
       } break;
       case MPP_VIDEO_CodingVP9: {
         // default max Dpb Mbs is level 5.1
@@ -193,19 +231,19 @@ uint32_t C2RKMediaUtils::calculateVideoRefCount(
                 maxDpbPixs = vp9LevelInfos[idx].maxDpbPixs;
             }
         }
-        outputDelay = maxDpbPixs / (width * height);
-        outputDelay = C2_CLIP(outputDelay, VP9_MIN_OUTPUT_DELAY, VP9_MAX_OUTPUT_DELAY);
+        refCount = maxDpbPixs / (width * height);
+        refCount = C2_CLIP(refCount, gVP9MinRefCount, gVP9MaxRefCount);
       } break;
       case MPP_VIDEO_CodingAV1:
-        outputDelay = AV1_OUTPUT_DELAY;
+        refCount = gAV1DefRefCount;
         break;
       default: {
-        c2_err("use default ref frame count(%d) with no CodecID", C2_DEFAULT_OUTPUT_DELAY);
-        outputDelay = C2_DEFAULT_OUTPUT_DELAY;
+        c2_err("use default ref frame count(%d)", C2_DEFAULT_REF_FRAME_COUNT);
+        refCount = C2_DEFAULT_REF_FRAME_COUNT;
       }
     }
 
-    return outputDelay;
+    return refCount;
 }
 
 bool C2RKMediaUtils::isP010Allowed() {

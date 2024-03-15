@@ -22,7 +22,6 @@
 #include <C2AllocatorGralloc.h>
 #include <ui/GraphicBufferMapper.h>
 #include <ui/GraphicBufferAllocator.h>
-#include <hardware/gralloc_rockchip.h>
 
 #include "C2RKMpiEnc.h"
 #include "C2RKLog.h"
@@ -910,7 +909,7 @@ C2RKMpiEnc::C2RKMpiEnc(
       mIntf(intfImpl),
       mDmaMem(nullptr),
       mMlvec(nullptr),
-      mDump(nullptr),
+      mDump(new C2RKDump),
       mMppCtx(nullptr),
       mMppMpi(nullptr),
       mEncCfg(nullptr),
@@ -1810,10 +1809,7 @@ c2_status_t C2RKMpiEnc::initEncoder() {
         goto error;
     }
 
-    if (!mDump) {
-        mDump = new C2RKDump();
-        mDump->initDump(mSize->width, mSize->height, true);
-    }
+    mDump->initDump(mSize->width, mSize->height, true);
 
     mStarted = true;
 
