@@ -1495,7 +1495,6 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
             horUsage = C2RKMediaUtils::getStrideUsage(mWidth * 10 / 8, mHorStride);
         }
 
-
         if (horUsage > 0 && verUsage > 0) {
             blockW = mWidth;
             blockH = mHeight;
