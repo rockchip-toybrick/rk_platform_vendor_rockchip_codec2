@@ -133,6 +133,7 @@ private:
     bool mStarted;
     bool mFlushed;
     bool mSignalledInputEos;
+    bool mOutputEos;
     bool mSignalledError;
     bool mSizeInfoUpdate;
     bool mLowLatencyMode;

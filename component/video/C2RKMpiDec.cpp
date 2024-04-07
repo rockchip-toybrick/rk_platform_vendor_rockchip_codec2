@@ -675,6 +675,7 @@ C2RKMpiDec::C2RKMpiDec(
       mStarted(false),
       mFlushed(true),
       mSignalledInputEos(false),
+      mOutputEos(false),
       mSignalledError(false),
       mSizeInfoUpdate(false),
       mLowLatencyMode(false),
@@ -782,6 +783,7 @@ c2_status_t C2RKMpiDec::onFlush_sm() {
     if (!mFlushed) {
         c2_log_func_enter();
         mSignalledInputEos = false;
+        mOutputEos = false;
         mSignalledError = false;
 
         if (mMppMpi) {
@@ -1167,6 +1169,7 @@ void C2RKMpiDec::finishWork(OutWorkEntry entry) {
         c2_info("signalling eos");
         Mutex::Autolock autoLock(mEosLock);
         mEosCondition.signal();
+        mOutputEos = true;
     }
 }
 
@@ -1260,7 +1263,8 @@ void C2RKMpiDec::process(
         mSignalledInputEos = true;
         // wait output eos stream
         Mutex::Autolock autoLock(mEosLock);
-        mEosCondition.wait(mEosLock);
+        if (!mOutputEos)
+            mEosCondition.wait(mEosLock);
     } else {
         flags = 0;
     }
