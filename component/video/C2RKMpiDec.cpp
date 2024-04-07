@@ -1494,13 +1494,15 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
     // NOTE: private gralloc stride usage only support in 4.0.
     // Update use stride usage if we are able config available stride.
     if (mGrallocVersion == 4 && !mFbcCfg.mode && !mIsGBSource) {
-        uint64_t horUsage = C2RKMediaUtils::getStrideUsage(mWidth, mHorStride);
-        uint64_t verUsage = C2RKMediaUtils::getHStrideUsage(mHeight, mVerStride);
+        uint64_t horUsage = 0, verUsage = 0;
 
         // 10bit video calculate stride base on (width * 10 / 8)
-        if (horUsage == 0 && MPP_FRAME_FMT_IS_YUV_10BIT(mColorFormat)) {
+        if (MPP_FRAME_FMT_IS_YUV_10BIT(mColorFormat)) {
             horUsage = C2RKMediaUtils::getStrideUsage(mWidth * 10 / 8, mHorStride);
+        } else {
+            horUsage = C2RKMediaUtils::getStrideUsage(mWidth, mHorStride);
         }
+        verUsage = C2RKMediaUtils::getHStrideUsage(mHeight, mVerStride);
 
         if (horUsage > 0 && verUsage > 0) {
             blockW = mWidth;
