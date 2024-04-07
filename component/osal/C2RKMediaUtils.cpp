@@ -205,7 +205,7 @@ uint32_t C2RKMediaUtils::calculateVideoRefCount(
     static const int32_t g265MinRefCount = 6;
     static const int32_t g265MaxRefCount = 16;
     static const int32_t gVP9MinRefCount = 5;
-    static const int32_t gVP9MaxRefCount = 8;
+    static const int32_t gVP9MaxRefCount = 16;
     static const int32_t gAV1DefRefCount = 10;
     static const int32_t gIepDefRefCount = 5;
 
