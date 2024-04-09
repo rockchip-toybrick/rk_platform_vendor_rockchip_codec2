@@ -1938,6 +1938,8 @@ c2_status_t C2RKMpiDec::configFrameScaleMeta(
 
 c2_status_t C2RKMpiDec::configFrameHdrMeta(
         MppFrame frame, std::shared_ptr<C2GraphicBlock> block) {
+    c2_status_t err = C2_OK;
+
     if (block->handle() && mpp_frame_has_meta(frame)
             && MPP_FRAME_FMT_IS_HDR(mpp_frame_get_fmt(frame))) {
         int32_t hdrMetaOffset = 0;
@@ -1948,18 +1950,24 @@ c2_status_t C2RKMpiDec::configFrameHdrMeta(
         mpp_meta_get_s32(meta, KEY_HDR_META_SIZE, &hdrMetaSize);
 
         if (hdrMetaOffset && hdrMetaSize) {
-            native_handle_t *handle = nullptr;
-            handle = UnwrapNativeCodec2GrallocHandle(block->handle());
+            buffer_handle_t handle = nullptr;
+            auto c2Handle = block->handle();
+
+            err = importGraphicBuffer(c2Handle, &handle);
+            if (err != C2_OK) {
+                c2_err("failed to import graphic buffer");
+                return err;
+            }
 
             if (!C2RKVdecExtendFeature::configFrameHdrDynamicMeta(handle, hdrMetaOffset)) {
                 c2_trace("failed to config HdrDynamicMeta");
             }
 
-            native_handle_delete(handle);
+            freeGraphicBuffer(handle);
         }
     }
 
-    return C2_OK;
+    return err;
 }
 
 class C2RKMpiDecFactory : public C2ComponentFactory {
