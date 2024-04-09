@@ -1487,13 +1487,13 @@ c2_status_t C2RKMpiDec::commitBufferToMpp(std::shared_ptr<C2GraphicBlock> block)
 c2_status_t C2RKMpiDec::ensureDecoderState() {
     c2_status_t err = C2_OK;
 
+    Mutex::Autolock autoLock(mBufferLock);
+
     uint32_t blockW = mHorStride;
     uint32_t blockH = mVerStride;
 
     uint64_t usage  = RK_GRALLOC_USAGE_SPECIFY_STRIDE;
     uint32_t format = C2RKMediaUtils::getAndroidColorFmt(mColorFormat, mFbcCfg.mode);
-
-    Mutex::Autolock autoLock(mBufferLock);
 
     // NOTE: private gralloc stride usage only support in 4.0.
     // Update use stride usage if we are able config available stride.
