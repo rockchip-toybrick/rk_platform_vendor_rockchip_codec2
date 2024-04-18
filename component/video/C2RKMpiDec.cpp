@@ -1758,12 +1758,12 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
         mVerStride = vstride;
         mColorFormat = format;
 
+        // support fbc mode change on info change stage
+        updateFbcModeIfNeeded();
+
         // All buffer group config done. Set info change ready to let
         // decoder continue decoding.
         mMppMpi->control(mMppCtx, MPP_DEC_SET_INFO_CHANGE_READY, nullptr);
-
-        // support fbc mode change on info change stage
-        updateFbcModeIfNeeded();
 
         C2StreamPictureSizeInfo::output size(0u, mWidth, mHeight);
         std::vector<std::unique_ptr<C2SettingResult>> failures;
@@ -1894,6 +1894,7 @@ cleanUp:
 
 c2_status_t C2RKMpiDec::configFrameScaleMeta(
         MppFrame frame, std::shared_ptr<C2GraphicBlock> block) {
+#ifdef mpp_frame_get_thumbnail_en
     if (block->handle()
             && mpp_frame_has_meta(frame) && mpp_frame_get_thumbnail_en(frame)) {
         MppMeta meta = nullptr;
@@ -1932,6 +1933,10 @@ c2_status_t C2RKMpiDec::configFrameScaleMeta(
 
         native_handle_delete(nHandle);
     }
+#else
+    (void)frame;
+    (void)block;
+#endif
 
     return C2_OK;
 }
