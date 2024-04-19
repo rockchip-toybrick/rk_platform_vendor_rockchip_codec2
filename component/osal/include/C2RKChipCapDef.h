@@ -94,16 +94,22 @@ typedef struct {
     uint32_t       offsetY;
 } C2FbcCaps;
 
+typedef enum _C2ScaleMode {
+    C2_SCALE_MODE_NONE       = 0,
+    C2_SCALE_MODE_META       = 1,      /* output scale meta to the display */
+    C2_SCALE_MODE_DOWN_SCALE = 2,      /* output down scale stream directly */
+} C2ScaleMode;
+
 typedef struct {
     const char   *chipName;
     C2ChipType    chipType;
     int32_t       fbcCapNum;
     C2FbcCaps    *fbcCaps;
-    uint32_t      scaleMetaCap     : 1;
+    uint32_t      scaleMode        : 2;
     uint32_t      cap10bit         : 3;
     uint32_t      grallocVersion   : 4;
     uint32_t      hdrMetaCap       : 1;
-    uint32_t      reserved         : 23;
+    uint32_t      reserved         : 22;
 } C2ChipCapInfo;
 
 class C2RKChipCapDef {
@@ -116,11 +122,12 @@ public:
     const char* getChipName();
     C2ChipType  getChipType();
     uint32_t    getHdrMetaCap();
-    uint32_t    getScaleMetaCap();
+    uint32_t    getScaleMode();
     uint32_t    getGrallocVersion();
 
-    int32_t getFbcOutputMode(MppCodingType codecId);
-    int32_t getFbcOutputOffset(MppCodingType codecId, uint32_t *offsetX, uint32_t *offsetY);
+    uint32_t getFbcOutputMode(MppCodingType codecId);
+    uint32_t getFbcMinStride(uint32_t fbcMode);
+    uint32_t getFbcOutputOffset(MppCodingType codecId, uint32_t *offsetX, uint32_t *offsetY);
 
     bool is10bitSupport(MppCodingType codecId);
     bool hasRkVenc();

@@ -129,6 +129,7 @@ private:
     uint32_t mVerStride;
     uint32_t mGrallocVersion;
     uint32_t mPixelFormat;
+    uint32_t mScaleMode;
 
     bool mStarted;
     bool mFlushed;
@@ -138,7 +139,6 @@ private:
     bool mSizeInfoUpdate;
     bool mLowLatencyMode;
     bool mIsGBSource;
-    bool mScaleEnabled;
     bool mHdrMetaEnabled;
 
     /*
@@ -153,6 +153,14 @@ private:
         uint32_t paddingX;
         uint32_t paddingY;
     } mFbcCfg;
+
+    struct ScaleThumbInfo {
+        int32_t width;
+        int32_t height;
+        int32_t hstride;
+        int32_t vstride;
+        int32_t format;
+    } mScaleInfo;
 
     std::shared_ptr<C2GraphicBlock> mOutBlock;
     std::shared_ptr<C2BlockPool>    mBlockPool;
@@ -178,7 +186,7 @@ private:
     c2_status_t setupAndStartLooper();
     void stopAndReleaseLooper();
 
-    bool preferFbcOutput(const std::unique_ptr<C2Work> &work = nullptr);
+    uint32_t getFbcOutputMode(const std::unique_ptr<C2Work> &work = nullptr);
     c2_status_t updateOutputDelay();
     c2_status_t updateSurfaceConfig(const std::shared_ptr<C2BlockPool> &pool);
     void finishWork(OutWorkEntry entry);

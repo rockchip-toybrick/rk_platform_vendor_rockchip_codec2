@@ -672,6 +672,7 @@ C2RKMpiDec::C2RKMpiDec(
       mHorStride(0),
       mVerStride(0),
       mGrallocVersion(C2RKChipCapDef::get()->getGrallocVersion()),
+      mScaleMode(0),
       mStarted(false),
       mFlushed(true),
       mSignalledInputEos(false),
@@ -680,7 +681,6 @@ C2RKMpiDec::C2RKMpiDec(
       mSizeInfoUpdate(false),
       mLowLatencyMode(false),
       mIsGBSource(false),
-      mScaleEnabled(false),
       mHdrMetaEnabled(false),
       mBufferMode(false) {
     c2_info("[%s] version %s", name, C2_COMPONENT_FULL_VERSION);
@@ -831,39 +831,46 @@ void C2RKMpiDec::stopAndReleaseLooper() {
     }
 }
 
-bool C2RKMpiDec::preferFbcOutput(const std::unique_ptr<C2Work> &work) {
-    if (mIsGBSource || mBufferMode) {
-        return false;
+uint32_t C2RKMpiDec::getFbcOutputMode(const std::unique_ptr<C2Work> &work) {
+    uint32_t fbcMode = C2RKChipCapDef::get()->getFbcOutputMode(mCodingType);
+
+    if (!fbcMode || mIsGBSource || mBufferMode) {
+        return 0;
     }
 
-    if (MPP_FRAME_FMT_IS_YUV_10BIT(mColorFormat)) {
-        c2_info("10bit video source, perfer fbc output mode");
-        return true;
-    }
+    if (fbcMode == C2_COMPRESS_AFBC_16x16) {
+        if (MPP_FRAME_FMT_IS_YUV_10BIT(mColorFormat)) {
+            c2_info("10bit video source, perfer afbc output mode");
+            return fbcMode;
+        }
 
-    /*
-     * For 10bit flim source, we agreed that force fbc rendering.
-     * Some apps(Kodi/Photos/Files) does not transmit profile info, so do extra
-     * detection from spspps to search bitInfo in this case.
-     */
-    if (work != nullptr && work->input.flags & C2FrameData::FLAG_CODEC_CONFIG) {
-        if (!work->input.buffers.empty()) {
-            C2ReadView rView = mDummyReadView;
-            rView = work->input.buffers[0]->data().linearBlocks().front().map().get();
-            int32_t depth = C2RKNaluParser::detectBitDepth(
-                    const_cast<uint8_t *>(rView.data()), rView.capacity(), mCodingType);
-            if (depth == 10) {
-                c2_info("10bit video profile detached, prefer fbc output mode");
-                return true;
+        /*
+         * For 10bit flim source, we agreed that force fbc rendering.
+         * Some apps(Kodi/Photos/Files) does not transmit profile info, so do extra
+         * detection from spspps to search bitInfo in this case.
+         */
+        if (work != nullptr && work->input.flags & C2FrameData::FLAG_CODEC_CONFIG) {
+            if (!work->input.buffers.empty()) {
+                C2ReadView rView = mDummyReadView;
+                rView = work->input.buffers[0]->data().linearBlocks().front().map().get();
+                int32_t depth = C2RKNaluParser::detectBitDepth(
+                        const_cast<uint8_t *>(rView.data()), rView.capacity(), mCodingType);
+                if (depth == 10) {
+                    c2_info("10bit video profile detached, prefer afbc output mode");
+                    return fbcMode;
+                }
             }
         }
     }
 
-    if (mWidth * mHeight > 2304 * 1080) {
-        return true;
+    uint32_t minStride = C2RKChipCapDef::get()->getFbcMinStride(fbcMode);
+
+    if (mWidth <= minStride && mHeight <= minStride) {
+        c2_info("within fbc min stirde %d, disable fbc otuput mode", minStride);
+        return 0;
     }
 
-    return false;
+    return fbcMode;
 }
 
 c2_status_t C2RKMpiDec::updateOutputDelay() {
@@ -923,15 +930,67 @@ c2_status_t C2RKMpiDec::updateSurfaceConfig(const std::shared_ptr<C2BlockPool> &
         updateFbcModeIfNeeded();
     }
 
-    if (C2RKChipCapDef::get()->getScaleMetaCap()
-            && C2RKVdecExtendFeature::checkNeedScale(handle) == 1) {
-        MppDecCfg cfg;
-        mpp_dec_cfg_init(&cfg);
-        mMppMpi->control(mMppCtx, MPP_DEC_GET_CFG, cfg);
-        if (!mpp_dec_cfg_set_u32(cfg, "base:enable_thumbnail", 1)) {
-            mScaleEnabled = true;
+    MPP_RET ret = MPP_OK;
+    MppDecCfg cfg = nullptr;
+    uint32_t scaleMode = C2RKChipCapDef::get()->getScaleMode();
+
+    // enable scale dec only in 8k
+    if (!scaleMode || (mWidth <= 4096 && mHeight <= 4096)) {
+        goto cleanUp;
+    }
+
+    if (scaleMode == C2_SCALE_MODE_META
+            && C2RKVdecExtendFeature::checkNeedScale(handle) != 1) {
+        goto cleanUp;
+    }
+
+    mpp_dec_cfg_init(&cfg);
+
+    mMppMpi->control(mMppCtx, MPP_DEC_GET_CFG, cfg);
+    mpp_dec_cfg_set_u32(cfg, "base:enable_thumbnail", scaleMode);
+    ret = mMppMpi->control(mMppCtx, MPP_DEC_SET_CFG, cfg);
+    if (ret != MPP_OK) {
+        c2_warn("failed to set scale mode %d", scaleMode);
+        goto cleanUp;
+    }
+
+    c2_info("enable scale dec, mode %d", scaleMode);
+
+    // In down-scaling mode, it is necessary to update surface info using
+    // down-scaling config, so request thumbnail info from decoder first.
+    if (scaleMode == C2_SCALE_MODE_DOWN_SCALE) {
+        MppFrame frame  = nullptr;
+
+        mpp_frame_init(&frame);
+        mpp_frame_set_width(frame, mWidth);
+        mpp_frame_set_height(frame, mHeight);
+        mpp_frame_set_hor_stride(frame, mHorStride);
+        mpp_frame_set_ver_stride(frame, mVerStride);
+        mpp_frame_set_fmt(frame, mColorFormat);
+
+        ret = mMppMpi->control(
+                mMppCtx, MPP_DEC_GET_THUMBNAIL_FRAME_INFO, (MppParam)frame);
+        if (ret == MPP_OK) {
+            mScaleInfo.width   = mpp_frame_get_width(frame);
+            mScaleInfo.height  = mpp_frame_get_height(frame);
+            mScaleInfo.hstride = mpp_frame_get_hor_stride(frame);
+            mScaleInfo.vstride = mpp_frame_get_ver_stride(frame);
+            mScaleInfo.format  = mpp_frame_get_fmt(frame);
+            mFbcCfg.mode = MPP_FRAME_FMT_IS_FBC(mScaleInfo.format);
+            mScaleMode = scaleMode;
+            c2_info("update down-scaling config: w %d h %d hor %d ver %d fmt %x",
+                    mScaleInfo.width, mScaleInfo.height, mScaleInfo.hstride,
+                    mScaleInfo.vstride, mScaleInfo.format);
+        } else {
+            c2_err("failed to get down-scaling thumnail info, err %d", ret);
         }
-        mMppMpi->control(mMppCtx, MPP_DEC_SET_CFG, cfg);
+        mpp_frame_deinit(&frame);
+    } else {
+        mScaleMode = scaleMode;
+    }
+
+cleanUp:
+    if (cfg != nullptr) {
         mpp_dec_cfg_deinit(cfg);
     }
 
@@ -1016,17 +1075,14 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
         }
 
         uint32_t mppFmt = mColorFormat;
-
-        mFbcCfg.mode = C2RKChipCapDef::get()->getFbcOutputMode(mCodingType);
-        if (mFbcCfg.mode && preferFbcOutput(work)) {
+        uint32_t fbcMode = getFbcOutputMode(work);
+        if (fbcMode) {
             mppFmt |= MPP_FRAME_FBC_AFBC_V2;
             /* fbc decode output has padding inside, set crop before display */
             C2RKChipCapDef::get()->getFbcOutputOffset(
                     mCodingType, &mFbcCfg.paddingX, &mFbcCfg.paddingY);
             c2_info("use mpp fbc output mode, padding offset(%d, %d)",
                     mFbcCfg.paddingX, mFbcCfg.paddingY);
-        } else {
-            mFbcCfg.mode = 0;
         }
 
         mMppMpi->control(mMppCtx, MPP_DEC_SET_OUTPUT_FORMAT, (MppParam)&mppFmt);
@@ -1043,9 +1099,10 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
             goto error;
         }
 
-        mHorStride = mpp_frame_get_hor_stride(frame);
-        mVerStride = mpp_frame_get_ver_stride(frame);
+        mHorStride   = mpp_frame_get_hor_stride(frame);
+        mVerStride   = mpp_frame_get_ver_stride(frame);
         mColorFormat = mpp_frame_get_fmt(frame);
+        mFbcCfg.mode = fbcMode;
 
         mpp_frame_deinit(&frame);
 
@@ -1203,8 +1260,8 @@ void C2RKMpiDec::process(
         }
         err = updateSurfaceConfig(pool);
         if (err == C2_OK) {
-            c2_info("surface config: surfaceMode %d graphicSource %d scale %d",
-                    !mBufferMode, mIsGBSource, mScaleEnabled);
+            c2_info("surface config: surfaceMode %d graphicSource %d scaleMode %d",
+                    !mBufferMode, mIsGBSource, mScaleMode);
         }
     }
 
@@ -1376,14 +1433,12 @@ void C2RKMpiDec::getVuiParams(MppFrame frame) {
 
 c2_status_t C2RKMpiDec::updateFbcModeIfNeeded() {
     bool needsUpdate = false;
-    bool preferFbc   = preferFbcOutput();
     uint32_t format  = mColorFormat;
+    uint32_t fbcMode = getFbcOutputMode();
 
     if (!MPP_FRAME_FMT_IS_FBC(format)) {
-        int32_t fbcMode = C2RKChipCapDef::get()->getFbcOutputMode(mCodingType);
-        if (fbcMode && preferFbc) {
+        if (fbcMode) {
             format |= MPP_FRAME_FBC_AFBC_V2;
-            mFbcCfg.mode = fbcMode;
             /* fbc decode output has padding inside, set crop before display */
             C2RKChipCapDef::get()->getFbcOutputOffset(
                     mCodingType, &mFbcCfg.paddingX, &mFbcCfg.paddingY);
@@ -1392,7 +1447,7 @@ c2_status_t C2RKMpiDec::updateFbcModeIfNeeded() {
                     mFbcCfg.paddingX, mFbcCfg.paddingY);
         }
     } else {
-        if (!preferFbc) {
+        if (!fbcMode) {
             format &= ~MPP_FRAME_FBC_AFBC_V2;
             memset(&mFbcCfg, 0, sizeof(mFbcCfg));
             needsUpdate = true;
@@ -1418,9 +1473,10 @@ c2_status_t C2RKMpiDec::updateFbcModeIfNeeded() {
             return C2_CORRUPTED;
         }
 
-        mHorStride = mpp_frame_get_hor_stride(frame);
-        mVerStride = mpp_frame_get_ver_stride(frame);
+        mHorStride   = mpp_frame_get_hor_stride(frame);
+        mVerStride   = mpp_frame_get_ver_stride(frame);
         mColorFormat = mpp_frame_get_fmt(frame);
+        mFbcCfg.mode = fbcMode;
 
         mpp_frame_deinit(&frame);
     }
@@ -1489,11 +1545,29 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
 
     Mutex::Autolock autoLock(mBufferLock);
 
-    uint32_t blockW = mHorStride;
-    uint32_t blockH = mVerStride;
+    uint32_t videoW = mWidth;
+    uint32_t videoH = mHeight;
+    uint32_t frameW = mHorStride;
+    uint32_t frameH = mVerStride;
+    uint32_t mppFmt = mColorFormat;
 
-    uint64_t usage  = RK_GRALLOC_USAGE_SPECIFY_STRIDE;
-    uint32_t format = C2RKMediaUtils::getAndroidColorFmt(mColorFormat, mFbcCfg.mode);
+    uint32_t blockW = 0, blockH = 0, format = 0;
+    uint64_t usage = RK_GRALLOC_USAGE_SPECIFY_STRIDE;
+
+    if (mScaleMode == C2_SCALE_MODE_META) {
+         usage |= GRALLOC_USAGE_RKVDEC_SCALING;
+    } else if (mScaleMode == C2_SCALE_MODE_DOWN_SCALE) {
+        // update scale thumbnail info in down scale mode
+        videoW = mScaleInfo.width;
+        videoH = mScaleInfo.height;
+        frameW = mScaleInfo.hstride;
+        frameH = mScaleInfo.vstride;
+        mppFmt = mScaleInfo.format;
+    }
+
+    blockW = frameW;
+    blockH = frameH;
+    format = C2RKMediaUtils::getAndroidColorFmt(mppFmt, mFbcCfg.mode);
 
     // NOTE: private gralloc stride usage only support in 4.0.
     // Update use stride usage if we are able config available stride.
@@ -1501,34 +1575,35 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
         uint64_t horUsage = 0, verUsage = 0;
 
         // 10bit video calculate stride base on (width * 10 / 8)
-        if (MPP_FRAME_FMT_IS_YUV_10BIT(mColorFormat)) {
-            horUsage = C2RKMediaUtils::getStrideUsage(mWidth * 10 / 8, mHorStride);
+        if (MPP_FRAME_FMT_IS_YUV_10BIT(mppFmt)) {
+            horUsage = C2RKMediaUtils::getStrideUsage(videoW * 10 / 8, frameW);
         } else {
-            horUsage = C2RKMediaUtils::getStrideUsage(mWidth, mHorStride);
+            horUsage = C2RKMediaUtils::getStrideUsage(videoW, frameW);
         }
-        verUsage = C2RKMediaUtils::getHStrideUsage(mHeight, mVerStride);
+        verUsage = C2RKMediaUtils::getHStrideUsage(videoH, frameH);
 
         if (horUsage > 0 && verUsage > 0) {
-            blockW = mWidth;
-            blockH = mHeight;
-            usage = (horUsage | verUsage);
+            blockW = videoW;
+            blockH = videoH;
+            usage &= ~RK_GRALLOC_USAGE_SPECIFY_STRIDE;
+            usage |= (horUsage | verUsage);
         }
     }
 
     if (mFbcCfg.mode) {
         // NOTE: FBC case may have offset y on top and vertical stride
         // should aligned to 16.
-        blockH = C2_ALIGN(mVerStride + mFbcCfg.paddingY, 16);
+        blockH = C2_ALIGN(frameH + mFbcCfg.paddingY, 16);
 
         // In fbc 10bit mode, surfaceCB treat width as pixel stride.
         if (format == HAL_PIXEL_FORMAT_YUV420_10BIT_I ||
             format == HAL_PIXEL_FORMAT_Y210 ||
             format == HAL_PIXEL_FORMAT_YUV420_10BIT_RFBC ||
             format == HAL_PIXEL_FORMAT_YUV422_10BIT_RFBC) {
-            blockW = C2_ALIGN(mWidth, 64);
+            blockW = C2_ALIGN(videoW, 64);
         }
     } else if (mCodingType == MPP_VIDEO_CodingVP9 && mGrallocVersion < 4) {
-        blockW = C2_ALIGN_ODD(mWidth, 256);
+        blockW = C2_ALIGN_ODD(videoW, 256);
     }
 
     {
@@ -1574,15 +1649,12 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
     if (mGrallocVersion < 4) {
         usage &= 0xffffffff;
     }
-    if (mScaleEnabled) {
-        usage |= GRALLOC_USAGE_RKVDEC_SCALING;
-    }
     if (mHdrMetaEnabled) {
         usage |= GRALLOC_USAGE_DYNAMIC_HDR;
     }
 
     if (mBufferMode) {
-        uint32_t bFormat = (MPP_FRAME_FMT_IS_YUV_10BIT(mColorFormat)) ? mPixelFormat : format;
+        uint32_t bFormat = (MPP_FRAME_FMT_IS_YUV_10BIT(mppFmt)) ? mPixelFormat : format;
         uint64_t bUsage  = (usage | GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN);
 
         // allocate buffer within 4G to avoid rga2 error.
@@ -1854,7 +1926,7 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
         // signal buffer occupied by users
         mpp_buffer_inc_ref(mppBuffer);
 
-        if (mScaleEnabled) {
+        if (mScaleMode == C2_SCALE_MODE_META) {
             configFrameScaleMeta(frame, outBuffer->block);
         }
         if (mHdrMetaEnabled) {

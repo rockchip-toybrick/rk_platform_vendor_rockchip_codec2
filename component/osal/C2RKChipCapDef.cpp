@@ -47,6 +47,7 @@ static C2FbcCaps fbcCaps_rk3576[] = {
     { MPP_VIDEO_CodingHEVC, C2_COMPRESS_RFBC_64x4, 0, 0 },
     { MPP_VIDEO_CodingVP9,  C2_COMPRESS_RFBC_64x4, 0, 0 },
     { MPP_VIDEO_CodingAVS2, C2_COMPRESS_RFBC_64x4, 0, 0 },
+    { MPP_VIDEO_CodingAV1,  C2_COMPRESS_RFBC_64x4, 0, 0 },
 };
 
 static C2ChipCapInfo sChipCapDefault = {
@@ -54,7 +55,7 @@ static C2ChipCapInfo sChipCapDefault = {
     .chipType       = RK_CHIP_UNKOWN,
     .fbcCapNum      = 0,
     .fbcCaps        = nullptr,
-    .scaleMetaCap   = 0,
+    .scaleMode      = 0,
     .cap10bit       = C2_CAP_10BIT_NONE,
     .grallocVersion = 3,
     .reserved       = 0,
@@ -67,7 +68,7 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .fbcCapNum      = 0,
         .fbcCaps        = nullptr,
         .hdrMetaCap     = 0,
-        .scaleMetaCap   = 0,
+        .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_NONE,
         .grallocVersion = 4,
         .reserved       = 0,
@@ -78,7 +79,7 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .fbcCapNum      = 0,
         .fbcCaps        = nullptr,
         .hdrMetaCap     = 0,
-        .scaleMetaCap   = 0,
+        .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
         .grallocVersion = 3,
         .reserved       = 0,
@@ -89,7 +90,7 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .fbcCapNum      = 0,
         .fbcCaps        = nullptr,
         .hdrMetaCap     = 0,
-        .scaleMetaCap   = 0,
+        .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC,
         .grallocVersion = 4,
         .reserved       = 0,
@@ -100,7 +101,7 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .fbcCapNum      = 0,
         .fbcCaps        = nullptr,
         .hdrMetaCap     = 0,
-        .scaleMetaCap   = 0,
+        .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_HEVC,
         .grallocVersion = 4,
         .reserved       = 0,
@@ -111,7 +112,7 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .fbcCapNum      = 0,
         .fbcCaps        = nullptr,
         .hdrMetaCap     = 0,
-        .scaleMetaCap   = 0,
+        .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_NONE,
         .grallocVersion = 4,
         .reserved       = 0,
@@ -122,7 +123,7 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .fbcCapNum      = 0,
         .fbcCaps        = nullptr,
         .hdrMetaCap     = 0,
-        .scaleMetaCap   = 0,
+        .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_NONE,
         .grallocVersion = 4,
         .reserved       = 0,
@@ -133,7 +134,7 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .fbcCapNum      = 3,
         .fbcCaps        = fbcCaps_rk356x,
         .hdrMetaCap     = 0,
-        .scaleMetaCap   = 0,
+        .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
         .grallocVersion = 4,
         .reserved       = 0,
@@ -144,7 +145,7 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .fbcCapNum      = 3,
         .fbcCaps        = fbcCaps_rk356x,
         .hdrMetaCap     = 0,
-        .scaleMetaCap   = 0,
+        .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
         .grallocVersion = 4,
         .reserved       = 0,
@@ -155,7 +156,7 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .fbcCapNum      = 3,
         .fbcCaps        = fbcCaps_rk356x,
         .hdrMetaCap     = 0,
-        .scaleMetaCap   = 0,
+        .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
         .grallocVersion = 4,
         .reserved       = 0,
@@ -166,7 +167,7 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .fbcCapNum      = 4,
         .fbcCaps        = fbcCaps_rk3588,
         .hdrMetaCap     = 1,
-        .scaleMetaCap   = 0,
+        .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
         .grallocVersion = 3,
         .reserved       = 0,
@@ -177,7 +178,7 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .fbcCapNum      = 4,
         .fbcCaps        = fbcCaps_rk3588,
         .hdrMetaCap     = 0,
-        .scaleMetaCap   = 0,
+        .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
         .grallocVersion = 4,
         .reserved       = 0,
@@ -188,7 +189,7 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .fbcCapNum      = 0,
         .fbcCaps        = nullptr,
         .hdrMetaCap     = 0,
-        .scaleMetaCap   = 0,
+        .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_NONE,
         .grallocVersion = 4,
         .reserved       = 0,
@@ -196,10 +197,10 @@ static C2ChipCapInfo sChipCapInfos[] = {
     {
         .chipName       = "rk3576",
         .chipType       = RK_CHIP_3576,
-        .fbcCapNum      = 4,
+        .fbcCapNum      = 5,
         .fbcCaps        = fbcCaps_rk3576,
         .hdrMetaCap     = 1,
-        .scaleMetaCap   = 0,
+        .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
         .grallocVersion = 4,
         .reserved       = 0,
@@ -271,28 +272,31 @@ C2ChipType C2RKChipCapDef::getChipType() {
 }
 
 uint32_t C2RKChipCapDef::getHdrMetaCap() {
-    if (property_get_int32("codec2_hdr_meta_disable", 0)) {
-        return 0;
+    uint32_t hdrMeta = mChipCapInfo->hdrMetaCap;
+    if (hdrMeta > 0 && property_get_int32("codec2_hdr_meta_disable", 0)) {
+        c2_info("property match, disable hdr meta");
+        hdrMeta = 0;
     }
 
-    return mChipCapInfo->hdrMetaCap;
+    return hdrMeta;
 }
 
-uint32_t C2RKChipCapDef::getScaleMetaCap() {
-    return mChipCapInfo->scaleMetaCap;
+uint32_t C2RKChipCapDef::getScaleMode() {
+    uint32_t scaleMode = mChipCapInfo->scaleMode;
+    if (scaleMode > 0 && property_get_int32("codec2_scale_disable", 0)) {
+        c2_info("property match, disable scale mode");
+        scaleMode = 0;
+    }
+
+    return scaleMode;
 }
 
 uint32_t C2RKChipCapDef::getGrallocVersion() {
     return mChipCapInfo->grallocVersion;
 }
 
-int32_t C2RKChipCapDef::getFbcOutputMode(MppCodingType codecId) {
-    if (property_get_int32("codec2_fbc_disable", 0)) {
-        c2_info("property match, disable fbc output mode");
-        return 0;
-    }
-
-    int32_t fbcMode = 0;
+uint32_t C2RKChipCapDef::getFbcOutputMode(MppCodingType codecId) {
+    uint32_t fbcMode = 0;
 
     for (int i = 0; i < mChipCapInfo->fbcCapNum; i++) {
         if (mChipCapInfo->fbcCaps[i].codecId == codecId) {
@@ -301,12 +305,30 @@ int32_t C2RKChipCapDef::getFbcOutputMode(MppCodingType codecId) {
         }
     }
 
+    if (fbcMode > 0 && property_get_int32("codec2_fbc_disable", 0)) {
+        c2_info("property match, disable fbc output mode");
+        fbcMode = 0;
+    }
+
     c2_trace("[%s] codec-0x%08x fbcMode-%d", mChipCapInfo->chipName, codecId, fbcMode);
 
     return fbcMode;
 }
 
-int32_t C2RKChipCapDef::getFbcOutputOffset(
+uint32_t C2RKChipCapDef::getFbcMinStride(uint32_t fbcMode) {
+    uint32_t minStride = property_get_int32("codec2_fbc_min_stride", 0);
+    if (minStride == 0) {
+        if (fbcMode == C2_COMPRESS_RFBC_64x4) {
+            minStride = 4096;
+        } else {
+            minStride = 1920;
+        }
+    }
+
+    return minStride;
+}
+
+uint32_t C2RKChipCapDef::getFbcOutputOffset(
         MppCodingType codecId, uint32_t *offsetX, uint32_t *offsetY) {
     *offsetX = *offsetY = 0;
 
