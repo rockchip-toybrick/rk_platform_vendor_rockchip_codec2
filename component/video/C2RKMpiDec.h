@@ -65,6 +65,7 @@ private:
     enum OutBufferFlags {
         BUFFER_FLAGS_EOS         = 0x1,
         BUFFER_FLAGS_ERROR_FRAME = 0x2,
+        BUFFER_FLAGS_INFO_CHANGE = 0x4,
     };
 
     typedef struct {
@@ -136,7 +137,6 @@ private:
     bool mSignalledInputEos;
     bool mOutputEos;
     bool mSignalledError;
-    bool mSizeInfoUpdate;
     bool mLowLatencyMode;
     bool mIsGBSource;
     bool mHdrMetaEnabled;

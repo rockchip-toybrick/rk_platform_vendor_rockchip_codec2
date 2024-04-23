@@ -678,7 +678,6 @@ C2RKMpiDec::C2RKMpiDec(
       mSignalledInputEos(false),
       mOutputEos(false),
       mSignalledError(false),
-      mSizeInfoUpdate(false),
       mLowLatencyMode(false),
       mIsGBSource(false),
       mHdrMetaEnabled(false),
@@ -1213,11 +1212,12 @@ void C2RKMpiDec::finishWork(OutWorkEntry entry) {
     work->worklets.clear();
     work->worklets.emplace_back(new C2Worklet);
 
-    if (mSizeInfoUpdate) {
+    if (flags & BUFFER_FLAGS_INFO_CHANGE) {
         c2_info("update new size %dx%d config to framework.", mWidth, mHeight);
         C2StreamPictureSizeInfo::output size(0u, mWidth, mHeight);
+        C2PortActualDelayTuning::output delay(mIntf->mActualOutputDelay->value);
         work->worklets.front()->output.configUpdate.push_back(C2Param::Copy(size));
-        mSizeInfoUpdate = false;
+        work->worklets.front()->output.configUpdate.push_back(C2Param::Copy(delay));
     }
 
     finish(work, fillWork);
@@ -1726,9 +1726,6 @@ outframe:
         /* Avoid stock frame, continue to search available output */
         ensureDecoderState();
         goto outframe;
-    } else if (err == C2_NO_MEMORY) {
-        ensureDecoderState();
-        goto outframe;
     } else if (err == C2_CORRUPTED) {
         c2_err("signalling error");
         mSignalledError = true;
@@ -1854,9 +1851,8 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
         }
 
         // feekback config update to first output frame.
-        mSizeInfoUpdate = true;
+        flags |= BUFFER_FLAGS_INFO_CHANGE;
 
-        ret = C2_NO_MEMORY;
         goto cleanUp;
     }
 
