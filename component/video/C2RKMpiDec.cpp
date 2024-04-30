@@ -1769,8 +1769,22 @@ c2_status_t C2RKMpiDec::sendpacket(uint8_t *data, size_t size, uint64_t pts, uin
         if ((++retry) > kMaxRetryCnt) {
             ret = C2_CORRUPTED;
             break;
-        } else if (retry % 100 == 0) {
-            c2_warn("try to resend packet, pts %lld", pts);
+        } else if (retry % 200 == 0) {
+            /*
+             * FIXME:
+             * When player get paused, fetchGraphicBlock may get blocked since
+             * surface fence paused. In this case, we are not able to output
+             * frame and then the input process stucked also.
+             *
+             * To solve this issue, we attempt to send packet continuely when
+             * fetchGraphicBlock get blocked. I still don't know is there a better
+             * way to know player get paused?
+             */
+            if (mBufferLock.tryLock() != NO_ERROR) {
+                retry = 0;
+            } else {
+                c2_warn("try to resend packet, pts %lld", pts);
+            }
         }
 
         usleep(3 * 1000);
