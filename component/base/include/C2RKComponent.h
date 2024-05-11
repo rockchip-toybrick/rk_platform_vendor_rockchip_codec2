@@ -204,9 +204,10 @@ private:
     };
 
     struct ExecState {
-        ExecState() : mState(UNINITIALIZED) {}
+        ExecState() : mState(UNINITIALIZED) , mFlushing(false) {}
 
         int mState;
+        bool mFlushing;
         std::shared_ptr<C2Component::Listener> mListener;
     };
     Mutexed<ExecState> mExecState;
@@ -232,9 +233,6 @@ private:
             bool flush = mFlush;
             mFlush = false;
             return flush;
-        }
-        inline bool isPendingFlushing() {
-            return mFlush;
         }
         void clear();
         PendingWork &pending() { return mPendingWork; }

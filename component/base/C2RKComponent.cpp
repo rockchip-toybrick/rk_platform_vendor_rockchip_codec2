@@ -271,6 +271,7 @@ c2_status_t C2RKComponent::flush_sm(
         if (state->mState != RUNNING) {
             return C2_BAD_STATE;
         }
+        state->mFlushing = true;
     }
     {
         Mutexed<WorkQueue>::Locked queue(mWorkQueue);
@@ -357,6 +358,7 @@ c2_status_t C2RKComponent::stop() {
             return C2_BAD_STATE;
         }
         state->mState = STOPPED;
+        state->mFlushing = true;
     }
     {
         Mutexed<WorkQueue>::Locked queue(mWorkQueue);
@@ -369,6 +371,11 @@ c2_status_t C2RKComponent::stop() {
     CHECK(reply->findInt32("err", &err));
     if (err != C2_OK) {
         return (c2_status_t)err;
+    }
+
+    {
+        Mutexed<ExecState>::Locked state(mExecState);
+        state->mFlushing = false;
     }
 
     c2_trace_func_leave();
@@ -414,8 +421,8 @@ std::list<std::unique_ptr<C2Work>> vec(std::unique_ptr<C2Work> &work) {
 }  // namespace
 
 bool C2RKComponent::isPendingFlushing() {
-    Mutexed<WorkQueue>::Locked queue(mWorkQueue);
-    return queue->isPendingFlushing();
+    Mutexed<ExecState>::Locked state(mExecState);
+    return state->mFlushing;
 }
 
 void C2RKComponent::finish(
@@ -489,7 +496,7 @@ bool C2RKComponent::processQueue() {
 
         generation = queue->generation();
         drainMode = queue->drainMode();
-        isFlushPending = queue->isPendingFlushing();
+        isFlushPending = queue->popPendingFlush();
         work = queue->pop_front();
         hasQueuedWork = !queue->empty();
     }
@@ -501,8 +508,8 @@ bool C2RKComponent::processQueue() {
             // TODO: error
         }
 
-        Mutexed<WorkQueue>::Locked queue(mWorkQueue);
-        queue->popPendingFlush();
+        Mutexed<ExecState>::Locked state(mExecState);
+        state->mFlushing = false;
     }
 
     if (!mOutputBlockPool) {

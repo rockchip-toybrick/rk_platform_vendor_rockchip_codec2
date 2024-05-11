@@ -1543,6 +1543,11 @@ c2_status_t C2RKMpiDec::commitBufferToMpp(std::shared_ptr<C2GraphicBlock> block)
 c2_status_t C2RKMpiDec::ensureDecoderState() {
     c2_status_t err = C2_OK;
 
+    if (isPendingFlushing()) {
+        c2_trace("NO NEED ensure, in pending flush");
+        return err;
+    }
+
     Mutex::Autolock autoLock(mBufferLock);
 
     uint32_t videoW = mWidth;
@@ -1884,7 +1889,7 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
 
     if (isPendingFlushing()) {
         ret = C2_CANCELED;
-        c2_trace("ignore frame output since pending flush");
+        c2_trace("ignore frame(pts %lld) output since pending flush", pts);
         goto cleanUp;
     }
 
