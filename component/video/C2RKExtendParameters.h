@@ -22,6 +22,7 @@
 
 enum ExtendedC2ParamIndexKind : C2Param::type_index_t {
     kParamIndexSceneMode = C2Param::TYPE_INDEX_VENDOR_START,
+    kParamIndexDisableDpbCheck,
 
     /* static capability queries */
     kParamIndexMLVECDriVersion,
@@ -48,6 +49,9 @@ enum ExtendedC2ParamIndexKind : C2Param::type_index_t {
     kParamIndexSliceSize,
     kParamIndexReencSetup,
 };
+
+typedef C2PortParam<C2Info, C2Int32Value, kParamIndexDisableDpbCheck> C2StreamDisableDpbCheck;
+constexpr char C2_PARAMKEY_DISABLE_DPB_CHECK[] = "disable-dpb-check";
 
 typedef C2PortParam<C2Info, C2Int32Value, kParamIndexSceneMode> C2StreamSceneModeInfo;
 constexpr char C2_PARAMKEY_SCENE_MODE[] = "scene-mode";

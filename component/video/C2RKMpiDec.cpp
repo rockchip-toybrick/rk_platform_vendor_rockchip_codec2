@@ -410,6 +410,13 @@ public:
 
             /* extend parameter definition */
             addParameter(
+                    DefineParam(mDisableDpbCheck, C2_PARAMKEY_DISABLE_DPB_CHECK)
+                    .withDefault(new C2StreamDisableDpbCheck::input(0))
+                    .withFields({C2F(mDisableDpbCheck, value).any()})
+                    .withSetter(Setter<decltype(mDisableDpbCheck)::element_type>::StrictValueWithNoDeps)
+                    .build());
+
+            addParameter(
                     DefineParam(mMlvecParams->driverInfo, C2_PARAMKEY_MLVEC_DEC_DRI_VERSION)
                     .withConstValue(new C2DriverVersion::output(MLVEC_DRIVER_VERSION))
                     .build());
@@ -573,6 +580,10 @@ public:
         return mPixelFormat;
     }
 
+    std::shared_ptr<C2StreamDisableDpbCheck::input> getDisableDpbCheck_l() const {
+        return mDisableDpbCheck;
+    }
+
     bool getIsLowLatencyMode() {
         if (mLowLatency && mLowLatency->value > 0) {
             return true;
@@ -609,6 +620,7 @@ private:
     std::shared_ptr<C2StreamColorAspectsTuning::output> mDefaultColorAspects;
     std::shared_ptr<C2StreamColorAspectsInfo::input> mCodedColorAspects;
     std::shared_ptr<C2StreamColorAspectsInfo::output> mColorAspects;
+    std::shared_ptr<C2StreamDisableDpbCheck::input> mDisableDpbCheck;
     std::shared_ptr<C2GlobalLowLatencyModeTuning> mLowLatency;
     std::shared_ptr<MlvecParams> mMlvecParams;
 };
@@ -1043,6 +1055,13 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
             uint32_t fastOut = 1;
             mMppMpi->control(mMppCtx, MPP_DEC_SET_IMMEDIATE_OUT, &fastOut);
             c2_info("enable lowLatency, enable mpp fast-out mode");
+        }
+
+        IntfImpl::Lock lock = mIntf->lock();
+        if (mIntf->getDisableDpbCheck_l()->value > 0) {
+            uint32_t disableCheck = 1;
+            mMppMpi->control(mMppCtx, MPP_DEC_SET_DISABLE_DPB_CHECK, &disableCheck);
+            c2_info("disable poc discontinuous check");
         }
     }
 
