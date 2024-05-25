@@ -1205,7 +1205,8 @@ void C2RKMpiDec::finishWork(OutWorkEntry entry) {
     // TODO: work flags set to incomplete to ignore frame index check
     uint32_t outFlags = C2FrameData::FLAG_INCOMPLETE;
 
-    if ((flags & BUFFER_FLAGS_ERROR_FRAME) || isDropFrame(timestamp)) {
+    if ((flags & BUFFER_FLAGS_ERROR_FRAME)
+            || isDropFrame(timestamp) || isPendingFlushing()) {
         inFlags = C2FrameData::FLAG_DROP_FRAME;
     }
 
