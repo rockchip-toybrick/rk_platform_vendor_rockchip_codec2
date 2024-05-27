@@ -2225,7 +2225,8 @@ bool C2RKMpiEnc::needRgaConvert(uint32_t width, uint32_t height, MppFrameFormat 
 
     if (mChipType == RK_CHIP_3588 ||
         mChipType == RK_CHIP_3562 ||
-        mChipType == RK_CHIP_3576) {
+        mChipType == RK_CHIP_3576 ||
+        mChipType == RK_CHIP_3528 ) {
         needsRga = (mCodingType == MPP_VIDEO_CodingVP8);
     }
 
