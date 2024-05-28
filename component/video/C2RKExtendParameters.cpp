@@ -16,6 +16,14 @@
 
 #include "C2RKExtendParameters.h"
 
+const std::vector<C2FieldDescriptor> C2InputScalarStruct::FieldList() {
+    return _FIELD_LIST;
+}
+const std::vector<C2FieldDescriptor> C2InputScalarStruct::_FIELD_LIST = {
+    { C2FieldDescriptor::INT32, 1, "width", 0, 4 },
+    { C2FieldDescriptor::INT32, 1, "height", 4, 4 }
+};
+
 const std::vector<C2FieldDescriptor> C2NumberStruct::FieldList() {
     return _FIELD_LIST;
 }

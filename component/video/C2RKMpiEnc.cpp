@@ -351,6 +351,16 @@ public:
                 .build());
 
         addParameter(
+                DefineParam(mInputScalar, C2_PARAMKEY_INPUT_SCALAR)
+                .withDefault(new C2StreamInputScalar::input(0, 0))
+                .withFields({
+                    C2F(mInputScalar, width).any(),
+                    C2F(mInputScalar, height).any()
+                })
+                .withSetter(InputScalarSetter)
+                .build());
+
+        addParameter(
                 DefineParam(mMlvecParams->driverInfo, C2_PARAMKEY_MLVEC_ENC_DRI_VERSION)
                 .withConstValue(new C2DriverVersion::output(MLVEC_DRIVER_VERSION))
                 .build());
@@ -742,6 +752,13 @@ public:
         return C2R::Ok();
     }
 
+    static C2R InputScalarSetter(
+            bool mayBlock, C2P<C2StreamInputScalar::input>& me) {
+        (void)mayBlock;
+        (void)me;
+        return C2R::Ok();
+    }
+
     static C2R MProfileLevelSetter(
             bool mayBlock, C2P<C2MProfileLevel::output> &me) {
         (void)mayBlock;
@@ -872,6 +889,8 @@ public:
     { return mSliceSize; }
     std::shared_ptr<C2StreamReencInfo::input> getReencTime_l() const
     { return mReencTime; }
+    std::shared_ptr<C2StreamInputScalar::input> getInputScalar_l() const
+    { return mInputScalar; }
     std::shared_ptr<MlvecParams> getMlvecParams_l() const
     { return mMlvecParams; }
 
@@ -895,6 +914,7 @@ private:
     std::shared_ptr<C2StreamSceneModeInfo::input> mSceneMode;
     std::shared_ptr<C2StreamSliceSizeInfo::input> mSliceSize;
     std::shared_ptr<C2StreamReencInfo::input> mReencTime;
+    std::shared_ptr<C2StreamInputScalar::input> mInputScalar;
     std::shared_ptr<MlvecParams> mMlvecParams;
 };
 
@@ -917,6 +937,7 @@ C2RKMpiEnc::C2RKMpiEnc(
       mInputMppFmt(MPP_FMT_YUV420SP),
       mChipType(C2RKChipCapDef::get()->getChipType()),
       mStarted(false),
+      mInputScalar(false),
       mSpsPpsHeaderReceived(false),
       mSawInputEOS(false),
       mOutputEOS(false),
@@ -1001,6 +1022,7 @@ void C2RKMpiEnc::onRelease() {
     }
 
     mStarted = false;
+    mInputScalar = false;
     mSpsPpsHeaderReceived = false;
     mSawInputEOS = false;
     mOutputEOS = false;
@@ -1032,6 +1054,35 @@ c2_status_t C2RKMpiEnc::setupBaseCodec() {
     mpp_enc_cfg_set_s32(mEncCfg, "prep:hor_stride", mHorStride);
     mpp_enc_cfg_set_s32(mEncCfg, "prep:ver_stride", mVerStride);
     mpp_enc_cfg_set_s32(mEncCfg, "prep:format", MPP_FMT_YUV420SP);
+
+    return C2_OK;
+}
+
+c2_status_t C2RKMpiEnc::setupInputScalar() {
+    IntfImpl::Lock lock = mIntf->lock();
+    std::shared_ptr<C2StreamInputScalar::input> c2Scalar
+            = mIntf->getInputScalar_l();
+
+    if (c2Scalar && c2Scalar->width > 0 && c2Scalar->height > 0 &&
+        c2Scalar->width != mSize->width && c2Scalar->height != mSize->height) {
+        c2_info("setupInputScalar: get request [%d %d] -> [%d %d]",
+                mSize->width, mSize->height, c2Scalar->width, c2Scalar->height);
+        mSize->width  = c2Scalar->width;
+        mSize->height = c2Scalar->height;
+        mHorStride = C2_ALIGN(mSize->width, 16);
+        if (mCodingType == MPP_VIDEO_CodingVP8) {
+            mVerStride = C2_ALIGN(mSize->height, 16);
+        } else {
+            mVerStride = C2_ALIGN(mSize->height, 8);
+        }
+
+        mpp_enc_cfg_set_s32(mEncCfg, "prep:width", mSize->width);
+        mpp_enc_cfg_set_s32(mEncCfg, "prep:height", mSize->height);
+        mpp_enc_cfg_set_s32(mEncCfg, "prep:hor_stride", mHorStride);
+        mpp_enc_cfg_set_s32(mEncCfg, "prep:ver_stride", mVerStride);
+
+        mInputScalar  = true;
+    }
 
     return C2_OK;
 }
@@ -1684,6 +1735,9 @@ c2_status_t C2RKMpiEnc::setupEncCfg() {
     /* Video control Set Base Codec */
     setupBaseCodec();
 
+    /* Video control Ser input scaler */
+    setupInputScalar();
+
     /* Video control Set Rotation */
     setupRotation();
 
@@ -1951,7 +2005,7 @@ void C2RKMpiEnc::process(
         }
         const C2GraphicView *const input = view.get();
         if ((input != nullptr) && (input->width() < mSize->width ||
-            input->height() < mSize->height)) {
+            input->height() < mSize->height) && !mInputScalar) {
             /* Expect width height to be configured */
             c2_err("unexpected Capacity Aspect %d(%d) x %d(%d)",
                    input->width(), mSize->width, input->height(), mSize->height);
@@ -2209,6 +2263,11 @@ c2_status_t C2RKMpiEnc::handleMlvecDynamicCfg(MppMeta meta) {
 // Note: Check if the input can be received by mpp driver directly
 bool C2RKMpiEnc::needRgaConvert(uint32_t width, uint32_t height, MppFrameFormat fmt) {
     bool needsRga = true;
+
+    if (mInputScalar) {
+        needsRga = true;
+        goto cleanUp;
+    }
 
     if (fmt == MPP_FMT_RGBA8888) {
         if (!C2RKChipCapDef::get()->hasRkVenc()) {

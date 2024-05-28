@@ -84,6 +84,7 @@ private:
     int32_t        mChipType;
 
     bool           mStarted;
+    bool           mInputScalar;
     bool           mSpsPpsHeaderReceived;
     bool           mSawInputEOS;
     bool           mOutputEOS;
@@ -107,6 +108,7 @@ private:
             OutWorkEntry entry);
 
     c2_status_t setupBaseCodec();
+    c2_status_t setupInputScalar();
     c2_status_t setupRotation();
     c2_status_t setupSceneMode();
     c2_status_t setupSliceSize();

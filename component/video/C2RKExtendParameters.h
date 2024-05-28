@@ -22,7 +22,6 @@
 
 enum ExtendedC2ParamIndexKind : C2Param::type_index_t {
     kParamIndexSceneMode = C2Param::TYPE_INDEX_VENDOR_START,
-    kParamIndexDisableDpbCheck,
 
     /* static capability queries */
     kParamIndexMLVECDriVersion,
@@ -48,6 +47,8 @@ enum ExtendedC2ParamIndexKind : C2Param::type_index_t {
 
     kParamIndexSliceSize,
     kParamIndexReencSetup,
+    kParamIndexDisableDpbCheck,
+    kParamIndexInputScaler,
 };
 
 typedef C2PortParam<C2Info, C2Int32Value, kParamIndexDisableDpbCheck> C2StreamDisableDpbCheck;
@@ -61,6 +62,19 @@ constexpr char C2_PARAMKEY_SLICE_SIZE[] = "slice-size";
 
 typedef C2PortParam<C2Info, C2Int32Value, kParamIndexReencSetup> C2StreamReencInfo;
 constexpr char C2_PARAMKEY_REENC_TIMES[] = "reenc-times";
+
+struct C2InputScalarStruct {
+    int32_t width;
+    int32_t height;
+    C2InputScalarStruct() : width(0), height(0) { }
+    C2InputScalarStruct(int32_t _width, int32_t _height) : width(_width), height(_height) {}
+
+    const static std::vector<C2FieldDescriptor> _FIELD_LIST;
+    static const std::vector<C2FieldDescriptor> FieldList();
+};
+
+typedef C2PortParam<C2Info, C2InputScalarStruct, kParamIndexInputScaler> C2StreamInputScalar;
+constexpr char C2_PARAMKEY_INPUT_SCALAR[] = "input-scalar";
 
 /*
  * 1. MLVEC hardware driver version
