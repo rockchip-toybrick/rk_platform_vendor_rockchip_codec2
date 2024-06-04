@@ -114,7 +114,7 @@ public:
         addParameter(
                 DefineParam(mUsage, C2_PARAMKEY_INPUT_STREAM_USAGE)
                 .withConstValue(new C2StreamUsageTuning::input(
-                        0u, GRALLOC_USAGE_HW_VIDEO_ENCODER))
+                        0u, GRALLOC_USAGE_HW_VIDEO_ENCODER | RK_GRALLOC_USAGE_SPECIFY_STRIDE))
                 .build());
 
         addParameter(
