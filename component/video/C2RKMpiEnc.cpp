@@ -1242,12 +1242,12 @@ c2_status_t C2RKMpiEnc::setupQp() {
         defaultIMax = defaultPMax = 127;
         qpInit = 56;
     } else {
-        /* the quality of h264/265 range from 10~51 */
-        defaultIMin = defaultPMin = 10;
+        /* the quality of h264/265 range from 1~51 */
+        defaultIMin = defaultPMin = 1;
         defaultIMax = 51;
         // TODO: CTS testEncoderQualityAVCCBR 49
         defaultPMax = 49;
-        qpInit = 26;
+        qpInit = -1;
     }
 
     int32_t iMin = defaultIMin, iMax = defaultIMax;
