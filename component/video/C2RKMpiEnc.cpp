@@ -1235,19 +1235,17 @@ c2_status_t C2RKMpiEnc::setupProfileParams() {
 c2_status_t C2RKMpiEnc::setupQp() {
     int32_t defaultIMin = 0, defaultIMax = 0;
     int32_t defaultPMin = 0, defaultPMax = 0;
-    int32_t qpInit = 0, fixQPMode /* const qp mode */ = 0;
+    int32_t qpInit = -1, fixQPMode /* const qp mode */ = 0;
 
     if (mCodingType == MPP_VIDEO_CodingVP8) {
         defaultIMin = defaultPMin = 0;
         defaultIMax = defaultPMax = 127;
-        qpInit = 56;
     } else {
         /* the quality of h264/265 range from 1~51 */
         defaultIMin = defaultPMin = 1;
         defaultIMax = 51;
         // TODO: CTS testEncoderQualityAVCCBR 49
         defaultPMax = 49;
-        qpInit = -1;
     }
 
     int32_t iMin = defaultIMin, iMax = defaultIMax;
@@ -1277,10 +1275,6 @@ c2_status_t C2RKMpiEnc::setupQp() {
     iMin = std::clamp(iMin, defaultIMin, defaultIMax);
     pMax = std::clamp(pMax, defaultPMin, defaultPMax);
     pMin = std::clamp(pMin, defaultPMin, defaultPMax);
-
-    if (qpInit > iMax || qpInit < iMin) {
-        qpInit = iMin;
-    }
 
     if (fixQPMode) {
         /* use const qp for p-frame in FIXQP mode */
