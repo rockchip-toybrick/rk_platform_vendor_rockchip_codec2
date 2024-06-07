@@ -49,6 +49,7 @@ enum ExtendedC2ParamIndexKind : C2Param::type_index_t {
     kParamIndexReencSetup,
     kParamIndexDisableDpbCheck,
     kParamIndexInputScaler,
+    kParamIndexSuperEncodingMode,
 };
 
 typedef C2PortParam<C2Info, C2Int32Value, kParamIndexDisableDpbCheck> C2StreamDisableDpbCheck;
@@ -62,6 +63,9 @@ constexpr char C2_PARAMKEY_SLICE_SIZE[] = "slice-size";
 
 typedef C2PortParam<C2Info, C2Int32Value, kParamIndexReencSetup> C2StreamReencInfo;
 constexpr char C2_PARAMKEY_REENC_TIMES[] = "reenc-times";
+
+typedef C2PortParam<C2Info, C2Int32Value, kParamIndexSuperEncodingMode> C2StreamSuperModeInfo;
+constexpr char C2_PARAMKEY_SUPER_ENCODING_MODE[] = "super-encoding-mode";
 
 struct C2InputScalarStruct {
     int32_t width;

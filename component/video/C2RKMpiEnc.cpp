@@ -22,6 +22,7 @@
 #include <C2AllocatorGralloc.h>
 #include <ui/GraphicBufferMapper.h>
 #include <ui/GraphicBufferAllocator.h>
+#include <cutils/properties.h>
 
 #include "C2RKMpiEnc.h"
 #include "C2RKLog.h"
@@ -358,6 +359,13 @@ public:
                     C2F(mInputScalar, height).any()
                 })
                 .withSetter(InputScalarSetter)
+                .build());
+
+        addParameter(
+                DefineParam(mSuperMode, C2_PARAMKEY_SUPER_ENCODING_MODE)
+                .withDefault(new C2StreamSuperModeInfo::input(0))
+                .withFields({C2F(mSuperMode, value).any()})
+                .withSetter(Setter<decltype(mSuperMode)::element_type>::StrictValueWithNoDeps)
                 .build());
 
         addParameter(
@@ -860,6 +868,13 @@ public:
         }
     }
 
+    int32_t getSuperMode() const {
+        if (!mSuperMode || mSuperMode->value <= 0) {
+            return 0;
+        }
+        return mSuperMode->value;
+    }
+
     // unsafe getters
     std::shared_ptr<C2StreamPictureSizeInfo::input> getSize_l() const
     { return mSize; }
@@ -915,6 +930,7 @@ private:
     std::shared_ptr<C2StreamSliceSizeInfo::input> mSliceSize;
     std::shared_ptr<C2StreamReencInfo::input> mReencTime;
     std::shared_ptr<C2StreamInputScalar::input> mInputScalar;
+    std::shared_ptr<C2StreamSuperModeInfo::input> mSuperMode;
     std::shared_ptr<MlvecParams> mMlvecParams;
 };
 
@@ -932,6 +948,8 @@ C2RKMpiEnc::C2RKMpiEnc(
       mDump(new C2RKDump),
       mMppCtx(nullptr),
       mMppMpi(nullptr),
+      mMdInfo(nullptr),
+      mGroup(nullptr),
       mEncCfg(nullptr),
       mCodingType(MPP_VIDEO_CodingUnused),
       mInputMppFmt(MPP_FMT_YUV420SP),
@@ -994,6 +1012,16 @@ void C2RKMpiEnc::onRelease() {
 
     if (!mStarted)
         return;
+
+    if (mMdInfo) {
+        mpp_buffer_put(mMdInfo);
+        mMdInfo = nullptr;
+    }
+
+    if (mGroup != nullptr) {
+        mpp_buffer_group_put(mGroup);
+        mGroup = nullptr;
+    }
 
     if (mEncCfg) {
         mpp_enc_cfg_deinit(mEncCfg);
@@ -1645,6 +1673,108 @@ c2_status_t C2RKMpiEnc::setupPrependHeaderSetting() {
     return C2_OK;
 }
 
+
+c2_status_t C2RKMpiEnc::setupSuperModeIfNeeded() {
+    IntfImpl::Lock lock = mIntf->lock();
+
+    int32_t superMode = mIntf->getSuperMode();
+
+    if (superMode <= 0 || superMode >= C2_SUPER_MODE_BUTT) {
+        superMode = property_get_int32("codec2_super_encoding_mode", 0);
+        if (superMode) {
+            c2_info("config super mode, property %d", superMode);
+        } else {
+            return C2_OK;
+        }
+    }
+
+    if (mChipType != RK_CHIP_3588 && mChipType != RK_CHIP_3576) {
+        c2_warn("only RK3576/RK3588 support super encoding mode");
+        return C2_OK;
+    }
+
+    static int32_t sAqThrdI[16] = {
+        0,  0,  0,  0,
+        3,  3,  5,  5,
+        8,  8,  8,  15,
+        15, 20, 25, 25
+    };
+
+    static int32_t sAqStepIIpc[16] = {
+        -8, -7, -6, -5,
+        -4, -3, -2, -1,
+         0,  1,  2,  3,
+         5,  7,  7,  8,
+    };
+
+    static int32_t sAqStepPIpc[16] = {
+        -8, -7, -6, -5,
+        -4, -2, -1, -1,
+         0,  2,  3,  4,
+         6,  8,  9,  10,
+    };
+
+    bool ipcScene = (superMode == C2_SUPER_MODE_IPC_QUALITY_FIRST) ||
+                    (superMode == C2_SUPER_MODE_IPC_COMPRESS_FIRST);
+    bool compressFirst = (superMode == C2_SUPER_MODE_COMPRESS_FIRST) ||
+                         (superMode == C2_SUPER_MODE_IPC_COMPRESS_FIRST);
+
+    RcApiBrief rcApiBrief;
+    MPP_RET err = mMppMpi->control(mMppCtx, MPP_ENC_GET_RC_API_CURRENT, &rcApiBrief);
+    if (err != MPP_OK) {
+        c2_warn("setupSuperMode: failed to get rcApi, err %d", err);
+        return C2_OK;
+    }
+
+    rcApiBrief.name = "smart";
+    err = mMppMpi->control(mMppCtx, MPP_ENC_SET_RC_API_CURRENT, &rcApiBrief);
+    if (err != MPP_OK) {
+        c2_warn("setupSuperMode: failed to set rcApi, err %d", err);
+        return C2_OK;
+    }
+
+    mpp_enc_cfg_set_u32(mEncCfg, "rc:max_reenc_times", 0);
+    mpp_enc_cfg_set_u32(mEncCfg, "rc:super_mode", 0);
+    mpp_enc_cfg_set_s32(mEncCfg, "rc:mode", 4);
+    mpp_enc_cfg_set_s32(mEncCfg, "tune:qpmap_en", 1);
+    mpp_enc_cfg_set_s32(mEncCfg, "tune:rc_container", 1);
+    mpp_enc_cfg_set_s32(mEncCfg, "tune:scene_mode", 0);
+    mpp_enc_cfg_set_s32(mEncCfg, "hw:qbias_i", 200);
+    mpp_enc_cfg_set_s32(mEncCfg, "hw:qbias_p", 100);
+
+    mpp_enc_cfg_set_st(mEncCfg,  "hw:aq_thrd_i", sAqThrdI);
+    mpp_enc_cfg_set_st(mEncCfg,  "hw:aq_thrd_p", sAqThrdI);
+
+    mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_init",   31);
+    mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_min",    10);
+    mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_max",    50);
+    mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_min_i",  10);
+    mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_max_i",  50);
+
+    mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_min_i", 27);
+    mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_max_i", 49);
+    mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_min_p", 27);
+    mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_max_p", 49);
+
+    if (ipcScene) {
+        mpp_enc_cfg_set_st(mEncCfg,  "hw:aq_step_i", sAqStepIIpc);
+        mpp_enc_cfg_set_st(mEncCfg,  "hw:aq_step_p", sAqStepPIpc);
+        mpp_enc_cfg_set_s32(mEncCfg, "tune:scene_mode", 1);
+    }
+
+    if (compressFirst) {
+        uint32_t bitrate = mIntf->getBitrate_l()->value;
+
+        mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_target", bitrate * 13 / 10);
+        mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_max",    bitrate * 13 / 10);
+        mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_min",    bitrate * 13 / 10 / 2);
+    }
+
+    c2_info("setupSuperMode: setup super mode %d", superMode);
+
+    return C2_OK;
+}
+
 c2_status_t C2RKMpiEnc::setupMlvecIfNeeded() {
     int32_t layerCount = 0;
     int32_t spacing = 0;
@@ -1771,6 +1901,9 @@ c2_status_t C2RKMpiEnc::setupEncCfg() {
     /* Video control Set Prepend Header Setting */
     setupPrependHeaderSetting();
 
+    /* Video control Set Super Encoding Mode */
+    setupSuperModeIfNeeded();
+
     /* Video control Set MLVEC encoder */
     setupMlvecIfNeeded();
 
@@ -1854,6 +1987,18 @@ c2_status_t C2RKMpiEnc::initEncoder() {
 
     if (setupEncCfg() != C2_OK) {
         c2_err("failed to set config");
+        goto error;
+    }
+
+    err = mpp_buffer_group_get_internal(&mGroup, MPP_BUFFER_TYPE_ION);
+    if (err != MPP_OK) {
+        c2_err("failed to get mpp buffer group, err %d", err);
+        goto error;
+    }
+
+    err = mpp_buffer_get(mGroup, &mMdInfo, mSize->width * mSize->height);
+    if (err != MPP_OK) {
+        c2_err("failed to get motion info buffer, err %d", err);
         goto error;
     }
 
@@ -2454,8 +2599,11 @@ c2_status_t C2RKMpiEnc::sendframe(
     c2_status_t ret = C2_OK;
     MPP_RET err = MPP_OK;
     MppFrame frame = nullptr;
+    MppMeta meta = nullptr;
 
     mpp_frame_init(&frame);
+
+    meta = mpp_frame_get_meta(frame);
 
     if (flags & C2FrameData::FLAG_END_OF_STREAM) {
         c2_info("send input eos");
@@ -2505,9 +2653,10 @@ c2_status_t C2RKMpiEnc::sendframe(
          break;
     }
 
+    mpp_meta_set_buffer(meta, KEY_MOTION_INFO, mMdInfo);
+
     /* handle dynamic configurations from teams mlvec */
     if (mMlvec) {
-        MppMeta meta = mpp_frame_get_meta(frame);
         handleMlvecDynamicCfg(meta);
     }
 

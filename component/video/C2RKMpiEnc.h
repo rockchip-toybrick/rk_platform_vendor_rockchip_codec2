@@ -21,7 +21,9 @@
 #include "C2RKInterface.h"
 #include "C2RKMlvecLegacy.h"
 #include "C2RKDump.h"
+
 #include "rk_mpi.h"
+#include "mpp_rc_api.h"
 
 namespace android {
 
@@ -63,6 +65,16 @@ private:
         C2_IPNUT_FMT_RGBA,
     } MyInputFormat;
 
+    /* Super Encoding Mode */
+    typedef enum {
+        C2_SUPER_MODE_NONE = 0,
+        C2_SUPER_MODE_QUALITY_FIRST,        // image quality first
+        C2_SUPER_MODE_COMPRESS_FIRST,       // compressibility first
+        C2_SUPER_MODE_IPC_QUALITY_FIRST,
+        C2_SUPER_MODE_IPC_COMPRESS_FIRST,
+        C2_SUPER_MODE_BUTT,
+    } MySuperMode;
+
     typedef struct {
         MppPacket outPacket;
         uint64_t  frameIndex;
@@ -78,6 +90,8 @@ private:
     /* MPI interface parameters */
     MppCtx         mMppCtx;
     MppApi        *mMppMpi;
+    MppBuffer      mMdInfo; /* motion info buffer */
+    MppBufferGroup mGroup;
     MppEncCfg      mEncCfg;
     MppCodingType  mCodingType;
     MppFrameFormat mInputMppFmt;
@@ -120,6 +134,7 @@ private:
     c2_status_t setupVuiParams();
     c2_status_t setupTemporalLayers();
     c2_status_t setupPrependHeaderSetting();
+    c2_status_t setupSuperModeIfNeeded();
     c2_status_t setupMlvecIfNeeded();
     c2_status_t setupEncCfg();
 
