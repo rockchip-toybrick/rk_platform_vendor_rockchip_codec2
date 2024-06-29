@@ -766,10 +766,6 @@ void C2RKMpiDec::onRelease() {
         mBlockPool.reset();
     }
 
-    if (mOutBlock) {
-        mOutBlock.reset();
-    }
-
     if (mFrmGrp != nullptr) {
         mpp_buffer_group_put(mFrmGrp);
         mFrmGrp = nullptr;
@@ -808,6 +804,10 @@ c2_status_t C2RKMpiDec::onFlush_sm() {
         Mutex::Autolock autoLock(mBufferLock);
         clearOutBuffers();
         mpp_buffer_group_clear(mFrmGrp);
+
+        if (mOutBlock) {
+            mOutBlock.reset();
+        }
 
         mFlushed = true;
     }
