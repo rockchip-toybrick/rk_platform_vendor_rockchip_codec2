@@ -271,9 +271,12 @@ c2_status_t C2RKComponent::flush_sm(
         if (state->mState != RUNNING) {
             return C2_BAD_STATE;
         }
-        state->mFlushing = true;
     }
     {
+        // since flush process is time-consuming, set flushing state
+        // to discard all work output during process.
+        setFlushingState();
+
         Mutexed<WorkQueue>::Locked queue(mWorkQueue);
         queue->incGeneration();
         // TODO: queue->splicedBy(flushedWork, flushedWork->end());
@@ -358,9 +361,12 @@ c2_status_t C2RKComponent::stop() {
             return C2_BAD_STATE;
         }
         state->mState = STOPPED;
-        state->mFlushing = true;
     }
     {
+        // since stop process is time-consuming, set flushing state
+        // to discard all work output during process.
+        setFlushingState();
+
         Mutexed<WorkQueue>::Locked queue(mWorkQueue);
         queue->clear();
         queue->pending().clear();
@@ -373,11 +379,7 @@ c2_status_t C2RKComponent::stop() {
         return (c2_status_t)err;
     }
 
-    {
-        Mutexed<ExecState>::Locked state(mExecState);
-        state->mFlushing = false;
-    }
-
+    stopFlushingState();
     c2_trace_func_leave();
 
     return C2_OK;
@@ -390,12 +392,20 @@ c2_status_t C2RKComponent::reset() {
         state->mState = UNINITIALIZED;
     }
     {
+        // since reset process is time-consuming, set flushing state
+        // to discard all work output during process.
+        setFlushingState();
+
         Mutexed<WorkQueue>::Locked queue(mWorkQueue);
         queue->clear();
         queue->pending().clear();
     }
     sp<AMessage> reply;
     (new AMessage(WorkHandler::kWhatReset, mHandler))->postAndAwaitResponse(&reply);
+
+    stopFlushingState();
+    c2_trace_func_leave();
+
     return C2_OK;
 }
 
@@ -419,6 +429,17 @@ std::list<std::unique_ptr<C2Work>> vec(std::unique_ptr<C2Work> &work) {
 }
 
 }  // namespace
+
+// In flushing state, discard work output
+void C2RKComponent::setFlushingState() {
+    Mutexed<ExecState>::Locked state(mExecState);
+    state->mFlushing = true;
+}
+
+void C2RKComponent::stopFlushingState() {
+    Mutexed<ExecState>::Locked state(mExecState);
+    state->mFlushing = false;
+}
 
 bool C2RKComponent::isPendingFlushing() {
     Mutexed<ExecState>::Locked state(mExecState);
@@ -508,8 +529,7 @@ bool C2RKComponent::processQueue() {
             // TODO: error
         }
 
-        Mutexed<ExecState>::Locked state(mExecState);
-        state->mFlushing = false;
+        stopFlushingState();
     }
 
     if (!mOutputBlockPool) {

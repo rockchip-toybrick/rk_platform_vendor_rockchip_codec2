@@ -758,12 +758,19 @@ void C2RKMpiDec::onRelease() {
     if (!mStarted)
         return;
 
+    /* set flushing state to discard all work output */
+    setFlushingState();
+
     if (!mFlushed) {
         onFlush_sm();
     }
 
     if (mBlockPool) {
         mBlockPool.reset();
+    }
+
+    if (mOutBlock) {
+        mOutBlock.reset();
     }
 
     if (mFrmGrp != nullptr) {
@@ -782,6 +789,7 @@ void C2RKMpiDec::onRelease() {
     }
 
     stopAndReleaseLooper();
+    stopFlushingState();
 
     mStarted = false;
 }
@@ -1205,13 +1213,18 @@ void C2RKMpiDec::finishWork(OutWorkEntry entry) {
     // TODO: work flags set to incomplete to ignore frame index check
     uint32_t outFlags = C2FrameData::FLAG_INCOMPLETE;
 
-    if ((flags & BUFFER_FLAGS_ERROR_FRAME)
-            || isDropFrame(timestamp) || isPendingFlushing()) {
+    if ((flags & BUFFER_FLAGS_ERROR_FRAME) || isDropFrame(timestamp)) {
         inFlags = C2FrameData::FLAG_DROP_FRAME;
     }
 
-    auto fillWork = [c2Buffer, inFlags, outFlags, timestamp]
+    auto fillWork = [c2Buffer, outblock, inFlags, outFlags, timestamp, this]
             (const std::unique_ptr<C2Work> &work) {
+        if (this->isPendingFlushing()) {
+            c2_trace("ignore frame output since pending flush");
+            commitBufferToMpp(outblock);
+            return;
+        }
+
         work->input.ordinal.timestamp = 0;
         work->input.ordinal.frameIndex = OUTPUT_WORK_INDEX;
         work->input.ordinal.customOrdinal = 0;
@@ -1905,12 +1918,6 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
     if (error) {
         c2_warn("skip error frame with pts %lld", pts);
         flags |= BUFFER_FLAGS_ERROR_FRAME;
-    }
-
-    if (isPendingFlushing()) {
-        ret = C2_CANCELED;
-        c2_trace("ignore frame(pts %lld) output since pending flush", pts);
-        goto cleanUp;
     }
 
     outBuffer = findOutBuffer(mppBuffer);

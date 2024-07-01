@@ -108,6 +108,10 @@ protected:
             uint32_t drainMode,
             const std::shared_ptr<C2BlockPool> &pool) = 0;
 
+    void setFlushingState();
+
+    void stopFlushingState();
+
     bool isPendingFlushing();
 
     // for derived classes
