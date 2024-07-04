@@ -44,6 +44,7 @@ static C2RKComponentEntry sComponentMaps[] = {
     { "c2.rk.vp8.decoder.secure",   MEDIA_MIMETYPE_VIDEO_VP8,   C2Component::KIND_DECODER },
     { "c2.rk.mpeg2.decoder.secure", MEDIA_MIMETYPE_VIDEO_MPEG2, C2Component::KIND_DECODER },
     { "c2.rk.m4v.decoder.secure",   MEDIA_MIMETYPE_VIDEO_MPEG4, C2Component::KIND_DECODER },
+    { "c2.rk.av1.decoder.secure",   MEDIA_MIMETYPE_VIDEO_AV1,   C2Component::KIND_DECODER },
     /* Hardware encoder list */
     { "c2.rk.avc.encoder",          MEDIA_MIMETYPE_VIDEO_AVC,   C2Component::KIND_ENCODER },
     { "c2.rk.hevc.encoder",         MEDIA_MIMETYPE_VIDEO_HEVC,  C2Component::KIND_ENCODER },
