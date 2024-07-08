@@ -241,8 +241,11 @@ uint32_t c2_has_more_rbsp_data(BitReadContext *bitctx) {
     // Last byte, look for stop bit;
     // We have more RBSP data if the last non-zero bit we find is not the
     // first available bit.
-    return (bitctx->curr_byte_ &
-            ((1 << (bitctx->num_remaining_bits_in_curr_byte_ - 1)) - 1)) != 0;
+    if (bitctx->num_remaining_bits_in_curr_byte_)
+        return (bitctx->curr_byte_ &
+                ((1 << (bitctx->num_remaining_bits_in_curr_byte_ - 1)) - 1)) != 0;
+    else
+        return 0;
 }
 /*!
 ***********************************************************************
