@@ -1213,7 +1213,7 @@ void C2RKMpiDec::finishWork(OutWorkEntry entry) {
     // TODO: work flags set to incomplete to ignore frame index check
     uint32_t outFlags = C2FrameData::FLAG_INCOMPLETE;
 
-    if ((flags & BUFFER_FLAGS_ERROR_FRAME) || isDropFrame(timestamp)) {
+    if (isDropFrame(timestamp)) {
         inFlags = C2FrameData::FLAG_DROP_FRAME;
     }
 
@@ -1916,8 +1916,9 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
     }
 
     if (error) {
+        ret = C2_OK;
         c2_warn("skip error frame with pts %lld", pts);
-        flags |= BUFFER_FLAGS_ERROR_FRAME;
+        goto cleanUp;
     }
 
     outBuffer = findOutBuffer(mppBuffer);
