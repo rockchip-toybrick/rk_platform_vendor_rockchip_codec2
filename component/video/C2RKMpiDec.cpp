@@ -1207,6 +1207,12 @@ void C2RKMpiDec::finishWork(OutWorkEntry entry) {
             IntfImpl::Lock lock = mIntf->lock();
             c2Buffer->setInfo(mIntf->getColorAspects_l());
         }
+
+        if (isPendingFlushing()) {
+            c2_trace("ignore frame output since pending flush");
+            commitBufferToMpp(outblock);
+            return;
+        }
     }
 
     uint32_t inFlags = 0;
@@ -1217,14 +1223,8 @@ void C2RKMpiDec::finishWork(OutWorkEntry entry) {
         inFlags = C2FrameData::FLAG_DROP_FRAME;
     }
 
-    auto fillWork = [c2Buffer, outblock, inFlags, outFlags, timestamp, this]
+    auto fillWork = [c2Buffer, inFlags, outFlags, timestamp]
             (const std::unique_ptr<C2Work> &work) {
-        if (this->isPendingFlushing()) {
-            c2_trace("ignore frame output since pending flush");
-            commitBufferToMpp(outblock);
-            return;
-        }
-
         work->input.ordinal.timestamp = 0;
         work->input.ordinal.frameIndex = OUTPUT_WORK_INDEX;
         work->input.ordinal.customOrdinal = 0;
