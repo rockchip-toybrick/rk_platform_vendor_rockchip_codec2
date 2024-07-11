@@ -1408,6 +1408,13 @@ void C2RKMpiDec::setDefaultCodecColorAspectsIfNeeded(ColorAspects &aspects) {
                 aspects.mMatrixCoeffs = CA::MatrixUnspecified;
             }
         }
+    } else (aspects.mPrimaries == CA::PrimariesBT601_6_625) {
+        // unadjusted standard is not allowed, update aspect to avoid get unsupport
+        // StandardBT601_625_Unadjusted and StandardBT601_525_Unadjusted.
+        if (aspects.mMatrixCoeffs == CA::MatrixBT709_5 ||
+            aspects.mMatrixCoeffs == CA::MatrixSMPTE240M) {
+            aspects.mMatrixCoeffs = CA::MatrixBT601_6;
+        }
     }
 }
 
