@@ -295,6 +295,14 @@ uint32_t C2RKChipCapDef::getGrallocVersion() {
     return mChipCapInfo->grallocVersion;
 }
 
+uint32_t C2RKChipCapDef::getFastModeSupport(MppCodingType codecId) {
+    if (codecId == MPP_VIDEO_CodingVP9
+            && mChipCapInfo->chipType == RK_CHIP_3588) {
+        return false;
+    }
+    return true;
+}
+
 uint32_t C2RKChipCapDef::getFbcOutputMode(MppCodingType codecId) {
     uint32_t fbcMode = 0;
 

@@ -580,8 +580,11 @@ public:
         return mPixelFormat;
     }
 
-    std::shared_ptr<C2StreamDisableDpbCheck::input> getDisableDpbCheck_l() const {
-        return mDisableDpbCheck;
+    bool getIsDisableDpbCheck() const {
+        if (mDisableDpbCheck && mDisableDpbCheck->value > 0) {
+            return true;
+        }
+        return false;
     }
 
     bool getIsLowLatencyMode() {
@@ -1053,7 +1056,7 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
     }
 
     {
-        uint32_t fastParse = 1;
+        uint32_t fastParse = C2RKChipCapDef::get()->getFastModeSupport(mCodingType);
         mMppMpi->control(mMppCtx, MPP_DEC_SET_PARSER_FAST_MODE, &fastParse);
 
         uint32_t fastPlay = 1;
@@ -1066,7 +1069,7 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
         }
 
         IntfImpl::Lock lock = mIntf->lock();
-        if (mIntf->getDisableDpbCheck_l() && mIntf->getDisableDpbCheck_l()->value > 0) {
+        if (mIntf->getIsDisableDpbCheck()) {
             uint32_t disableCheck = 1;
             mMppMpi->control(mMppCtx, MPP_DEC_SET_DISABLE_DPB_CHECK, &disableCheck);
             c2_info("disable poc discontinuous check");

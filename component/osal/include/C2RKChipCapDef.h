@@ -124,6 +124,7 @@ public:
     uint32_t    getHdrMetaCap();
     uint32_t    getScaleMode();
     uint32_t    getGrallocVersion();
+    uint32_t    getFastModeSupport(MppCodingType codecId);
 
     uint32_t getFbcOutputMode(MppCodingType codecId);
     uint32_t getFbcMinStride(uint32_t fbcMode);
