@@ -470,6 +470,10 @@ void C2RKComponent::finish(
     if (!work) {
         return;
     }
+    if (isPendingFlushing()) {
+        c2_trace("ignore frame output since pending flush");
+        return;
+    }
 
     fillWork(work);
     std::shared_ptr<C2Component::Listener> listener = mExecState.lock()->mListener;

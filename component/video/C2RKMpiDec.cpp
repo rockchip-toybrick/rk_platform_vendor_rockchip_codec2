@@ -824,6 +824,7 @@ void C2RKMpiDec::onRelease() {
 
     /* set flushing state to discard all work output */
     setFlushingState();
+    stopAndReleaseLooper();
 
     if (!mFlushed) {
         onFlush_sm();
@@ -852,7 +853,6 @@ void C2RKMpiDec::onRelease() {
         mDump = nullptr;
     }
 
-    stopAndReleaseLooper();
     stopFlushingState();
 
     if (mTunneled) {
@@ -1367,12 +1367,6 @@ void C2RKMpiDec::finishWork(OutWorkEntry entry) {
             mCodingType == MPP_VIDEO_CodingMPEG2) {
             IntfImpl::Lock lock = mIntf->lock();
             c2Buffer->setInfo(mIntf->getColorAspects_l());
-        }
-
-        if (isPendingFlushing()) {
-            c2_trace("ignore frame output since pending flush");
-            importBufferToMpp(outblock);
-            return;
         }
     }
 
@@ -2157,6 +2151,11 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
 
     if (error) {
         c2_warn("skip error frame with pts %lld", pts);
+        goto cleanUp;
+    }
+
+    if (isPendingFlushing()) {
+        c2_trace("ignore frame output since pending flush");
         goto cleanUp;
     }
 
