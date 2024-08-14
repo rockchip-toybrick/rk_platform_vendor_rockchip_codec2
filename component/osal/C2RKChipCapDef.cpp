@@ -351,6 +351,14 @@ uint32_t C2RKChipCapDef::getFbcOutputOffset(
     return 0;
 }
 
+bool C2RKChipCapDef::useSpsRefFrameCount() {
+    if (property_get_int32("codec2_use_sps_ref_buffer_count", 0)) {
+        c2_info("property match, use sps ref frame buffer count");
+        return true;
+    }
+    return false;
+}
+
 bool C2RKChipCapDef::is10bitSupport(MppCodingType codecId) {
     bool ret = false;
 

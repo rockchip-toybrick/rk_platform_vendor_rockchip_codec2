@@ -194,6 +194,7 @@ private:
 
     uint32_t getFbcOutputMode(const std::unique_ptr<C2Work> &work = nullptr);
     c2_status_t updateOutputDelay();
+    c2_status_t updateOutputDelayBySps(const std::unique_ptr<C2Work> &work);
     c2_status_t updateSurfaceConfig(const std::shared_ptr<C2BlockPool> &pool);
     c2_status_t configTunneledPlayback(const std::unique_ptr<C2Work> &work);
     void finishWork(OutWorkEntry entry);

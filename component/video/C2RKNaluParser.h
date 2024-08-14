@@ -22,13 +22,26 @@
 class C2RKNaluParser {
 public:
     static int32_t detectBitDepth(uint8_t *buf, int32_t size, int32_t coding);
+    static int32_t detectMaxRefCount(uint8_t *buf, int32_t size, int32_t coding);
 
 private:
-    static int32_t detechAVCBitDepth(uint8_t *buf, int32_t size);
+    /* Supported lists for InputFormat */
+    typedef enum {
+        C2_DETECT_FIELD_DEPTH = 0,
+        C2_DETECT_FIELD_MAX_REF_COUNT,
+        C2_DETECT_FIELD_BUTT,
+    } MyDetectField;
 
-    static bool detachHEVCNalSPS(BitReadContext *gb, int32_t *bitDepth);
-    static bool detachHEVCNalUnit(uint8_t *buf, int32_t size, int32_t *bitDepth);
-    static int32_t detechHEVCBitDepth(uint8_t *buf, int32_t size);
+    static bool searchAVCNaluInfo(
+            uint8_t *buf, int32_t size, int32_t detectFiled, int32_t *outValue);
+    static bool searchHEVCNalSPS(
+            BitReadContext *gb, int32_t detectFiled, int32_t *outValue);
+    static bool searchHEVCNalVPS(
+            BitReadContext *gb, int32_t detectFiled, int32_t *outValue);
+    static bool searchHEVCNalUnit(
+            uint8_t *buf, int32_t size, int32_t detectFiled, int32_t *outValue);
+    static bool searchHEVCNaluInfo(
+            uint8_t *buf, int32_t size, int32_t detectFiled, int32_t *outValue);
 };
 
 #endif  // ANDROID_C2_RK_NALU_PARSER_H__

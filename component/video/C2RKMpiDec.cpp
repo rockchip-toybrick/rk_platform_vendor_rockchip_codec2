@@ -989,6 +989,27 @@ c2_status_t C2RKMpiDec::updateOutputDelay() {
     return err;
 }
 
+c2_status_t C2RKMpiDec::updateOutputDelayBySps(const std::unique_ptr<C2Work> &work) {
+    c2_status_t err = C2_OK;
+
+    C2ReadView rView = mDummyReadView;
+    rView = work->input.buffers[0]->data().linearBlocks().front().map().get();
+    int32_t refCnt = C2RKNaluParser::detectMaxRefCount(
+            const_cast<uint8_t *>(rView.data()), rView.capacity(), mCodingType);
+
+    c2_info("Codec(%s) needs %d reference frames(From SPS)", toStr_Coding(mCodingType), refCnt);
+
+    C2PortActualDelayTuning::output delayTuning(refCnt);
+    std::vector<std::unique_ptr<C2SettingResult>> failures;
+
+    err = mIntf->config({&delayTuning}, C2_MAY_BLOCK, &failures);
+    if (err != C2_OK) {
+        c2_err("failed to config delay tuning, err %d", err);
+    }
+
+    return err;
+}
+
 c2_status_t C2RKMpiDec::updateSurfaceConfig(const std::shared_ptr<C2BlockPool> &pool) {
     c2_status_t err = C2_OK;
     std::shared_ptr<C2GraphicBlock> block;
@@ -1435,6 +1456,12 @@ void C2RKMpiDec::process(
                 work->result = C2_BAD_VALUE;
                 c2_err("failed to configure tunneled playback, signalled Error");
                 return;
+            }
+        }
+        if (C2RKChipCapDef::get()->useSpsRefFrameCount()) {
+            err = updateOutputDelayBySps(work);
+            if (err != C2_OK) {
+                c2_warn("failed to update output delay from sps");
             }
         }
     }
