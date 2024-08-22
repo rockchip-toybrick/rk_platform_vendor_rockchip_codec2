@@ -58,36 +58,40 @@ public:
     c2_status_t onFrameReady();
 
 private:
-    enum OutBufferSite {
-        BUFFER_SITE_BY_MPP = 0,
-        BUFFER_SITE_BY_US,
-        BUFFER_SITE_BY_BUTT,
-    };
+    struct OutBuffer {
+        enum Status {
+            OWNED_BY_MPP = 0,
+            OWNED_BY_US,
+        };
 
-    enum OutBufferFlags {
-        BUFFER_FLAGS_EOS         = 0x1,
-        BUFFER_FLAGS_ERROR_FRAME = 0x2,
-        BUFFER_FLAGS_INFO_CHANGE = 0x4,
-    };
-
-    typedef struct {
         /* index to find this buffer */
-        uint32_t       index;
-        /* mpp buffer */
-        MppBuffer      mppBuffer;
+        uint32_t  mBufferId;
         /* who own this buffer */
-        OutBufferSite  site;
+        Status    mStatus;
+        /* mpp buffer */
+        MppBuffer mMppBuffer;
         /* tunneled playback buffer */
-        VTBuffer      *tunnelBuffer;
-        /* block shared by surface*/
-        std::shared_ptr<C2GraphicBlock> block;
-    } OutBuffer;
+        VTBuffer *mTunnelBuffer;
+        /* block shared by surface */
+        std::shared_ptr<C2GraphicBlock> mBlock;
 
-    typedef struct {
+        /* signal buffer available to decoder */
+        void importThisBuffer();
+        /* signal buffer occupied by users */
+        void holdThisBuffer();
+    };
+
+    struct OutWorkEntry {
+        enum Flags {
+            FLAGS_EOS         = 0x1,
+            FLAGS_ERROR_FRAME = 0x2,
+            FLAGS_INFO_CHANGE = 0x4,
+        };
+
         std::shared_ptr<C2GraphicBlock> outblock;
         uint64_t timestamp;
         uint32_t flags;
-    } OutWorkEntry;
+    };
 
     class WorkHandler : public AHandler {
     public:
@@ -226,10 +230,10 @@ private:
     /*
      * OutBuffer vector operations
      */
-    OutBuffer* findOutBuffer(uint32_t index) {
+    OutBuffer* findOutBuffer(uint32_t bufferId) {
         for (int i = 0; i < mOutBuffers.size(); i++) {
             OutBuffer *buffer = mOutBuffers.editItemAt(i);
-            if (buffer->index == index) {
+            if (buffer->mBufferId == bufferId) {
                 return buffer;
             }
         }
@@ -239,7 +243,7 @@ private:
     OutBuffer* findOutBuffer(MppBuffer mppBuffer) {
         for (int i = 0; i < mOutBuffers.size(); i++) {
             OutBuffer *buffer = mOutBuffers.editItemAt(i);
-            if (buffer->mppBuffer == mppBuffer) {
+            if (buffer->mMppBuffer == mppBuffer) {
                 return buffer;
             }
         }
@@ -250,8 +254,8 @@ private:
         while (!mOutBuffers.isEmpty()) {
             OutBuffer *buffer = mOutBuffers.editItemAt(0);
             if (buffer != nullptr) {
-                if (buffer->site != BUFFER_SITE_BY_MPP) {
-                    mpp_buffer_put(buffer->mppBuffer);
+                if (buffer->mStatus != OutBuffer::OWNED_BY_MPP) {
+                    buffer->importThisBuffer();
                 }
                 delete buffer;
             }
@@ -263,7 +267,7 @@ private:
         int count = 0;
         for (int i = 0; i < mOutBuffers.size(); i++) {
             OutBuffer *buffer = mOutBuffers.editItemAt(i);
-            if (buffer->site == BUFFER_SITE_BY_MPP) {
+            if (buffer->mStatus == OutBuffer::OWNED_BY_MPP) {
                 count++;
             }
         }

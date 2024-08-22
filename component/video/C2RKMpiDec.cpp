@@ -723,6 +723,20 @@ void C2RKMpiDec::WorkHandler::onMessageReceived(const sp<AMessage> &msg) {
     }
 }
 
+void C2RKMpiDec::OutBuffer::importThisBuffer() {
+    if (mMppBuffer) {
+        mpp_buffer_put(mMppBuffer);
+    }
+    mStatus = OWNED_BY_MPP;
+}
+
+void C2RKMpiDec::OutBuffer::holdThisBuffer() {
+    if (mMppBuffer) {
+        mpp_buffer_inc_ref(mMppBuffer);
+    }
+    mStatus = OWNED_BY_US;
+}
+
 C2RKMpiDec::C2RKMpiDec(
         const char *name,
         const char *mime,
@@ -1371,21 +1385,20 @@ void C2RKMpiDec::finishWork(OutWorkEntry entry) {
     }
 
     uint32_t inFlags = 0;
-    // TODO: work flags set to incomplete to ignore frame index check
-    uint32_t outFlags = C2FrameData::FLAG_INCOMPLETE;
 
     if (isDropFrame(timestamp)) {
         inFlags = C2FrameData::FLAG_DROP_FRAME;
     }
 
-    auto fillWork = [c2Buffer, inFlags, outFlags, timestamp]
+    auto fillWork = [c2Buffer, inFlags, timestamp]
             (const std::unique_ptr<C2Work> &work) {
         work->input.ordinal.timestamp = 0;
         work->input.ordinal.frameIndex = OUTPUT_WORK_INDEX;
         work->input.ordinal.customOrdinal = 0;
         work->input.flags = (C2FrameData::flags_t)inFlags;
 
-        work->worklets.front()->output.flags = (C2FrameData::flags_t)outFlags;
+        // TODO: work flags set to incomplete to ignore frame index check
+        work->worklets.front()->output.flags = C2FrameData::FLAG_INCOMPLETE;
         work->worklets.front()->output.ordinal = work->input.ordinal;
         work->worklets.front()->output.ordinal.timestamp = timestamp;
         work->worklets.front()->output.buffers.clear();
@@ -1400,7 +1413,7 @@ void C2RKMpiDec::finishWork(OutWorkEntry entry) {
     work->worklets.clear();
     work->worklets.emplace_back(new C2Worklet);
 
-    if (flags & BUFFER_FLAGS_INFO_CHANGE) {
+    if (flags & OutWorkEntry::FLAGS_INFO_CHANGE) {
         c2_info("update new size %dx%d config to framework.", mWidth, mHeight);
         C2StreamPictureSizeInfo::output size(0u, mWidth, mHeight);
         C2PortActualDelayTuning::output delay(mOutputDelay);
@@ -1419,7 +1432,7 @@ void C2RKMpiDec::finishWork(OutWorkEntry entry) {
 
     finish(work, fillWork);
 
-    if (flags & BUFFER_FLAGS_EOS) {
+    if (flags & OutWorkEntry::FLAGS_EOS) {
         c2_info("signalling eos");
         Mutex::Autolock autoLock(mEosLock);
         mEosCondition.signal();
@@ -1510,12 +1523,14 @@ void C2RKMpiDec::process(
         mDropFramesPts.push_back(timestamp);
     }
 
-    err = ensureDecoderState();
-    if (err != C2_OK) {
-        mSignalledError = true;
-        work->workletsProcessed = 1u;
-        work->result = C2_CORRUPTED;
-        return;
+    if (mFlushed) {
+        err = ensureDecoderState();
+        if (err != C2_OK) {
+            mSignalledError = true;
+            work->workletsProcessed = 1u;
+            work->result = C2_CORRUPTED;
+            return;
+        }
     }
 
     err = sendpacket(inData, inSize, timestamp, flags);
@@ -1715,17 +1730,12 @@ c2_status_t C2RKMpiDec::importBufferToMpp(std::shared_ptr<C2GraphicBlock> block)
 
     uint32_t bufferId = C2RKGrallocOps::get()->getBufferId(handle);
 
-    OutBuffer *buffer = findOutBuffer(bufferId);
-    if (buffer) {
-        /* commit this buffer back to mpp */
-        MppBuffer mppBuffer = buffer->mppBuffer;
-        if (mppBuffer) {
-            mpp_buffer_put(mppBuffer);
-        }
-        buffer->block = block;
-        buffer->site = BUFFER_SITE_BY_MPP;
+    OutBuffer *outBuffer = findOutBuffer(bufferId);
+    if (outBuffer) {
+        outBuffer->mBlock = block;
+        outBuffer->importThisBuffer();
 
-        c2_trace("put this buffer, index %d mppBuf %p", bufferId, mppBuffer);
+        c2_trace("put this buffer, bufferId %d", bufferId);
     } else {
         /* register this buffer to mpp group */
         MppBuffer mppBuffer;
@@ -1740,32 +1750,31 @@ c2_status_t C2RKMpiDec::importBufferToMpp(std::shared_ptr<C2GraphicBlock> block)
         mpp_buffer_import_with_tag(
                 mFrmGrp, &info, &mppBuffer, "codec2", __FUNCTION__);
 
-        OutBuffer *newBuffer = new OutBuffer;
-        newBuffer->index     = bufferId;
-        newBuffer->mppBuffer = mppBuffer;
-        newBuffer->block     = block;
-        newBuffer->site      = BUFFER_SITE_BY_MPP;
+        OutBuffer *newBuffer  = new OutBuffer;
+        newBuffer->mBufferId  = bufferId;
+        newBuffer->mMppBuffer = mppBuffer;
+        newBuffer->mBlock     = block;
+        newBuffer->mStatus    = OutBuffer::OWNED_BY_MPP;
 
         mOutBuffers.push(newBuffer);
 
         if (mTunneled) {
-            mTunneledSession->newVTBuffer(&newBuffer->tunnelBuffer);
-            newBuffer->tunnelBuffer->handle = UnwrapNativeCodec2GrallocHandle(c2Handle);
-            newBuffer->tunnelBuffer->uniqueId = bufferId;
+            mTunneledSession->newVTBuffer(&newBuffer->mTunnelBuffer);
+            newBuffer->mTunnelBuffer->handle = UnwrapNativeCodec2GrallocHandle(c2Handle);
+            newBuffer->mTunnelBuffer->uniqueId = bufferId;
 
             // reserved buffer to tunneled surface
             if (mTunneledSession->needReservedBuffer()) {
-                mTunneledSession->cancelBuffer(newBuffer->tunnelBuffer);
+                mTunneledSession->cancelBuffer(newBuffer->mTunnelBuffer);
                 // signal buffer occupied by users
-                mpp_buffer_inc_ref(mppBuffer);
-                newBuffer->site = BUFFER_SITE_BY_US;
+                newBuffer->holdThisBuffer();
             }
         }
 
         // signal buffer available to decoder
         mpp_buffer_put(mppBuffer);
 
-        c2_trace("import this buffer, index %d size %d mppBuf %p listSize %d",
+        c2_trace("import this buffer, bufferId %d size %d mppBuf %p listSize %d",
                  bufferId, info.size, mppBuffer, mOutBuffers.size());
     }
 
@@ -1788,7 +1797,7 @@ c2_status_t C2RKMpiDec::ensureTunneledState() {
         if (mTunneledSession->dequeueBuffer(&tunnelBuffer)) {
             outBuffer = findOutBuffer(tunnelBuffer->uniqueId);
             if (outBuffer) {
-                importBufferToMpp(outBuffer->block);
+                importBufferToMpp(outBuffer->mBlock);
             } else {
                 c2_err("found unexpected buffer, index %d", tunnelBuffer->uniqueId);
                 err = C2_CORRUPTED;
@@ -2137,14 +2146,14 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
         }
 
         // feekback config update to first output frame.
-        flags |= BUFFER_FLAGS_INFO_CHANGE;
+        flags |= OutWorkEntry::FLAGS_INFO_CHANGE;
 
         goto cleanUp;
     }
 
     if (eos) {
         c2_info("get output eos.");
-        flags |= BUFFER_FLAGS_EOS;
+        flags |= OutWorkEntry::FLAGS_EOS;
         // ignore null frame with eos
         if (!mppBuffer) goto cleanUp;
     }
@@ -2166,8 +2175,8 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
         goto cleanUp;
     }
 
-    c2_trace("get one frame [%d:%d] stride [%d:%d] pts %lld err %d index %d",
-             width, height, hstride, vstride, pts, error, outBuffer->index);
+    c2_trace("get one frame [%d:%d] stride [%d:%d] pts %lld err %d bufferId %d",
+             width, height, hstride, vstride, pts, error, outBuffer->mBufferId);
 
     if (mBufferMode) {
         if (MPP_FRAME_FMT_IS_YUV_10BIT(mColorFormat)) {
@@ -2201,23 +2210,20 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
                 memcpy(dstPtr, srcPtr, mHorStride * mVerStride * 3 / 2);
             }
         }
-        outBuffer->site = BUFFER_SITE_BY_MPP;
     } else {
-        // signal buffer occupied by users
-        mpp_buffer_inc_ref(mppBuffer);
-
         if (mScaleMode == C2_SCALE_MODE_META) {
-            configFrameScaleMeta(frame, outBuffer->block);
+            configFrameScaleMeta(frame, outBuffer->mBlock);
         }
         if (mHdrMetaEnabled) {
-            configFrameHdrMeta(frame, outBuffer->block);
+            configFrameHdrMeta(frame, outBuffer->mBlock);
         }
         if (mTunneled) {
-            mTunneledSession->renderBuffer(outBuffer->tunnelBuffer);
+            mTunneledSession->renderBuffer(outBuffer->mTunnelBuffer);
             // stop work output
             ret = C2_CANCELED;
         }
-        outBuffer->site = BUFFER_SITE_BY_US;
+        // signal buffer occupied by users
+        outBuffer->holdThisBuffer();
     }
 
     if (mCodingType == MPP_VIDEO_CodingAVC ||
@@ -2236,7 +2242,7 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
     /* show output process fps if neccessary */
     mDump->showDebugFps(DUMP_ROLE_OUTPUT);
 
-    entry->outblock = mBufferMode ? mOutBlock : outBuffer->block;
+    entry->outblock = mBufferMode ? mOutBlock : outBuffer->mBlock;
     entry->timestamp = pts;
 
 cleanUp:
