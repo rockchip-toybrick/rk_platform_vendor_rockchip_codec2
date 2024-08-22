@@ -133,6 +133,7 @@ private:
     uint32_t mHeight;
     uint32_t mHorStride;
     uint32_t mVerStride;
+    uint32_t mOutputDelay;
     uint32_t mGrallocVersion;
     uint32_t mPixelFormat;
     uint32_t mScaleMode;
@@ -193,9 +194,8 @@ private:
     void stopAndReleaseLooper();
 
     uint32_t getFbcOutputMode(const std::unique_ptr<C2Work> &work = nullptr);
-    c2_status_t updateOutputDelay();
-    c2_status_t updateOutputDelayBySps(const std::unique_ptr<C2Work> &work);
     c2_status_t updateSurfaceConfig(const std::shared_ptr<C2BlockPool> &pool);
+    c2_status_t configOutputDelay(const std::unique_ptr<C2Work> &work = nullptr);
     c2_status_t configTunneledPlayback(const std::unique_ptr<C2Work> &work);
     void finishWork(OutWorkEntry entry);
 

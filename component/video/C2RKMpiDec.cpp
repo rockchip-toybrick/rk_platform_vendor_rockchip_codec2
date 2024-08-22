@@ -745,6 +745,7 @@ C2RKMpiDec::C2RKMpiDec(
       mHeight(0),
       mHorStride(0),
       mVerStride(0),
+      mOutputDelay(0),
       mGrallocVersion(C2RKChipCapDef::get()->getGrallocVersion()),
       mScaleMode(0),
       mStarted(false),
@@ -788,9 +789,9 @@ c2_status_t C2RKMpiDec::onInit() {
         return C2_NO_MEMORY;
     }
 
-    c2_status_t err = updateOutputDelay();
+    c2_status_t err = configOutputDelay();
     if (err != C2_OK) {
-        c2_err("failed to update output delay");
+        c2_err("failed to config output delay");
     }
 
     err = setupAndStartLooper();
@@ -961,55 +962,6 @@ uint32_t C2RKMpiDec::getFbcOutputMode(const std::unique_ptr<C2Work> &work) {
     return fbcMode;
 }
 
-c2_status_t C2RKMpiDec::updateOutputDelay() {
-    c2_status_t err = C2_OK;
-    uint32_t width = 0, height = 0;
-    uint32_t level = 0, refCnt = 0;
-
-    {
-        IntfImpl::Lock lock = mIntf->lock();
-        width  = mIntf->getSize_l()->width;
-        height = mIntf->getSize_l()->height;
-        level  = mIntf->getProfileLevel_l() ? mIntf->getProfileLevel_l()->level : 0;
-    }
-
-    refCnt = C2RKMediaUtils::calculateVideoRefCount(mCodingType, width, height, level);
-
-    c2_info("Codec(%s %dx%d) level(%d) needs %d reference frames",
-            toStr_Coding(mCodingType), width, height, level, refCnt);
-
-    C2PortActualDelayTuning::output delayTuning(refCnt);
-    std::vector<std::unique_ptr<C2SettingResult>> failures;
-
-    err = mIntf->config({&delayTuning}, C2_MAY_BLOCK, &failures);
-    if (err != C2_OK) {
-        c2_err("failed to config delay tuning, err %d", err);
-    }
-
-    return err;
-}
-
-c2_status_t C2RKMpiDec::updateOutputDelayBySps(const std::unique_ptr<C2Work> &work) {
-    c2_status_t err = C2_OK;
-
-    C2ReadView rView = mDummyReadView;
-    rView = work->input.buffers[0]->data().linearBlocks().front().map().get();
-    int32_t refCnt = C2RKNaluParser::detectMaxRefCount(
-            const_cast<uint8_t *>(rView.data()), rView.capacity(), mCodingType);
-
-    c2_info("Codec(%s) needs %d reference frames(From SPS)", toStr_Coding(mCodingType), refCnt);
-
-    C2PortActualDelayTuning::output delayTuning(refCnt);
-    std::vector<std::unique_ptr<C2SettingResult>> failures;
-
-    err = mIntf->config({&delayTuning}, C2_MAY_BLOCK, &failures);
-    if (err != C2_OK) {
-        c2_err("failed to config delay tuning, err %d", err);
-    }
-
-    return err;
-}
-
 c2_status_t C2RKMpiDec::updateSurfaceConfig(const std::shared_ptr<C2BlockPool> &pool) {
     c2_status_t err = C2_OK;
     std::shared_ptr<C2GraphicBlock> block;
@@ -1104,6 +1056,72 @@ cleanUp:
     }
 
     freeGraphicBuffer(handle);
+
+    return err;
+}
+
+c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
+    c2_status_t err = C2_OK;
+    uint32_t width = 0, height = 0, level = 0;
+    uint32_t refCnt = 0, protocolRefCnt = 0;
+
+    {
+        IntfImpl::Lock lock = mIntf->lock();
+        width  = mIntf->getSize_l()->width;
+        height = mIntf->getSize_l()->height;
+        level  = mIntf->getProfileLevel_l() ? mIntf->getProfileLevel_l()->level : 0;
+    }
+
+    refCnt = C2RKMediaUtils::calculateVideoRefCount(mCodingType, width, height, level);
+
+    if (work != nullptr && work->input.flags & C2FrameData::FLAG_CODEC_CONFIG) {
+        C2ReadView rView = mDummyReadView;
+        rView = work->input.buffers[0]->data().linearBlocks().front().map().get();
+        protocolRefCnt = C2RKNaluParser::detectMaxRefCount(
+                const_cast<uint8_t *>(rView.data()), rView.capacity(), mCodingType);
+        if (protocolRefCnt && C2RKChipCapDef::get()->useSpsRefFrameCount()) {
+            refCnt = protocolRefCnt;
+        } else {
+            refCnt = C2_MAX(refCnt, protocolRefCnt);
+        }
+    }
+
+    if (refCnt != mOutputDelay) {
+        c2_info("Codec(%s %dx%d) get %d reference frames from %s",
+                toStr_Coding(mCodingType), width, height, refCnt,
+                (work) ? "protocol" : "levelInfo");
+
+        C2PortActualDelayTuning::output delayTuning(refCnt);
+        std::vector<std::unique_ptr<C2SettingResult>> failures;
+
+        err = mIntf->config({&delayTuning}, C2_MAY_BLOCK, &failures);
+        if (err != C2_OK) {
+            c2_err("failed to config delay tuning, err %d", err);
+        } else if (work != nullptr) {
+            // update outputDelay config to framework if work not null
+            std::unique_ptr<C2Work> configWork(new C2Work);
+            configWork->worklets.clear();
+            configWork->worklets.emplace_back(new C2Worklet);
+
+            C2PortActualDelayTuning::output delay(refCnt);
+            configWork->worklets.front()->output.configUpdate.push_back(C2Param::Copy(delay));
+
+            auto fillConfigWork = [] (const std::unique_ptr<C2Work> &configWork) {
+                configWork->input.ordinal.frameIndex = OUTPUT_WORK_INDEX;
+                configWork->input.flags = (C2FrameData::flags_t)0;
+
+                // TODO: work flags set to incomplete to ignore frame index check
+                configWork->worklets.front()->output.flags = C2FrameData::FLAG_INCOMPLETE;
+                configWork->worklets.front()->output.buffers.clear();
+                configWork->workletsProcessed = 1u;
+                configWork->result = C2_OK;
+            };
+
+            finish(configWork, fillConfigWork);
+        }
+
+        mOutputDelay = refCnt;
+    }
 
     return err;
 }
@@ -1316,8 +1334,6 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
 
     mDump->initDump(mHorStride, mVerStride, false);
 
-    mStarted = true;
-
     return C2_OK;
 
 error:
@@ -1393,7 +1409,7 @@ void C2RKMpiDec::finishWork(OutWorkEntry entry) {
     if (flags & BUFFER_FLAGS_INFO_CHANGE) {
         c2_info("update new size %dx%d config to framework.", mWidth, mHeight);
         C2StreamPictureSizeInfo::output size(0u, mWidth, mHeight);
-        C2PortActualDelayTuning::output delay(mIntf->mActualOutputDelay->value);
+        C2PortActualDelayTuning::output delay(mOutputDelay);
         work->worklets.front()->output.configUpdate.push_back(C2Param::Copy(size));
         work->worklets.front()->output.configUpdate.push_back(C2Param::Copy(delay));
 
@@ -1458,12 +1474,14 @@ void C2RKMpiDec::process(
                 return;
             }
         }
-        if (C2RKChipCapDef::get()->useSpsRefFrameCount()) {
-            err = updateOutputDelayBySps(work);
-            if (err != C2_OK) {
-                c2_warn("failed to update output delay from sps");
-            }
+
+        err = configOutputDelay(work);
+        if (err != C2_OK) {
+            c2_err("failed to config protocol output delay");
+            work->result = C2_BAD_VALUE;
+            return;
         }
+        mStarted = true;
     }
 
     if (mSignalledInputEos || mSignalledError) {
@@ -1938,7 +1956,7 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
     }
 
     std::shared_ptr<C2GraphicBlock> outblock;
-    uint32_t count = mIntf->mActualOutputDelay->value - getOutBufferCountOwnByMpi();
+    uint32_t count = mOutputDelay - getOutBufferCountOwnByMpi();
 
     uint32_t i = 0;
     for (i = 0; i < count; i++) {
@@ -2117,7 +2135,7 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
             goto cleanUp;
         }
 
-        ret = updateOutputDelay();
+        ret = configOutputDelay();
         if (ret != C2_OK) {
             c2_err("failed to update output delay");
             ret = C2_CORRUPTED;

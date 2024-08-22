@@ -46,6 +46,7 @@ using namespace android;
 #define C2_DEFAULT_REF_FRAME_COUNT  12
 #define C2_MAX_REF_FRAME_COUNT      21
 
+#define C2_MAX(a, b)                ((a) > (b) ? (a) : (b))
 #define C2_ALIGN(x, a)              (((x)+(a)-1)&~((a)-1))
 #define C2_IS_ALIGNED(x, a)         (!((x) & ((a)-1)))
 #define C2_ALIGN_ODD(x, a)          (((x)+(a)-1)&~((a)-1) | a)
