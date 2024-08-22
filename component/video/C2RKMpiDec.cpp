@@ -1371,7 +1371,7 @@ void C2RKMpiDec::finishWork(OutWorkEntry entry) {
 
         if (isPendingFlushing()) {
             c2_trace("ignore frame output since pending flush");
-            commitBufferToMpp(outblock);
+            importBufferToMpp(outblock);
             return;
         }
     }
@@ -1710,7 +1710,7 @@ c2_status_t C2RKMpiDec::updateFbcModeIfNeeded() {
     return C2_OK;
 }
 
-c2_status_t C2RKMpiDec::commitBufferToMpp(std::shared_ptr<C2GraphicBlock> block) {
+c2_status_t C2RKMpiDec::importBufferToMpp(std::shared_ptr<C2GraphicBlock> block) {
     c2_status_t err = C2_OK;
     auto c2Handle = block->handle();
     uint32_t fd = c2Handle->data[0];
@@ -1794,7 +1794,7 @@ c2_status_t C2RKMpiDec::ensureTunneledState() {
         if (mTunneledSession->dequeueBuffer(&tunnelBuffer)) {
             outBuffer = findOutBuffer(tunnelBuffer->uniqueId);
             if (outBuffer) {
-                commitBufferToMpp(outBuffer->block);
+                importBufferToMpp(outBuffer->block);
             } else {
                 c2_err("found unexpected buffer, index %d", tunnelBuffer->uniqueId);
                 err = C2_CORRUPTED;
@@ -1956,7 +1956,7 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
     }
 
     std::shared_ptr<C2GraphicBlock> outblock;
-    uint32_t count = mOutputDelay - getOutBufferCountOwnByMpi();
+    uint32_t count = mOutputDelay - getOutBufferCountOwnByMpi() + 1;
 
     uint32_t i = 0;
     for (i = 0; i < count; i++) {
@@ -1968,7 +1968,7 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
             break;
         }
 
-        err = commitBufferToMpp(outblock);
+        err = importBufferToMpp(outblock);
         if (err != C2_OK) {
             c2_err("failed to commit buffer");
             break;
@@ -2156,7 +2156,6 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
     }
 
     if (error) {
-        ret = C2_OK;
         c2_warn("skip error frame with pts %lld", pts);
         goto cleanUp;
     }

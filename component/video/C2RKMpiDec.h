@@ -203,7 +203,7 @@ private:
     void setDefaultCodecColorAspectsIfNeeded(ColorAspects &aspects);
     void getVuiParams(MppFrame frame);
     c2_status_t updateFbcModeIfNeeded();
-    c2_status_t commitBufferToMpp(std::shared_ptr<C2GraphicBlock> block);
+    c2_status_t importBufferToMpp(std::shared_ptr<C2GraphicBlock> block);
     c2_status_t ensureTunneledState();
     c2_status_t ensureDecoderState();
     c2_status_t sendpacket(uint8_t *data, size_t size, uint64_t pts, uint32_t flags);
