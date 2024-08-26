@@ -2057,10 +2057,11 @@ c2_status_t C2RKMpiDec::sendpacket(uint8_t *data, size_t size, uint64_t pts, uin
              * fetchGraphicBlock get blocked. I still don't know is there a better
              * way to know player get paused?
              */
-            if (mBufferLock.tryLock() != NO_ERROR) {
-                retry = 0;
-            } else {
+            if (mBufferLock.tryLock() == NO_ERROR) {
                 c2_warn("try to resend packet, pts %lld", pts);
+                mBufferLock.unlock();
+            } else {
+                retry = 0;
             }
         }
 
