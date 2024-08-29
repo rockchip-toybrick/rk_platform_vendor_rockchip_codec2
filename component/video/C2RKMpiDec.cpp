@@ -1985,13 +1985,17 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
 }
 
 void C2RKMpiDec::postFrameReady() {
-    sp<AMessage> msg = new AMessage(WorkHandler::kWhatFrameReady, mHandler);
-    msg->setPointer("thiz", this);
-    msg->post();
+    if (mHandler) {
+        sp<AMessage> msg = new AMessage(WorkHandler::kWhatFrameReady, mHandler);
+        msg->setPointer("thiz", this);
+        msg->post();
+    }
 }
 
 c2_status_t C2RKMpiDec::onFrameReady() {
-    c2_status_t err = C2_OK;
+    c2_status_t err = C2_BAD_STATE;
+
+    if (mSignalledError) return err;
 
 outframe:
     OutWorkEntry entry;
@@ -2001,7 +2005,11 @@ outframe:
     if (err == C2_OK) {
         finishWork(entry);
         /* Avoid stock frame, continue to search available output */
-        ensureDecoderState();
+        err = ensureDecoderState();
+        if (err != C2_OK) {
+            mSignalledError = true;
+            return err;
+        }
         goto outframe;
     } else if (err == C2_CORRUPTED) {
         c2_err("signalling error");
