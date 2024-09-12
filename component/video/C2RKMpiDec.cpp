@@ -1090,13 +1090,15 @@ c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
 
     if (work != nullptr && work->input.flags & C2FrameData::FLAG_CODEC_CONFIG) {
         C2ReadView rView = mDummyReadView;
-        rView = work->input.buffers[0]->data().linearBlocks().front().map().get();
-        protocolRefCnt = C2RKNaluParser::detectMaxRefCount(
-                const_cast<uint8_t *>(rView.data()), rView.capacity(), mCodingType);
-        if (protocolRefCnt && C2RKChipCapDef::get()->useSpsRefFrameCount()) {
-            refCnt = protocolRefCnt;
-        } else {
-            refCnt = C2_MAX(refCnt, protocolRefCnt);
+        if (!work->input.buffers.empty()) {
+            rView = work->input.buffers[0]->data().linearBlocks().front().map().get();
+            protocolRefCnt = C2RKNaluParser::detectMaxRefCount(
+                    const_cast<uint8_t *>(rView.data()), rView.capacity(), mCodingType);
+            if (protocolRefCnt && C2RKChipCapDef::get()->useSpsRefFrameCount()) {
+                refCnt = protocolRefCnt;
+            } else {
+                refCnt = C2_MAX(refCnt, protocolRefCnt);
+            }
         }
     }
 
