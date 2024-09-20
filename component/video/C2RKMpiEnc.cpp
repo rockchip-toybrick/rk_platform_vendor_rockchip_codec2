@@ -1028,7 +1028,7 @@ void C2RKMpiEnc::onRelease() {
         mEncCfg = nullptr;
     }
 
-    if (mMppCtx){
+    if (mMppCtx) {
         mpp_destroy(mMppCtx);
         mMppCtx = nullptr;
     }

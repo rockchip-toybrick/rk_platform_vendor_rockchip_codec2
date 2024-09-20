@@ -1828,7 +1828,7 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
     uint32_t videoH = mHeight;
     uint32_t frameW = mHorStride;
     uint32_t frameH = mVerStride;
-    uint32_t mppFmt = mColorFormat;
+    uint32_t mppFormat = mColorFormat;
 
     uint32_t blockW = 0, blockH = 0, format = 0;
     uint64_t usage = RK_GRALLOC_USAGE_SPECIFY_STRIDE;
@@ -1841,12 +1841,12 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
         videoH = mScaleInfo.height;
         frameW = mScaleInfo.hstride;
         frameH = mScaleInfo.vstride;
-        mppFmt = mScaleInfo.format;
+        mppFormat = mScaleInfo.format;
     }
 
     blockW = frameW;
     blockH = frameH;
-    format = C2RKMediaUtils::getAndroidColorFmt(mppFmt, mFbcCfg.mode);
+    format = C2RKMediaUtils::getAndroidColorFmt(mppFormat, mFbcCfg.mode);
 
     // NOTE: private gralloc stride usage only support in 4.0.
     // Update use stride usage if we are able config available stride.
@@ -1854,7 +1854,7 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
         uint64_t horUsage = 0, verUsage = 0;
 
         // 10bit video calculate stride base on (width * 10 / 8)
-        if (MPP_FRAME_FMT_IS_YUV_10BIT(mppFmt)) {
+        if (MPP_FRAME_FMT_IS_YUV_10BIT(mppFormat)) {
             horUsage = C2RKMediaUtils::getStrideUsage(videoW * 10 / 8, frameW);
         } else {
             horUsage = C2RKMediaUtils::getStrideUsage(videoW, frameW);
@@ -1933,7 +1933,7 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
     }
 
     if (mBufferMode) {
-        uint32_t bFormat = (MPP_FRAME_FMT_IS_YUV_10BIT(mppFmt)) ? mPixelFormat : format;
+        uint32_t bFormat = (MPP_FRAME_FMT_IS_YUV_10BIT(mppFormat)) ? mPixelFormat : format;
         uint64_t bUsage  = (usage | GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN);
 
         // allocate buffer within 4G to avoid rga2 error.
@@ -1980,8 +1980,10 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
         }
     }
 
-    c2_trace("required (%dx%d) usage 0x%llx format 0x%x, fetch %d/%d",
-             blockW, blockH, usage, format, i, count);
+    if (err != C2_OK || count > 2) {
+        c2_info("required (%dx%d) usage 0x%llx format 0x%x, fetch %d/%d",
+                blockW, blockH, usage, format, i, count);
+    }
 
     return err;
 }
