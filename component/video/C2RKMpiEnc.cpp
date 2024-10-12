@@ -22,7 +22,6 @@
 #include <C2AllocatorGralloc.h>
 #include <ui/GraphicBufferMapper.h>
 #include <ui/GraphicBufferAllocator.h>
-#include <cutils/properties.h>
 
 #include "C2RKMpiEnc.h"
 #include "C2RKLog.h"
@@ -34,6 +33,7 @@
 #include "C2RKChipCapDef.h"
 #include "C2RKGrallocOps.h"
 #include "C2RKMemTrace.h"
+#include "C2RKPropsDef.h"
 #include "C2RKVersion.h"
 
 namespace android {
@@ -1680,7 +1680,7 @@ c2_status_t C2RKMpiEnc::setupSuperModeIfNeeded() {
     int32_t superMode = mIntf->getSuperMode();
 
     if (superMode <= 0 || superMode >= C2_SUPER_MODE_BUTT) {
-        superMode = property_get_int32("codec2_super_encoding_mode", 0);
+        superMode = C2RKPropsDef::getEncSuperMode();
         if (superMode) {
             c2_info("config super mode, property %d", superMode);
         } else {

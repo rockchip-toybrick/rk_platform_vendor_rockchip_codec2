@@ -272,23 +272,11 @@ C2ChipType C2RKChipCapDef::getChipType() {
 }
 
 uint32_t C2RKChipCapDef::getHdrMetaCap() {
-    uint32_t hdrMeta = mChipCapInfo->hdrMetaCap;
-    if (hdrMeta > 0 && property_get_int32("codec2_hdr_meta_disable", 0)) {
-        c2_info("property match, disable hdr meta");
-        hdrMeta = 0;
-    }
-
-    return hdrMeta;
+    return mChipCapInfo->hdrMetaCap;
 }
 
 uint32_t C2RKChipCapDef::getScaleMode() {
-    uint32_t scaleMode = mChipCapInfo->scaleMode;
-    if (scaleMode > 0 && property_get_int32("codec2_scale_disable", 0)) {
-        c2_info("property match, disable scale mode");
-        scaleMode = 0;
-    }
-
-    return scaleMode;
+    return mChipCapInfo->scaleMode;
 }
 
 uint32_t C2RKChipCapDef::getGrallocVersion() {
@@ -351,13 +339,6 @@ uint32_t C2RKChipCapDef::getFbcOutputOffset(
     return 0;
 }
 
-bool C2RKChipCapDef::useSpsRefFrameCount() {
-    if (property_get_int32("codec2_use_sps_ref_buffer_count", 0)) {
-        c2_info("property match, use sps ref frame buffer count");
-        return true;
-    }
-    return false;
-}
 
 bool C2RKChipCapDef::is10bitSupport(MppCodingType codecId) {
     bool ret = false;

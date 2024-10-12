@@ -37,6 +37,7 @@
 #include "C2RKGrallocOps.h"
 #include "C2RKMemTrace.h"
 #include "C2RKTunneledSession.h"
+#include "C2RKPropsDef.h"
 #include "C2RKVersion.h"
 
 namespace android {
@@ -1005,12 +1006,15 @@ c2_status_t C2RKMpiDec::updateSurfaceConfig(const std::shared_ptr<C2BlockPool> &
         updateFbcModeIfNeeded();
     }
 
+    /* check use scale mode */
+
     MPP_RET ret = MPP_OK;
     MppDecCfg cfg = nullptr;
     uint32_t scaleMode = C2RKChipCapDef::get()->getScaleMode();
 
     // enable scale dec only in 8k
-    if (!scaleMode || (mWidth <= 4096 && mHeight <= 4096)) {
+    if (!scaleMode || (mWidth <= 4096 && mHeight <= 4096)
+            || C2RKPropsDef::getScaleDisable()) {
         goto cleanUp;
     }
 
@@ -1094,7 +1098,7 @@ c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
             rView = work->input.buffers[0]->data().linearBlocks().front().map().get();
             protocolRefCnt = C2RKNaluParser::detectMaxRefCount(
                     const_cast<uint8_t *>(rView.data()), rView.capacity(), mCodingType);
-            if (protocolRefCnt && C2RKChipCapDef::get()->useSpsRefFrameCount()) {
+            if (protocolRefCnt && C2RKPropsDef::getIsUseSpsOutputDelay()) {
                 refCnt = protocolRefCnt;
             } else {
                 refCnt = C2_MAX(refCnt, protocolRefCnt);
@@ -1335,8 +1339,11 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
 
         /* check HDR Vivid support */
         if (!mBufferMode && C2RKChipCapDef::get()->getHdrMetaCap()) {
-            mpp_dec_cfg_set_u32(cfg, "base:enable_hdr_meta", 1);
-            mHdrMetaEnabled = true;
+            if (!C2RKPropsDef::getHdrDisable()) {
+                c2_info("enable hdr meta");
+                mpp_dec_cfg_set_u32(cfg, "base:enable_hdr_meta", 1);
+                mHdrMetaEnabled = true;
+            }
         }
 
         err = mMppMpi->control(mMppCtx, MPP_DEC_SET_CFG, cfg);

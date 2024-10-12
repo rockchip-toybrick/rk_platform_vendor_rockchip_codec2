@@ -22,6 +22,7 @@ cc_library_static {
         "C2RKGrallocOps.cpp",
         "C2RKVdecExtendFeature.cpp",
         "C2RKMemTrace.cpp",
+        "C2RKPropsDef.cpp",
     ],
 
     shared_libs: [
