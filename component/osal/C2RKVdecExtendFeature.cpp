@@ -26,16 +26,8 @@
 
 namespace android {
 
-int C2RKVdecExtendFeature::configFrameHdrDynamicMeta(buffer_handle_t hnd, int64_t offset)
-{
-    int ret = 0;
-    int64_t dynamicHdrOffset = offset;
-
-    ret = C2RKGrallocOps::get()->setDynamicHdrMeta(hnd, dynamicHdrOffset);
-    if (ret)
-        return ret;
-
-    return ret;
+int C2RKVdecExtendFeature::configFrameHdrDynamicMeta(buffer_handle_t hnd, int64_t offset) {
+    return C2RKGrallocOps::get()->setDynamicHdrMeta(hnd, offset);
 }
 
 int C2RKVdecExtendFeature::checkNeedScale(buffer_handle_t hnd) {

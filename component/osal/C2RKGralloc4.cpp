@@ -304,11 +304,10 @@ uint64_t C2RKGralloc4::getBufferId(buffer_handle_t handle) {
 }
 
 int32_t C2RKGralloc4::setDynamicHdrMeta(buffer_handle_t handle, int64_t offset) {
-    int32_t err = android::OK;
     auto &mapper = get_service();
     hidl_vec<uint8_t> encodedOffset;
 
-    err = encodeRkOffsetOfVideoMetadata(offset, &encodedOffset);
+    int32_t err = encodeRkOffsetOfVideoMetadata(offset, &encodedOffset);
     if (err != android::OK) {
         c2_err("Failed to encode offset_of_dynamic_hdr_metadata. err : %d", err);
         return err;

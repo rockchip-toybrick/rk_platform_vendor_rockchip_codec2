@@ -60,7 +60,6 @@ bool C2RKMemTrace::tryAddVideoNode(C2NodeInfo &node) {
         return true;
     }
 
-    std::string sMime;
     int32_t load = 0;
 
     if (node.pid == 0) {

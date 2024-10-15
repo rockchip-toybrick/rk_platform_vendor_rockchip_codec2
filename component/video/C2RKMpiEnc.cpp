@@ -963,7 +963,8 @@ C2RKMpiEnc::C2RKMpiEnc(
       mHorStride(0),
       mVerStride(0),
       mCurLayerCount(0),
-      mInputCount(0) {
+      mInputCount(0),
+      mProfile(0) {
     c2_info("[%s] version %s", name, C2_COMPONENT_FULL_VERSION);
     mCodingType = (MppCodingType)GetMppCodingFromComponentName(name);
     if (mCodingType == MPP_VIDEO_CodingUnused) {
@@ -2187,16 +2188,18 @@ void C2RKMpiEnc::process(
             dataSize = mpp_packet_get_length(hdrPkt);
         }
 
-        std::unique_ptr<C2StreamInitDataInfo::output> csd =
-                C2StreamInitDataInfo::output::AllocUnique(dataSize, 0u);
+        if (data) {
+            std::unique_ptr<C2StreamInitDataInfo::output> csd =
+                    C2StreamInitDataInfo::output::AllocUnique(dataSize, 0u);
 
-        memcpy(csd->m.value, data, dataSize);
-        work->worklets.front()->output.configUpdate.push_back(std::move(csd));
+            memcpy(csd->m.value, data, dataSize);
+            work->worklets.front()->output.configUpdate.push_back(std::move(csd));
 
-        /* dump output data if neccessary */
-        mDump->recordOutFile(data, dataSize);
+            /* dump output data if neccessary */
+            mDump->recordOutFile(data, dataSize);
 
-        mSpsPpsHeaderReceived = true;
+            mSpsPpsHeaderReceived = true;
+        }
 
         if (hdrPkt) {
             mpp_packet_deinit(&hdrPkt);

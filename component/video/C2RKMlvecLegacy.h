@@ -63,7 +63,7 @@ public:
         int32_t addPrefix   : 8;        /* add prefix before each frame */
         int32_t sliceMbs    : 16;       /* macroblock row count for each slice */
         int32_t reserved    : 16;
-    } MStaticCfg_t;
+    };
 
     struct MDynamicCfg {
         /* dynamic configure */
@@ -72,7 +72,7 @@ public:
         int32_t useLtr;
         int32_t frameQP;
         int32_t baseLayerPid;
-    } MDynamicCfg_t;
+    };
 
     bool setupMaxTid(int32_t maxTid);
     bool setupStaticConfig(MStaticCfg *cfg);

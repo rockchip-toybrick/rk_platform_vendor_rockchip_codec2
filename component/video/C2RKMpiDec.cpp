@@ -691,7 +691,7 @@ static int32_t frameReadyCb(void *ctx, void *mppCtx, int32_t cmd, void *frame) {
     (void)mppCtx;
     (void)cmd;
     (void)frame;
-    C2RKMpiDec *decoder = (C2RKMpiDec *)ctx;
+    C2RKMpiDec *decoder = reinterpret_cast<C2RKMpiDec *>(ctx);
     decoder->postFrameReady();
     return 0;
 }
@@ -762,6 +762,7 @@ C2RKMpiDec::C2RKMpiDec(
       mVerStride(0),
       mOutputDelay(0),
       mGrallocVersion(C2RKChipCapDef::get()->getGrallocVersion()),
+      mPixelFormat(0),
       mScaleMode(0),
       mStarted(false),
       mFlushed(true),
@@ -910,8 +911,8 @@ c2_status_t C2RKMpiDec::onFlush_sm() {
 
 c2_status_t C2RKMpiDec::setupAndStartLooper() {
     status_t err = OK;
+
     if (mLooper == nullptr) {
-        status_t err = OK;
         mLooper = new ALooper;
         mHandler = new WorkHandler;
 
@@ -1081,7 +1082,7 @@ cleanUp:
 c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
     c2_status_t err = C2_OK;
     uint32_t width = 0, height = 0, level = 0;
-    uint32_t refCnt = 0, protocolRefCnt = 0;
+    uint32_t refCnt = 0;
 
     {
         IntfImpl::Lock lock = mIntf->lock();
@@ -1096,7 +1097,7 @@ c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
         C2ReadView rView = mDummyReadView;
         if (!work->input.buffers.empty()) {
             rView = work->input.buffers[0]->data().linearBlocks().front().map().get();
-            protocolRefCnt = C2RKNaluParser::detectMaxRefCount(
+            uint32_t protocolRefCnt = C2RKNaluParser::detectMaxRefCount(
                     const_cast<uint8_t *>(rView.data()), rView.capacity(), mCodingType);
             if (protocolRefCnt && C2RKPropsDef::getIsUseSpsOutputDelay()) {
                 refCnt = protocolRefCnt;
@@ -1733,6 +1734,11 @@ c2_status_t C2RKMpiDec::updateFbcModeIfNeeded() {
 }
 
 c2_status_t C2RKMpiDec::importBufferToMpp(std::shared_ptr<C2GraphicBlock> block) {
+    if (!block) {
+        c2_err("null block import error");
+        return C2_CORRUPTED;
+    }
+
     c2_status_t err = C2_OK;
     auto c2Handle = block->handle();
     uint32_t fd = c2Handle->data[0];
@@ -2014,7 +2020,6 @@ c2_status_t C2RKMpiDec::onFrameReady() {
 
 outframe:
     OutWorkEntry entry;
-    memset(&entry, 0, sizeof(entry));
 
     err = getoutframe(&entry);
     if (err == C2_OK) {
@@ -2052,12 +2057,11 @@ c2_status_t C2RKMpiDec::sendpacket(uint8_t *data, size_t size, uint64_t pts, uin
         mpp_packet_set_extra_data(packet);
     }
 
-    MPP_RET err = MPP_OK;
     static uint32_t kMaxRetryCnt = 1000;
     uint32_t retry = 0;
 
     while (true) {
-        err = mMppMpi->decode_put_packet(mMppCtx, packet);
+        MPP_RET err = mMppMpi->decode_put_packet(mMppCtx, packet);
         if (err == MPP_OK) {
             c2_trace("send packet pts %lld size %d", pts, size);
             /* dump input data if neccessary */

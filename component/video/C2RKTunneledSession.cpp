@@ -81,6 +81,8 @@ public:
             !mQueueBufferFunc || !mCancelBufferFunc ||
             !mMallocVTBufferFunc || !mFreeVTBufferFunc) {
             c2_err("could not find symbol, %s", dlerror());
+            mDevFd = 0;
+            mTunnelId = 0;
             goto error;
         }
 
