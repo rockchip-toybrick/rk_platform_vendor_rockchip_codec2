@@ -1622,8 +1622,8 @@ void C2RKMpiDec::setDefaultCodecColorAspectsIfNeeded(ColorAspects &aspects) {
         }
     } else if (aspects.mPrimaries == CA::PrimariesBT470_6M) {
         // got platform unsupport BT470_6M format, use BT601_625 instead
-        aspects.mPrimaries == CA::PrimariesBT601_6_625;
-        aspects.mMatrixCoeffs == CA::MatrixBT601_6;
+        aspects.mPrimaries = CA::PrimariesBT601_6_625;
+        aspects.mMatrixCoeffs = CA::MatrixBT601_6;
     }
 }
 
