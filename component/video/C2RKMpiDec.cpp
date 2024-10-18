@@ -1470,7 +1470,6 @@ void C2RKMpiDec::process(
 
     // Initialize decoder if not already initialized
     if (!mStarted) {
-        mBlockPool = pool;
         mBufferMode = (pool->getLocalId() <= C2BlockPool::PLATFORM_START);
         err = initDecoder(work);
         if (err != C2_OK) {
@@ -1534,6 +1533,7 @@ void C2RKMpiDec::process(
     }
 
     if (mFlushed) {
+        mBlockPool = pool;
         err = ensureDecoderState();
         if (err != C2_OK) {
             mSignalledError = true;
