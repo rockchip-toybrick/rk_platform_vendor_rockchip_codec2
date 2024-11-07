@@ -1379,7 +1379,7 @@ c2_status_t C2RKMpiEnc::setupQp() {
          * disable mb_rc for vepu, this cfg does not apply to rkvenc.
          * since the vepu has pool performance, mb_rc will cause mosaic.
          */
-        mpp_enc_cfg_set_s32(mEncCfg, "hw:mb_rc_disable", 1);
+        // mpp_enc_cfg_set_s32(mEncCfg, "hw:mb_rc_disable", 1);
 
         mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_min", pMin);
         mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_max", pMax);
