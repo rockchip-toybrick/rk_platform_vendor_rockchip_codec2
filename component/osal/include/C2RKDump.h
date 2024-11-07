@@ -19,7 +19,9 @@
 
 #include <stdio.h>
 #include <utils/Timers.h>
+#include <utils/KeyedVector.h>
 
+using namespace android;
 
 #define C2_DUMP_LOG_TRACE                   (0x00000001)
 #define C2_DUMP_LOG_DETAIL                  (0x00000002)
@@ -31,6 +33,8 @@
 #define C2_DUMP_RECORD_DEC_IN               (0x00000040)
 #define C2_DUMP_RECORD_DEC_OUT              (0x00000080)
 
+/* decoding/encoding frame time consuming */
+#define C2_DUMP_FRAME_TIMING                (0x00000100)
 
 enum C2RecRawType {
     RAW_TYPE_YUV420SP = 0,
@@ -55,16 +59,22 @@ public:
     void recordOutFile(void *data, size_t size);
     void recordOutFile(void *data, uint32_t w, uint32_t h, C2RecRawType type);
 
+    void recordFrameTime(int64_t frameIndex);
+    void showFrameTiming(int64_t frameIndex);
+
     void showDebugFps(C2DumpRole role);
 
-    static int32_t getDumpFlag() { return mFlag; }
+    static int32_t has_debug_flag(int32_t flag) { return (mFlag & flag); }
 
 private:
     static int32_t mFlag;
-    bool mIsEncoder;
+    /* <frameIndex, frameStartTime> */
+    KeyedVector<int64_t, int64_t> mRecordStartTimes;
 
-    FILE *mInFile;
-    FILE *mOutFile;
+    bool     mIsEncoder;
+
+    FILE    *mInFile;
+    FILE    *mOutFile;
 
     /* debug show fps */
     uint32_t mFrameCount[DUMP_ROLE_BUTT];

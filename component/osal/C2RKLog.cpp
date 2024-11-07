@@ -26,7 +26,7 @@
 uint32_t getALogLevel(uint32_t level) {
     switch (level) {
     case C2_LOG_TRACE: {
-        if (C2RKDump::getDumpFlag() & C2_DUMP_LOG_TRACE) {
+        if (C2RKDump::has_debug_flag(C2_DUMP_LOG_TRACE)) {
             return ANDROID_LOG_DEBUG;
         }
     } break;
@@ -50,7 +50,7 @@ void _c2_log(uint32_t level, const char *tag, const char *fmt,
     va_list args;
     va_start(args, row);
 
-    if (C2RKDump::getDumpFlag() & C2_DUMP_LOG_DETAIL) {
+    if (C2RKDump::has_debug_flag(C2_DUMP_LOG_DETAIL)) {
         char line[MAX_LINE_LEN];
         snprintf(line, sizeof(line), "{%-16.16s:%04u} %s\r\n", fname, row, fmt);
 

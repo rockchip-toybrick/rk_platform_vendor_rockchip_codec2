@@ -50,6 +50,12 @@ const char *toStr_RawType(uint32_t type) {
     return "unknown";
 }
 
+int64_t getCurrentTimeMillis() {
+    struct timeval tv;
+    gettimeofday(&tv, nullptr);
+    return tv.tv_sec * 1000 + tv.tv_usec / 1000;
+}
+
 C2RKDump::C2RKDump()
     : mIsEncoder(false),
       mInFile(nullptr),
@@ -81,8 +87,8 @@ C2RKDump::~C2RKDump() {
 void C2RKDump::initDump(uint32_t width, uint32_t height, bool isEncoder) {
     char fileName[128];
 
-    if (((mFlag & C2_DUMP_RECORD_ENC_IN) && isEncoder) ||
-        ((mFlag & C2_DUMP_RECORD_DEC_IN) && !isEncoder)) {
+    if ((has_debug_flag(C2_DUMP_RECORD_ENC_IN) && isEncoder) ||
+        (has_debug_flag(C2_DUMP_RECORD_DEC_IN) && !isEncoder)) {
         memset(fileName, 0, 128);
 
         sprintf(fileName, "%s%s_in_%dx%d_%ld.bin", C2_RECORD_DIR,
@@ -95,8 +101,8 @@ void C2RKDump::initDump(uint32_t width, uint32_t height, bool isEncoder) {
         }
     }
 
-    if (((mFlag & C2_DUMP_RECORD_ENC_OUT) && isEncoder) ||
-        ((mFlag & C2_DUMP_RECORD_DEC_OUT) && !isEncoder)) {
+    if ((has_debug_flag(C2_DUMP_RECORD_ENC_OUT) && isEncoder) ||
+        (has_debug_flag(C2_DUMP_RECORD_DEC_OUT) && !isEncoder)) {
         memset(fileName, 0, 128);
 
         sprintf(fileName, "%s%s_out_%dx%d_%ld.bin", C2_RECORD_DIR,
@@ -162,9 +168,27 @@ void C2RKDump::recordOutFile(void *data, uint32_t w, uint32_t h, C2RecRawType ty
     }
 }
 
+void C2RKDump::recordFrameTime(int64_t frameIndex) {
+    if (has_debug_flag(C2_DUMP_FRAME_TIMING)) {
+        mRecordStartTimes.add(frameIndex, getCurrentTimeMillis());
+    }
+}
+
+void C2RKDump::showFrameTiming(int64_t frameIndex) {
+    if (has_debug_flag(C2_DUMP_FRAME_TIMING)) {
+        ssize_t index = mRecordStartTimes.indexOfKey(frameIndex);
+        if (index != NAME_NOT_FOUND) {
+            int64_t startTime = mRecordStartTimes.valueAt(index);
+            int64_t timeDiff = (getCurrentTimeMillis() - startTime);
+            mRecordStartTimes.removeItemsAt(index);
+            c2_info("frameIndex %lld process consumes %lld ms", frameIndex, timeDiff);
+        }
+    }
+}
+
 void C2RKDump::showDebugFps(C2DumpRole role) {
-    if ((role == DUMP_ROLE_INPUT && !(mFlag & C2_DUMP_FPS_SHOW_INPUT)) ||
-        (role == DUMP_ROLE_OUTPUT && !(mFlag & C2_DUMP_FPS_SHOW_OUTPUT))) {
+    if ((role == DUMP_ROLE_INPUT && !has_debug_flag(C2_DUMP_FPS_SHOW_INPUT)) ||
+        (role == DUMP_ROLE_OUTPUT && !has_debug_flag(C2_DUMP_FPS_SHOW_OUTPUT))) {
         return;
     }
 

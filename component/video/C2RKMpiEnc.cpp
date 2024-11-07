@@ -2463,6 +2463,9 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
     std::shared_ptr<const C2GraphicView> view;
     std::shared_ptr<C2Buffer> inputBuffer = nullptr;
 
+    /* dump frame time consuming if neccessary */
+    mDump->recordFrameTime(frameIndex);
+
     inputBuffer = work->input.buffers[0];
     view = std::make_shared<const C2GraphicView>(
             inputBuffer->data().graphicBlocks().front().map().get());
@@ -2710,8 +2713,9 @@ c2_status_t C2RKMpiEnc::getoutpacket(OutWorkEntry *entry) {
         /* dump output data if neccessary */
         mDump->recordOutFile(data, len);
 
-        /* dump show input process fps if neccessary */
+        /* dump show input process fps and time consuming if neccessary */
         mDump->showDebugFps(DUMP_ROLE_OUTPUT);
+        mDump->showFrameTiming(pts);
 
         if (eos) {
             c2_info("get output eos");

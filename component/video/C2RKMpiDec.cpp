@@ -2061,6 +2061,9 @@ c2_status_t C2RKMpiDec::sendpacket(uint8_t *data, size_t size, uint64_t pts, uin
         mpp_packet_set_extra_data(packet);
     }
 
+    /* dump frame time consuming if neccessary */
+    mDump->recordFrameTime(pts);
+
     static uint32_t kMaxRetryCnt = 1000;
     uint32_t retry = 0;
 
@@ -2286,13 +2289,14 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
     }
 
     /* dump output data if neccessary */
-    if (C2RKDump::getDumpFlag() & C2_DUMP_RECORD_DEC_OUT) {
+    if (C2RKDump::has_debug_flag(C2_DUMP_RECORD_DEC_OUT)) {
         void *data = mpp_buffer_get_ptr(mppBuffer);
         mDump->recordOutFile(data, hstride, vstride, RAW_TYPE_YUV420SP);
     }
 
-    /* show output process fps if neccessary */
+    /* show output process fps and time consuming if neccessary */
     mDump->showDebugFps(DUMP_ROLE_OUTPUT);
+    mDump->showFrameTiming(pts);
 
     entry->outblock = mBufferMode ? mOutBlock : outBuffer->mBlock;
     entry->timestamp = pts;
