@@ -251,8 +251,8 @@ bool C2RKNaluParser::searchHEVCNalVPS(
     int32_t vpsMaxSubLayers = -1;
     uint8_t subLayerProfilePresentFlag[7];
     uint8_t subLayerLevelPresentFlag[7];
-    uint8_t vpsMaxDecPicBuffering[7];
     uint8_t vpsSubLayerOrderingInfoPresentFlag = 0;
+    uint32_t vpsMaxDecPicBuffering[7];
     int32_t i = 0;
 
     READ_BITS(gb, 4, &val); // vps-id
@@ -501,16 +501,19 @@ int32_t C2RKNaluParser::detectMaxRefCount(uint8_t *buf, int32_t size, int32_t co
         case MPP_VIDEO_CodingAVC: {
             if (!searchAVCNaluInfo(
                     buf, size, C2_DETECT_FIELD_MAX_REF_COUNT, &maxRefCount)) {
+                maxRefCount = 0;
                 c2_trace("failed to find maxRefCount");
             }
         } break;
         case MPP_VIDEO_CodingHEVC: {
             if (!searchHEVCNaluInfo(
                     buf, size, C2_DETECT_FIELD_MAX_REF_COUNT, &maxRefCount)) {
+                maxRefCount = 0;
                 c2_trace("failed to find maxRefCount");
             }
         } break;
         default: {
+            maxRefCount = 0;
             c2_trace("not support coding %d", coding);
         } break;
     }
