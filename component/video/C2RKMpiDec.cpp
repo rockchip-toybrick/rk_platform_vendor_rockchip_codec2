@@ -2212,9 +2212,29 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
             size_t dstYStride = layout.planes[C2PlanarLayout::PLANE_Y].rowInc;
             size_t dstUVStride = layout.planes[C2PlanarLayout::PLANE_U].rowInc;
 
-            C2RKMediaUtils::convert10BitNV12ToRequestFmt(
-                    mPixelFormat, dstY, dstUV, dstYStride,
-                    dstUVStride, src, hstride, vstride, width, height);
+            if (mPixelFormat == HAL_PIXEL_FORMAT_YCBCR_P010) {
+                C2RKMediaUtils::convert10BitNV12ToP010(
+                        dstY, dstUV, dstYStride, dstUVStride,
+                        src, hstride, vstride, width, height);
+            } else {
+                RgaInfo srcInfo, dstInfo;
+                int32_t srcFd = 0, dstFd = 0;
+
+                auto c2Handle = mOutBlock->handle();
+                srcFd = mpp_buffer_get_fd(mppBuffer);
+                dstFd = c2Handle->data[0];
+
+                C2RKRgaDef::SetRgaInfo(
+                        &srcInfo, srcFd, mWidth, mHeight, mHorStride, mVerStride);
+                C2RKRgaDef::SetRgaInfo(
+                        &dstInfo, dstFd, mWidth, mHeight, mHorStride, mVerStride);
+                if (!C2RKRgaDef::P10BToNV12(srcInfo, dstInfo)) {
+                    // fallback software copy
+                    C2RKMediaUtils::convert10BitNV12ToNV12(
+                            dstY, dstUV, dstYStride, dstUVStride,
+                            src, hstride, vstride, width, height);
+                }
+            }
         } else {
             RgaInfo srcInfo, dstInfo;
             int32_t srcFd = 0, dstFd = 0;

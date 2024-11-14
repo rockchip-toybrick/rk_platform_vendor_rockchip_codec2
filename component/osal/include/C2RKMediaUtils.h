@@ -65,8 +65,6 @@ public:
                 uint32_t dstFormat, uint8_t *dstY, uint8_t *dstUV,
                 size_t dstYStride, size_t dstUVStride, uint8_t *src,
                 size_t hstride, size_t vstride, size_t width, size_t height);
-
-private:
     static void convert10BitNV12ToP010(
                 uint8_t *dstY, uint8_t *dstUV, size_t dstYStride,
                 size_t dstUVStride, uint8_t *src, size_t hstride,
