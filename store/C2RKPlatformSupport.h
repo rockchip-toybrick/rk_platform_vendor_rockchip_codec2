@@ -48,7 +48,6 @@ static C2RKComponentEntry sComponentMaps[] = {
     /* Hardware encoder list */
     { "c2.rk.avc.encoder",          MEDIA_MIMETYPE_VIDEO_AVC,   C2Component::KIND_ENCODER },
     { "c2.rk.hevc.encoder",         MEDIA_MIMETYPE_VIDEO_HEVC,  C2Component::KIND_ENCODER },
-    { "c2.rk.vp8.encoder",          MEDIA_MIMETYPE_VIDEO_VP8,   C2Component::KIND_ENCODER },
 };
 
 static size_t sComponentMapsSize = sizeof(sComponentMaps) / sizeof(sComponentMaps[0]);
