@@ -1846,9 +1846,7 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
     uint32_t blockW = 0, blockH = 0, format = 0;
     uint64_t usage = RK_GRALLOC_USAGE_SPECIFY_STRIDE;
 
-    if (mScaleMode == C2_SCALE_MODE_META) {
-         usage |= GRALLOC_USAGE_RKVDEC_SCALING;
-    } else if (mScaleMode == C2_SCALE_MODE_DOWN_SCALE) {
+    if (mScaleMode == C2_SCALE_MODE_DOWN_SCALE) {
         // update scale thumbnail info in down scale mode
         videoW = mScaleInfo.width;
         videoH = mScaleInfo.height;
@@ -1903,7 +1901,8 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
         std::shared_ptr<C2StreamColorAspectsTuning::output> colorAspects
                 = mIntf->getDefaultColorAspects_l();
 
-        switch(colorAspects->transfer) {
+        // only support in gralloc 0.3
+        /*switch(colorAspects->transfer) {
             case ColorTransfer::kColorTransferST2084:
                 usage |= ((GRALLOC_NV12_10_HDR_10 << 24) & GRALLOC_COLOR_SPACE_MASK);  // hdr10;
                 break;
@@ -1912,7 +1911,7 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
                 break;
             default:
                 break;
-        }
+        }*/
 
         switch (colorAspects->primaries) {
             case C2Color::PRIMARIES_BT601_525:
@@ -1941,9 +1940,18 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
     if (mGrallocVersion < 4) {
         usage &= 0xffffffff;
     }
+
+#ifdef GRALLOC_USAGE_DYNAMIC_HDR
     if (mHdrMetaEnabled) {
         usage |= GRALLOC_USAGE_DYNAMIC_HDR;
     }
+#endif
+
+#ifdef GRALLOC_USAGE_RKVDEC_SCALING
+    if (mScaleMode == C2_SCALE_MODE_META) {
+        usage |= GRALLOC_USAGE_RKVDEC_SCALING;
+    }
+#endif
 
     if (mBufferMode) {
         uint32_t bFormat = (MPP_FRAME_FMT_IS_YUV_10BIT(mppFormat)) ? mPixelFormat : format;

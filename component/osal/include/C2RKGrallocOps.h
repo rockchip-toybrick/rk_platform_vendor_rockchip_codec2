@@ -22,14 +22,6 @@
 
 namespace android {
 
-#ifndef GRALLOC_USAGE_RKVDEC_SCALING
-#define GRALLOC_USAGE_RKVDEC_SCALING   0x01000000U
-#endif
-
-#ifndef GRALLOC_USAGE_DYNAMIC_HDR
-#define GRALLOC_USAGE_DYNAMIC_HDR      0x02000000U
-#endif
-
 class C2RKGrallocOps {
 public:
     static C2RKGrallocOps* get()
