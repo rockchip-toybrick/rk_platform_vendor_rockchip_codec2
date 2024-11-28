@@ -38,6 +38,7 @@
 #include "C2RKMemTrace.h"
 #include "C2RKTunneledSession.h"
 #include "C2RKPropsDef.h"
+#include "C2RKDmaBufSync.h"
 #include "C2RKVersion.h"
 
 namespace android {
@@ -1901,18 +1902,6 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
         std::shared_ptr<C2StreamColorAspectsTuning::output> colorAspects
                 = mIntf->getDefaultColorAspects_l();
 
-        // only support in gralloc 0.3
-        /*switch(colorAspects->transfer) {
-            case ColorTransfer::kColorTransferST2084:
-                usage |= ((GRALLOC_NV12_10_HDR_10 << 24) & GRALLOC_COLOR_SPACE_MASK);  // hdr10;
-                break;
-            case ColorTransfer::kColorTransferHLG:
-                usage |= ((GRALLOC_NV12_10_HDR_HLG << 24) & GRALLOC_COLOR_SPACE_MASK);  // hdr-hlg
-                break;
-            default:
-                break;
-        }*/
-
         switch (colorAspects->primaries) {
             case C2Color::PRIMARIES_BT601_525:
                 usage |= MALI_GRALLOC_USAGE_YUV_COLOR_SPACE_BT601;
@@ -1955,7 +1944,7 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
 
     if (mBufferMode) {
         uint32_t bFormat = (MPP_FRAME_FMT_IS_YUV_10BIT(mppFormat)) ? mPixelFormat : format;
-        uint64_t bUsage  = (usage | GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN);
+        uint64_t bUsage  = (usage |= (GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN));
 
         // allocate buffer within 4G to avoid rga2 error.
         if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_3588 ||
@@ -2215,6 +2204,7 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
 
     if (mBufferMode) {
         if (MPP_FRAME_FMT_IS_YUV_10BIT(mColorFormat)) {
+            auto c2Handle = mOutBlock->handle();
             C2GraphicView wView = mOutBlock->map().get();
             C2PlanarLayout layout = wView.layout();
             uint8_t *src = (uint8_t*)mpp_buffer_get_ptr(mppBuffer);
@@ -2222,30 +2212,19 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
             uint8_t *dstUV = const_cast<uint8_t *>(wView.data()[C2PlanarLayout::PLANE_U]);
             size_t dstYStride = layout.planes[C2PlanarLayout::PLANE_Y].rowInc;
             size_t dstUVStride = layout.planes[C2PlanarLayout::PLANE_U].rowInc;
+            int32_t srcFd = mpp_buffer_get_fd(mppBuffer);
+            int32_t dstFd = c2Handle->data[0];
 
-            if (mPixelFormat == HAL_PIXEL_FORMAT_YCBCR_P010) {
-                C2RKMediaUtils::convert10BitNV12ToP010(
-                        dstY, dstUV, dstYStride, dstUVStride,
-                        src, hstride, vstride, width, height);
-            } else {
-                RgaInfo srcInfo, dstInfo;
-                int32_t srcFd = 0, dstFd = 0;
+            dma_sync_device_to_cpu(srcFd);
+            dma_sync_device_to_cpu(dstFd);
 
-                auto c2Handle = mOutBlock->handle();
-                srcFd = mpp_buffer_get_fd(mppBuffer);
-                dstFd = c2Handle->data[0];
+            C2RKMediaUtils::convert10BitNV12ToRequestFmt(
+                    mPixelFormat, dstY, dstUV, dstYStride,
+                    dstUVStride, src, hstride, vstride, width, height);
 
-                C2RKRgaDef::SetRgaInfo(
-                        &srcInfo, srcFd, mWidth, mHeight, mHorStride, mVerStride);
-                C2RKRgaDef::SetRgaInfo(
-                        &dstInfo, dstFd, mWidth, mHeight, mHorStride, mVerStride);
-                if (!C2RKRgaDef::P10BToNV12(srcInfo, dstInfo)) {
-                    // fallback software copy
-                    C2RKMediaUtils::convert10BitNV12ToNV12(
-                            dstY, dstUV, dstYStride, dstUVStride,
-                            src, hstride, vstride, width, height);
-                }
-            }
+            /* invalid CPU cache */
+            dma_sync_cpu_to_device(srcFd);
+            dma_sync_cpu_to_device(dstFd);
         } else {
             RgaInfo srcInfo, dstInfo;
             int32_t srcFd = 0, dstFd = 0;

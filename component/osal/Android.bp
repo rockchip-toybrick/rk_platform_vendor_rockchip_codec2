@@ -23,6 +23,7 @@ cc_library_static {
         "C2RKVdecExtendFeature.cpp",
         "C2RKMemTrace.cpp",
         "C2RKPropsDef.cpp",
+        "C2RKDmaBufSync.cpp",
     ],
 
     shared_libs: [
