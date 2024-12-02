@@ -112,10 +112,17 @@ public:
 
         mMlvecParams = std::make_shared<MlvecParams>();
 
+        int64_t inputUsage = 0;
+
+        if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_3588 ||
+            C2RKChipCapDef::get()->getChipType() == RK_CHIP_356X) {
+            inputUsage |= RK_GRALLOC_USAGE_WITHIN_4G;
+        }
+
         addParameter(
                 DefineParam(mUsage, C2_PARAMKEY_INPUT_STREAM_USAGE)
                 .withConstValue(new C2StreamUsageTuning::input(
-                        0u, GRALLOC_USAGE_HW_VIDEO_ENCODER | RK_GRALLOC_USAGE_SPECIFY_STRIDE))
+                        0u, inputUsage))
                 .build());
 
         addParameter(
