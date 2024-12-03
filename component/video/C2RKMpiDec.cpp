@@ -39,6 +39,7 @@
 #include "C2RKTunneledSession.h"
 #include "C2RKPropsDef.h"
 #include "C2RKDmaBufSync.h"
+#include "C2RKAIPQConfig.h"
 #include "C2RKVersion.h"
 
 namespace android {
@@ -765,6 +766,7 @@ C2RKMpiDec::C2RKMpiDec(
       mGrallocVersion(C2RKChipCapDef::get()->getGrallocVersion()),
       mPixelFormat(0),
       mScaleMode(0),
+      mAIPQMetaEnable(0),
       mStarted(false),
       mFlushed(true),
       mSignalledInputEos(false),
@@ -1355,6 +1357,21 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
         }
 
         mpp_dec_cfg_deinit(cfg);
+    }
+
+    {
+        C2RKPQConfig config;
+
+        if (c2_get_ai_qp_config(config)) {
+            mWidth = config.width;
+            mHeight = config.height;
+            mHorStride = config.horStride;
+            mVerStride = config.verStride;
+            mAIPQMetaEnable = config.metaEnable;
+
+            c2_info("got AIPQ config, w %d h %d hor %d ver %d metaEnable %d",
+                    mWidth, mHeight, mHorStride, mVerStride, mAIPQMetaEnable);
+        }
     }
 
     mDump->initDump(mHorStride, mVerStride, false);
@@ -2341,7 +2358,7 @@ c2_status_t C2RKMpiDec::configFrameHdrMeta(
     c2_status_t err = C2_OK;
 
     if (block->handle() && mpp_frame_has_meta(frame)
-            && MPP_FRAME_FMT_IS_HDR(mpp_frame_get_fmt(frame))) {
+            && (MPP_FRAME_FMT_IS_HDR(mpp_frame_get_fmt(frame)) || mAIPQMetaEnable)) {
         int32_t hdrMetaOffset = 0;
         int32_t hdrMetaSize = 0;
 
