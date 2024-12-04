@@ -1094,7 +1094,7 @@ c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
 
     refCnt = C2RKMediaUtils::calculateVideoRefCount(mCodingType, width, height, level);
 
-    if (work != nullptr && work->input.flags & C2FrameData::FLAG_CODEC_CONFIG) {
+    if (work != nullptr) {
         C2ReadView rView = mDummyReadView;
         if (!work->input.buffers.empty()) {
             rView = work->input.buffers[0]->data().linearBlocks().front().map().get();
@@ -1167,7 +1167,7 @@ c2_status_t C2RKMpiDec::configTunneledPlayback(const std::unique_ptr<C2Work> &wo
     params.dataSpace = 0;
     params.compressMode = mFbcCfg.mode ? 1 : 0;
 
-    if (!mTunneledSession->congigure(params)) {
+    if (!mTunneledSession->configure(params)) {
         c2_err("failed to congigure tunneled session");
         return C2_CORRUPTED;
     }
@@ -2203,8 +2203,13 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
              width, height, hstride, vstride, pts, error, outBuffer->mBufferId);
 
     if (mBufferMode) {
+        Mutex::Autolock autoLock(mBufferLock);
+
+        auto c2Handle = mOutBlock->handle();
+        int32_t srcFd = mpp_buffer_get_fd(mppBuffer);
+        int32_t dstFd = c2Handle->data[0];
+
         if (MPP_FRAME_FMT_IS_YUV_10BIT(mColorFormat)) {
-            auto c2Handle = mOutBlock->handle();
             C2GraphicView wView = mOutBlock->map().get();
             C2PlanarLayout layout = wView.layout();
             uint8_t *src = (uint8_t*)mpp_buffer_get_ptr(mppBuffer);
@@ -2212,26 +2217,17 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
             uint8_t *dstUV = const_cast<uint8_t *>(wView.data()[C2PlanarLayout::PLANE_U]);
             size_t dstYStride = layout.planes[C2PlanarLayout::PLANE_Y].rowInc;
             size_t dstUVStride = layout.planes[C2PlanarLayout::PLANE_U].rowInc;
-            int32_t srcFd = mpp_buffer_get_fd(mppBuffer);
-            int32_t dstFd = c2Handle->data[0];
 
             dma_sync_device_to_cpu(srcFd);
-            dma_sync_device_to_cpu(dstFd);
 
             C2RKMediaUtils::convert10BitNV12ToRequestFmt(
                     mPixelFormat, dstY, dstUV, dstYStride,
                     dstUVStride, src, hstride, vstride, width, height);
 
             /* invalid CPU cache */
-            dma_sync_cpu_to_device(srcFd);
             dma_sync_cpu_to_device(dstFd);
         } else {
             RgaInfo srcInfo, dstInfo;
-            int32_t srcFd = 0, dstFd = 0;
-
-            auto c2Handle = mOutBlock->handle();
-            srcFd = mpp_buffer_get_fd(mppBuffer);
-            dstFd = c2Handle->data[0];
 
             C2RKRgaDef::SetRgaInfo(
                     &srcInfo, srcFd, mWidth, mHeight, mHorStride, mVerStride);

@@ -105,7 +105,7 @@ public:
     C2RKTunneledSession();
     virtual ~C2RKTunneledSession();
 
-    bool congigure(TunnelParams_t params);
+    bool configure(TunnelParams_t params);
     bool disconnect();
     bool reset();
 

@@ -192,7 +192,7 @@ C2RKTunneledSession::~C2RKTunneledSession() {
     }
 }
 
-bool C2RKTunneledSession::congigure(TunnelParams_t params) {
+bool C2RKTunneledSession::configure(TunnelParams_t params) {
     if (mTunnelId <= 0) {
         mTunnelId = mImpl->openConnection();
         if (mTunnelId <= 0) {
