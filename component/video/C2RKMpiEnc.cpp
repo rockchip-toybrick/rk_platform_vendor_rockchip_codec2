@@ -1234,7 +1234,11 @@ c2_status_t C2RKMpiEnc::setupFrameRate() {
 
     c2_info("setupFrameRate: framerate %.2f gop %u", frameRate, idrInterval);
 
-    gop = (idrInterval < INT_MAX) ? idrInterval : 0;
+    gop = (idrInterval < 0xFFFFFF) ? idrInterval : 0;
+    if (gop == 0) {
+        // disable IDR encoding when fps changed
+        mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_chg_no_idr", 1);
+    }
 
     mpp_enc_cfg_set_s32(mEncCfg, "rc:gop", gop);
 
