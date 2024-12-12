@@ -18,16 +18,15 @@
 #include <cutils/properties.h>
 
 static bool propInit();
-static int32_t sIsUseSpsOutputDelay = 0;
 static int32_t sLoadingCheckDisable = 0;
 static int32_t sHdrDisable = 0;
 static int32_t sScaleDisable = 0;
 static int32_t sEncSuperMode = 0;
+static int32_t sLowMemoryEnable= 0;
+static int32_t sInputBufferSize = 0;
 static bool sPropInited = propInit();
 
 static bool propInit() {
-    sIsUseSpsOutputDelay = property_get_int32("codec2_use_sps_output_delay", 0);
-
     sHdrDisable = property_get_int32("codec2_hdr_meta_disable", 0);
 
     sScaleDisable = property_get_int32("codec2_scale_disable", 0);
@@ -36,11 +35,11 @@ static bool propInit() {
 
     sLoadingCheckDisable = property_get_int32("codec2_disable_load_check", 0);
 
-    return true;
-}
+    sLowMemoryEnable = property_get_int32("codec2_low_memory_enable", 0);
 
-int32_t C2RKPropsDef::getIsUseSpsOutputDelay() {
-    return sIsUseSpsOutputDelay;
+    sInputBufferSize = property_get_int32("codec2_input_buffer_size", 0);
+
+    return true;
 }
 
 int32_t C2RKPropsDef::getHdrDisable() {
@@ -57,5 +56,13 @@ int32_t C2RKPropsDef::getEncSuperMode() {
 
 int32_t C2RKPropsDef::getLoadingCheckDisable() {
     return sLoadingCheckDisable;
+}
+
+int32_t C2RKPropsDef::getLowMemoryEnable() {
+    return sLowMemoryEnable;
+}
+
+int32_t C2RKPropsDef::getInputBufferSize() {
+    return sInputBufferSize;
 }
 

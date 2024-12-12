@@ -527,9 +527,13 @@ public:
     static C2R MaxInputSizeSetter(bool mayBlock, C2P<C2StreamMaxBufferSizeInfo::input> &me,
                                 const C2P<C2StreamMaxPictureSizeTuning::output> &maxSize) {
         (void)mayBlock;
-        // assume compression ratio of 2
-        me.set().value = c2_max((((maxSize.v.width + 63) / 64)
+        if (C2RKPropsDef::getLowMemoryEnable()) {
+            me.set().value = C2RKPropsDef::getInputBufferSize();
+        } else {
+            // assume compression ratio of 2
+            me.set().value = c2_max((((maxSize.v.width + 63) / 64)
                 * ((maxSize.v.height + 63) / 64) * 3072), kMinInputBufferSize);
+        }
         return C2R::Ok();
     }
 
@@ -1122,7 +1126,7 @@ c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
             rView = work->input.buffers[0]->data().linearBlocks().front().map().get();
             uint32_t protocolRefCnt = C2RKNaluParser::detectMaxRefCount(
                     const_cast<uint8_t *>(rView.data()), rView.capacity(), mCodingType);
-            if (protocolRefCnt && C2RKPropsDef::getIsUseSpsOutputDelay()) {
+            if (C2RKPropsDef::getLowMemoryEnable() && protocolRefCnt < refCnt) {
                 refCnt = protocolRefCnt;
             } else {
                 refCnt = C2_MAX(refCnt, protocolRefCnt);
@@ -1131,13 +1135,23 @@ c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
     }
 
     if (refCnt != mOutputDelay) {
+        uint32_t reduceFactor = 0;
+        std::vector<std::unique_ptr<C2SettingResult>> failures;
+
         c2_info("Codec(%s %dx%d) get %d reference frames from %s",
                 toStr_Coding(mCodingType), width, height, refCnt,
                 (work) ? "protocol" : "levelInfo");
 
-        C2PortActualDelayTuning::output delayTuning(refCnt);
-        std::vector<std::unique_ptr<C2SettingResult>> failures;
+        /*
+         * The kSmoothnessFactor on the framework is 4, and the ccodec_rendering-deep is 3.
+         * Under low memory conditions, the reported delayRef is reduced by 4, which is
+         * equivalent to occupying 4 buffer blocks of the framework.
+         */
+        if (C2RKPropsDef::getLowMemoryEnable()) {
+            reduceFactor = 4;
+        }
 
+        C2PortActualDelayTuning::output delayTuning(refCnt - reduceFactor);
         err = mIntf->config({&delayTuning}, C2_MAY_BLOCK, &failures);
         if (err != C2_OK) {
             c2_err("failed to config delay tuning, err %d", err);
@@ -1146,9 +1160,7 @@ c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
             std::unique_ptr<C2Work> configWork(new C2Work);
             configWork->worklets.clear();
             configWork->worklets.emplace_back(new C2Worklet);
-
-            C2PortActualDelayTuning::output delay(refCnt);
-            configWork->worklets.front()->output.configUpdate.push_back(C2Param::Copy(delay));
+            configWork->worklets.front()->output.configUpdate.push_back(C2Param::Copy(delayTuning));
 
             auto fillConfigWork = [] (const std::unique_ptr<C2Work> &configWork) {
                 configWork->input.ordinal.frameIndex = OUTPUT_WORK_INDEX;

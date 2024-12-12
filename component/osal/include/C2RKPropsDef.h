@@ -21,9 +21,6 @@
 
 class C2RKPropsDef {
 public:
-    /* selecet SPS maxRefCount as output buffer count */
-    static int32_t getIsUseSpsOutputDelay();
-
     /* disable hdr mode of decoder */
     static int32_t getHdrDisable();
 
@@ -35,6 +32,10 @@ public:
 
     /* disable codec memory limit */
     static int32_t getLoadingCheckDisable();
+
+    /* reduce in/output buffer size on low memory device */
+    static int32_t getLowMemoryEnable();
+    static int32_t getInputBufferSize();
 };
 
 #endif  // ANDROID_C2_RK_PROPS_DEF_H__
