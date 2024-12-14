@@ -969,6 +969,9 @@ uint32_t C2RKMpiDec::getFbcOutputMode(const std::unique_ptr<C2Work> &work) {
                 }
             }
         }
+    } else if((mColorFormat & MPP_FRAME_FMT_MASK) == MPP_FMT_YUV422SP_10BIT) {
+        c2_info("yuv422 10bit video source, perfer rfbc output mode");
+        return fbcMode;
     }
 
     uint32_t minStride = C2RKChipCapDef::get()->getFbcMinStride(fbcMode);
