@@ -1256,42 +1256,47 @@ c2_status_t C2RKMpiEnc::setupFrameRate() {
 c2_status_t C2RKMpiEnc::setupBitRate() {
     uint32_t bitrate = 0;
     uint32_t bitrateMode = 0;
+    uint32_t bpsTarget = 0, bpsMax = 0, bpsMin = 0;
+
+    /* valid bps range from 1K~200M */
+    static uint32_t gMinEncBps = 1024 + 1;
+    static uint32_t gMaxEncBps = 200 * 1024 * 1024 - 1;
 
     IntfImpl::Lock lock = mIntf->lock();
 
     bitrate = mIntf->getBitrate_l()->value;
     bitrateMode = mIntf->getBitrateMode_l();
 
-    c2_info("setupBitRate: mode %s bitrate %d",
-            toStr_BitrateMode(bitrateMode), bitrate);
-
-    mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_target", bitrate);
     switch (bitrateMode) {
     case MPP_ENC_RC_MODE_CBR: {
         /* CBR mode has narrow bound */
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:mode", MPP_ENC_RC_MODE_CBR);
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_max", bitrate * 17 / 16);
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_min", bitrate * 15 / 16);
+        bpsMax = bitrate * 17 / 16;
+        bpsMin = bitrate * 15 / 16;
     } break;
     case MPP_ENC_RC_MODE_VBR: {
         /* VBR mode has wide bound */
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:mode", MPP_ENC_RC_MODE_VBR);
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_max", bitrate * 17 / 16);
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_min", bitrate * 1 / 16);
+        bpsMax = bitrate * 17 / 16;
+        bpsMin = bitrate * 1 / 16;
     } break;
-    case MPP_ENC_RC_MODE_FIXQP: {
-        /* FIXQP mode */
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:mode", MPP_ENC_RC_MODE_FIXQP);
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_max", bitrate * 17 / 16);
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_min", bitrate * 15 / 16);
-    } break;
+    case MPP_ENC_RC_MODE_FIXQP:
     default: {
         /* default use CBR mode */
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:mode", MPP_ENC_RC_MODE_CBR);
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_max", bitrate * 17 / 16);
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_min", bitrate * 15 / 16);
+        bpsMax = bitrate * 17 / 16;
+        bpsMin = bitrate * 15 / 16;
     } break;
     }
+
+    bpsTarget = std::clamp(bitrate, gMinEncBps, gMaxEncBps);
+    bpsMax = std::clamp(bpsMax, bpsTarget, gMaxEncBps);
+    bpsMin = std::clamp(bpsMin, gMinEncBps, bpsTarget);
+
+    c2_info("setupBitRate: mode %s bps %d range [%d:%d:%d]",
+            toStr_BitrateMode(bitrateMode), bitrate, bpsMin, bpsTarget, bpsMax);
+
+    mpp_enc_cfg_set_s32(mEncCfg, "rc:mode", bitrateMode);
+    mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_target", bpsTarget);
+    mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_max", bpsMax);
+    mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_min", bpsMin);
 
     return C2_OK;
 }
