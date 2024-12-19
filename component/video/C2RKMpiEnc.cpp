@@ -336,6 +336,15 @@ public:
                 .withSetter(PrependHeaderModeSetter)
                 .build());
 
+        addParameter(
+                DefineParam(mMinQuality, C2_PARAMKEY_ENCODING_QUALITY_LEVEL)
+                .withDefault(new C2EncodingQualityLevel(C2PlatformConfig::encoding_quality_level_t::NONE))
+                .withFields({ C2F(mMinQuality, value).oneOf({
+                                    C2PlatformConfig::encoding_quality_level_t::NONE,
+                                    C2PlatformConfig::encoding_quality_level_t::S_HANDHELD})})
+                .withSetter(MinQualitySetter)
+                .build());
+
         /* extend parameter definition */
         addParameter(
                 DefineParam(mSceneMode, C2_PARAMKEY_SCENE_MODE)
@@ -773,6 +782,13 @@ public:
         return C2R::Ok();
     }
 
+    static C2R MinQualitySetter(
+            bool mayBlock, C2P<C2EncodingQualityLevel>& me) {
+        (void)mayBlock;
+        (void)me;
+        return C2R::Ok();
+    }
+
     static C2R InputScalarSetter(
             bool mayBlock, C2P<C2StreamInputScalar::input>& me) {
         (void)mayBlock;
@@ -911,6 +927,8 @@ public:
     { return mLayering; }
     std::shared_ptr<C2PrependHeaderModeSetting> getPrependHeaderMode_l() const
     { return mPrependHeaderMode; }
+    std::shared_ptr<C2EncodingQualityLevel> getQualityLevel_l() const
+    { return mMinQuality; }
     std::shared_ptr<C2StreamSceneModeInfo::input> getSceneMode_l() const
     { return mSceneMode; }
     std::shared_ptr<C2StreamSliceSizeInfo::input> getSliceSize_l() const
@@ -939,6 +957,7 @@ private:
     std::shared_ptr<C2StreamColorAspectsInfo::output> mCodedColorAspects;
     std::shared_ptr<C2StreamTemporalLayeringTuning::output> mLayering;
     std::shared_ptr<C2PrependHeaderModeSetting> mPrependHeaderMode;
+    std::shared_ptr<C2EncodingQualityLevel> mMinQuality;
     std::shared_ptr<C2StreamSceneModeInfo::input> mSceneMode;
     std::shared_ptr<C2StreamSliceSizeInfo::input> mSliceSize;
     std::shared_ptr<C2StreamReencInfo::input> mReencTime;
@@ -1345,9 +1364,7 @@ c2_status_t C2RKMpiEnc::setupQp() {
     } else {
         /* the quality of h264/265 range from 1~51 */
         defaultIMin = defaultPMin = 1;
-        defaultIMax = 51;
-        // TODO: CTS testEncoderQualityAVCCBR 49
-        defaultPMax = 49;
+        defaultIMax = defaultPMax = 51;
     }
 
     int32_t iMin = defaultIMin, iMax = defaultIMax;
@@ -1357,6 +1374,8 @@ c2_status_t C2RKMpiEnc::setupQp() {
 
     std::shared_ptr<C2StreamPictureQuantizationTuning::output> qp =
             mIntf->getPictureQuantization_l();
+    std::shared_ptr<C2EncodingQualityLevel> minQuality = mIntf->getQualityLevel_l();
+
     fixQPMode = (mIntf->getBitrateMode_l() == MPP_ENC_RC_MODE_FIXQP) ? 1 : 0;
 
     for (size_t i = 0; i < qp->flexCount(); ++i) {
@@ -1381,6 +1400,20 @@ c2_status_t C2RKMpiEnc::setupQp() {
     if (fixQPMode) {
         /* use const qp for p-frame in FIXQP mode */
         pMax = pMin = qpInit;
+    }
+
+    // Encoding quality level signaling, indicate that the codec is to apply
+    // a minimum quality bar.
+    // "S_HANDHELD" corresponds to VMAF=70.
+    if (mIntf->getBitrateMode_l() == MPP_ENC_RC_MODE_VBR &&
+            minQuality->value == C2PlatformConfig::encoding_quality_level_t::S_HANDHELD) {
+        c2_info("setupQp: minquality request, force fqp range VMAF=70");
+        iMin = pMin = 1;
+        if (mCodingType == MPP_VIDEO_CodingVP8) {
+            iMax = pMax = 90;
+        } else {
+            iMax = pMax = 35;
+        }
     }
 
     c2_info("setupQp: qpInit %d i %d-%d p %d-%d", qpInit, iMin, iMax, pMin, pMax);
