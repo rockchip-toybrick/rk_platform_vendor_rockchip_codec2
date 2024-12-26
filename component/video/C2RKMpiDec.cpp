@@ -1397,6 +1397,11 @@ void C2RKMpiDec::finishWork(OutWorkEntry entry) {
     uint64_t timestamp = entry.timestamp;
     uint32_t flags = entry.flags;
 
+    // stop work output in tunnel mode
+    if (mTunneled) {
+        return;
+    }
+
     if (outblock) {
         uint32_t left = mFbcCfg.mode ? mFbcCfg.paddingX : 0;
         uint32_t top  = mFbcCfg.mode ? mFbcCfg.paddingY : 0;
@@ -2269,8 +2274,6 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
         }
         if (mTunneled) {
             mTunneledSession->renderBuffer(outBuffer->mTunnelBuffer);
-            // stop work output
-            ret = C2_CANCELED;
         }
         // signal buffer occupied by users
         outBuffer->holdThisBuffer();
