@@ -316,4 +316,8 @@ int32_t C2RKTunneledSession::getNeedDequeueCnt() {
     return (count - C2_TUNNELED_RESEVED_SIZE);
 }
 
+int32_t C2RKTunneledSession::getSmoothnessFactor() {
+    return C2_TUNNELED_RESEVED_SIZE;
+}
+
 }

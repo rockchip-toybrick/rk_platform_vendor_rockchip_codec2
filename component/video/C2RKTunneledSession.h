@@ -119,6 +119,7 @@ public:
 
     void *  getTunnelSideband();
     int32_t getNeedDequeueCnt();
+    int32_t getSmoothnessFactor();
 
 private:
     VTunnelImpl        *mImpl;

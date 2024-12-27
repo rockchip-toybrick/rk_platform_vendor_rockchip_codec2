@@ -1998,6 +1998,10 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
     std::shared_ptr<C2GraphicBlock> outblock;
     uint32_t count = mOutputDelay - getOutBufferCountOwnByMpi() + 1;
 
+    if (mTunneled) {
+        count += mTunneledSession->getSmoothnessFactor();
+    }
+
     uint32_t i = 0;
     for (i = 0; i < count; i++) {
         err = mBlockPool->fetchGraphicBlock(blockW, blockH, format,
