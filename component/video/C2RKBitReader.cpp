@@ -22,7 +22,7 @@
 
 bool c2_update_curbyte(BitReadContext *bitctx) {
     if (bitctx->bytes_left_ < 1)
-        return true;
+        return false;
 
     // Emulation prevention three-byte detection.
     // If a sequence of 0x000003 is found, skip (ignore) the last byte (0x03).
