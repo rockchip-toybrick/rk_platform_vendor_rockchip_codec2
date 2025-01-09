@@ -102,6 +102,14 @@ static const C2FormatMap gFormatList[] = {
             HAL_PIXEL_FORMAT_YUV444_8BIT_RFBC,
         }
     },
+    {
+        MPP_FMT_YUV444SP_10BIT,
+        {
+            HAL_PIXEL_FORMAT_NV30,
+            0,
+            HAL_PIXEL_FORMAT_YUV444_10BIT_RFBC,
+        }
+    },
 };
 
 static const size_t gNumFormatList =

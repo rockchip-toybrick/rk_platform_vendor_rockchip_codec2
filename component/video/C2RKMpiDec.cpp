@@ -969,8 +969,9 @@ uint32_t C2RKMpiDec::getFbcOutputMode(const std::unique_ptr<C2Work> &work) {
                 }
             }
         }
-    } else if((mColorFormat & MPP_FRAME_FMT_MASK) == MPP_FMT_YUV422SP_10BIT) {
-        c2_info("yuv422 10bit video source, perfer rfbc output mode");
+    } else if ((mColorFormat & MPP_FRAME_FMT_MASK) == MPP_FMT_YUV422SP_10BIT ||
+               (mColorFormat & MPP_FRAME_FMT_MASK) == MPP_FMT_YUV444SP_10BIT) {
+        c2_info("10bit video source, perfer rfbc output mode");
         return fbcMode;
     }
 
@@ -1915,7 +1916,8 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
         if (format == HAL_PIXEL_FORMAT_YUV420_10BIT_I ||
             format == HAL_PIXEL_FORMAT_Y210 ||
             format == HAL_PIXEL_FORMAT_YUV420_10BIT_RFBC ||
-            format == HAL_PIXEL_FORMAT_YUV422_10BIT_RFBC) {
+            format == HAL_PIXEL_FORMAT_YUV422_10BIT_RFBC ||
+            format == HAL_PIXEL_FORMAT_YUV444_10BIT_RFBC) {
             blockW = C2_ALIGN(videoW, 64);
         }
     } else if (mCodingType == MPP_VIDEO_CodingVP9 && mGrallocVersion < 4) {

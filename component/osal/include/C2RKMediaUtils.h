@@ -43,6 +43,10 @@ using namespace android;
 #define HAL_PIXEL_FORMAT_YUV444_8BIT_RFBC   0x204
 #endif
 
+#ifndef HAL_PIXEL_FORMAT_YUV444_10BIT_RFBC
+#define HAL_PIXEL_FORMAT_YUV444_10BIT_RFBC  0x205
+#endif
+
 #define C2_DEFAULT_REF_FRAME_COUNT  12
 #define C2_MAX_REF_FRAME_COUNT      21
 

@@ -194,8 +194,10 @@ typedef enum {
 
 #define MPP_FRAME_FMT_IS_YUV(fmt)   (((fmt & MPP_FRAME_FMT_COLOR_MASK) == MPP_FRAME_FMT_YUV) && \
                                      ((fmt & MPP_FRAME_FMT_MASK) < MPP_FMT_YUV_BUTT))
-#define MPP_FRAME_FMT_IS_YUV_10BIT(fmt) ((fmt & MPP_FRAME_FMT_MASK) == MPP_FMT_YUV420SP_10BIT || \
-                                        (fmt & MPP_FRAME_FMT_MASK) == MPP_FMT_YUV422SP_10BIT)
+#define MPP_FRAME_FMT_IS_YUV_10BIT(fmt) \
+    (((fmt) & MPP_FRAME_FMT_MASK) == MPP_FMT_YUV420SP_10BIT || \
+     ((fmt) & MPP_FRAME_FMT_MASK) == MPP_FMT_YUV422SP_10BIT || \
+     ((fmt) & MPP_FRAME_FMT_MASK) == MPP_FMT_YUV444SP_10BIT)
 
 #define MPP_FRAME_FMT_IS_RGB(fmt)   (((fmt & MPP_FRAME_FMT_COLOR_MASK) == MPP_FRAME_FMT_RGB) && \
                                      ((fmt & MPP_FRAME_FMT_MASK) < MPP_FMT_RGB_BUTT))
@@ -233,6 +235,7 @@ typedef enum {
     MPP_FMT_YUV411SP        = (MPP_FRAME_FMT_YUV + 14), /* YYYY... UV...            */
     MPP_FMT_YUV444SP        = (MPP_FRAME_FMT_YUV + 15), /* YYYY... UVUVUVUV...      */
     MPP_FMT_YUV444P         = (MPP_FRAME_FMT_YUV + 16), /* YYYY... UUUU... VVVV...  */
+    MPP_FMT_YUV444SP_10BIT  = (MPP_FRAME_FMT_YUV + 17),
     MPP_FMT_YUV_BUTT,
 
     MPP_FMT_RGB565          = (MPP_FRAME_FMT_RGB + 0),  /* 16-bit RGB               */
