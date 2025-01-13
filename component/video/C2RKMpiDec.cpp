@@ -1585,8 +1585,11 @@ void C2RKMpiDec::process(
         mSignalledInputEos = true;
         // wait output eos stream
         Mutex::Autolock autoLock(mEosLock);
-        if (!mOutputEos)
-            mEosCondition.wait(mEosLock);
+        if (!mOutputEos) {
+            if (mEosCondition.waitRelative(mEosLock, 2000000000 /* 2s */) != OK) {
+                c2_warn("failed to get output eos within 2 seconds");
+            }
+        }
     } else {
         flags = 0;
     }
