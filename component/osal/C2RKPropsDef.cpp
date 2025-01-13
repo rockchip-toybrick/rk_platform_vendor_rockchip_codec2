@@ -34,6 +34,8 @@ static bool propInit() {
 
     sEncSuperMode = property_get_int32("codec2_enc_super_mode", 0);
 
+    sLoadingCheckDisable = property_get_int32("codec2_disable_load_check", 0);
+
     return true;
 }
 
@@ -52,3 +54,8 @@ int32_t C2RKPropsDef::getScaleDisable() {
 int32_t C2RKPropsDef::getEncSuperMode() {
     return sEncSuperMode;
 }
+
+int32_t C2RKPropsDef::getLoadingCheckDisable() {
+    return sLoadingCheckDisable;
+}
+

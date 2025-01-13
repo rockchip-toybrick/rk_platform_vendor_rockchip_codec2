@@ -19,10 +19,10 @@
 
 #include <string.h>
 #include <sys/syscall.h>
-#include <cutils/properties.h>
 
 #include "C2RKLog.h"
 #include "C2RKMemTrace.h"
+#include "C2RKPropsDef.h"
 #include "C2RKChipCapDef.h"
 
 namespace android {
@@ -41,7 +41,7 @@ C2RKMemTrace::C2RKMemTrace() {
         mMaxInstanceNum = 16;
     }
 
-    mDisableCheck = property_get_int32("codec2_disable_load_check", 0);
+    mDisableCheck = C2RKPropsDef::getLoadingCheckDisable();
     if (mDisableCheck) {
         c2_info("property match, disable codec loading check.");
     }
