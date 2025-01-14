@@ -920,7 +920,7 @@ c2_status_t C2RKMpiDec::setupAndStartLooper() {
         mHandler = new WorkHandler;
 
         mLooper->setName("C2DecLooper");
-        err = mLooper->start();
+        err = mLooper->start(false, false, ANDROID_PRIORITY_VIDEO);
         if (err == OK) {
             mLooper->registerHandler(mHandler);
         }
