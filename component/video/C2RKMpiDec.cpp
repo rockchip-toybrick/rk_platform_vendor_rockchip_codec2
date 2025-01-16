@@ -2054,6 +2054,7 @@ outframe:
         /* Avoid stock frame, continue to search available output */
         err = ensureDecoderState();
         if (err != C2_OK) {
+            c2_err("signalling error");
             mSignalledError = true;
             return err;
         }
@@ -2100,7 +2101,7 @@ c2_status_t C2RKMpiDec::sendpacket(uint8_t *data, size_t size, uint64_t pts, uin
             break;
         }
 
-        if ((++retry) > kMaxRetryCnt) {
+        if (mSignalledError || ((++retry) > kMaxRetryCnt)) {
             ret = C2_CORRUPTED;
             break;
         } else if (retry % 200 == 0) {
