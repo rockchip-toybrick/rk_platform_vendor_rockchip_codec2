@@ -210,6 +210,8 @@ uint64_t C2RKMediaUtils::getHStrideUsage(int32_t height, int32_t hstride) {
         return 0;
     }
 #else
+    (void)height;
+    (void)hstride;
     return 0;
 #endif
 }
