@@ -2110,17 +2110,26 @@ outframe:
         /* Avoid stock frame, continue to search available output */
         err = ensureDecoderState();
         if (err != C2_OK) {
-            c2_err("signalling error");
-            mSignalledError = true;
-            return err;
+            goto error;
         }
         goto outframe;
     } else if (err == C2_CORRUPTED) {
-        c2_err("signalling error");
-        mSignalledError = true;
+        goto error;
     }
 
     return err;
+
+error:
+    c2_err("signalling error");
+    mSignalledError = true;
+
+    // force unlock eos condition
+    Mutex::Autolock autoLock(mEosLock);
+    if (mSignalledInputEos && !mOutputEos) {
+        mEosCondition.signal();
+    }
+
+    return C2_CORRUPTED;
 }
 
 c2_status_t C2RKMpiDec::sendpacket(uint8_t *data, size_t size, uint64_t pts, uint32_t flags) {
