@@ -2146,6 +2146,7 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
     uint32_t hstride = mpp_frame_get_hor_stride(frame);
     uint32_t vstride = mpp_frame_get_ver_stride(frame);
     uint32_t error   = mpp_frame_get_errinfo(frame);
+    uint32_t discard = mpp_frame_get_discard(frame);
     uint32_t eos     = mpp_frame_get_eos(frame);
     uint64_t pts     = mpp_frame_get_pts(frame);
     uint32_t flags   = 0;
@@ -2217,7 +2218,7 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
         if (!mppBuffer) goto cleanUp;
     }
 
-    if (error) {
+    if (error || discard) {
         c2_warn("skip error frame with pts %lld", pts);
         goto cleanUp;
     }
