@@ -1298,7 +1298,7 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
         uint32_t fastParse = C2RKChipCapDef::get()->getFastModeSupport(mCodingType);
         mMppMpi->control(mMppCtx, MPP_DEC_SET_PARSER_FAST_MODE, &fastParse);
 
-        uint32_t fastPlay = 1;
+        uint32_t fastPlay = 2; // 0: disable, 1: enable, 2: enable_once
         mMppMpi->control(mMppCtx, MPP_DEC_SET_ENABLE_FAST_PLAY, &fastPlay);
 
         if (mLowLatencyMode) {
