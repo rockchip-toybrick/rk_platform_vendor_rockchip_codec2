@@ -843,11 +843,12 @@ void C2RKMpiDec::onRelease() {
 
     /* set flushing state to discard all work output */
     setFlushingState();
-    stopAndReleaseLooper();
 
     if (!mFlushed) {
         onFlush_sm();
     }
+
+    stopAndReleaseLooper();
 
     if (mBlockPool) {
         mBlockPool.reset();
