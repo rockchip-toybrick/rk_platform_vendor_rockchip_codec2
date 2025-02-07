@@ -34,7 +34,7 @@ public:
     static int32_t getLoadingCheckDisable();
 
     /* reduce in/output buffer size on low memory device */
-    static int32_t getLowMemoryEnable();
+    static int32_t getLowMemoryMode();
     static int32_t getInputBufferSize();
 };
 

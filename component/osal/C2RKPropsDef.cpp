@@ -22,7 +22,7 @@ static int32_t sLoadingCheckDisable = 0;
 static int32_t sHdrDisable = 0;
 static int32_t sScaleDisable = 0;
 static int32_t sEncSuperMode = 0;
-static int32_t sLowMemoryEnable= 0;
+static int32_t sLowMemoryMode= 0;
 static int32_t sInputBufferSize = 0;
 static bool sPropInited = propInit();
 
@@ -35,7 +35,7 @@ static bool propInit() {
 
     sLoadingCheckDisable = property_get_int32("codec2_disable_load_check", 0);
 
-    sLowMemoryEnable = property_get_int32("codec2_low_memory_enable", 0);
+    sLowMemoryMode = property_get_int32("codec2_low_memory_mode", 0);
 
     sInputBufferSize = property_get_int32("codec2_input_buffer_size", 0);
 
@@ -58,8 +58,8 @@ int32_t C2RKPropsDef::getLoadingCheckDisable() {
     return sLoadingCheckDisable;
 }
 
-int32_t C2RKPropsDef::getLowMemoryEnable() {
-    return sLowMemoryEnable;
+int32_t C2RKPropsDef::getLowMemoryMode() {
+    return sLowMemoryMode;
 }
 
 int32_t C2RKPropsDef::getInputBufferSize() {

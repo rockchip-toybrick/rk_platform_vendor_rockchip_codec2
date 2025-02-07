@@ -454,6 +454,13 @@ public:
                     .build());
 
             addParameter(
+                    DefineParam(mLowMemoryMode, C2_PARAMKEY_LOW_MEMORY_MODE)
+                    .withDefault(new C2StreamLowMemoryMode::input(0))
+                    .withFields({C2F(mLowMemoryMode, value).any()})
+                    .withSetter(Setter<decltype(mLowMemoryMode)::element_type>::StrictValueWithNoDeps)
+                    .build());
+
+            addParameter(
                     DefineParam(mMlvecParams->driverInfo, C2_PARAMKEY_MLVEC_DEC_DRI_VERSION)
                     .withConstValue(new C2DriverVersion::output(MLVEC_DRIVER_VERSION))
                     .build());
@@ -527,7 +534,7 @@ public:
     static C2R MaxInputSizeSetter(bool mayBlock, C2P<C2StreamMaxBufferSizeInfo::input> &me,
                                 const C2P<C2StreamMaxPictureSizeTuning::output> &maxSize) {
         (void)mayBlock;
-        if (C2RKPropsDef::getLowMemoryEnable()) {
+        if (C2RKPropsDef::getLowMemoryMode()) {
             me.set().value = C2RKPropsDef::getInputBufferSize();
         } else {
             // assume compression ratio of 2
@@ -656,6 +663,13 @@ public:
         return false;
     }
 
+    int32_t getLowMemoryMode() const {
+        if (mLowMemoryMode && mLowMemoryMode->value > 0) {
+            return mLowMemoryMode->value;
+        }
+        return C2RKPropsDef::getLowMemoryMode();
+    }
+
     bool getIsLowLatencyMode() {
         if (mLowLatency && mLowLatency->value > 0) {
             return true;
@@ -702,6 +716,7 @@ private:
     std::shared_ptr<C2StreamColorAspectsInfo::output> mColorAspects;
     std::shared_ptr<C2StreamDisableDpbCheck::input> mDisableDpbCheck;
     std::shared_ptr<C2StreamDisableErrorMark::input> mDisableErrorMark;
+    std::shared_ptr<C2StreamLowMemoryMode::input> mLowMemoryMode;
     std::shared_ptr<C2GlobalLowLatencyModeTuning> mLowLatency;
     std::shared_ptr<C2PortTunneledModeTuning::output> mTunneledPlayback;
     std::shared_ptr<C2PortTunnelHandleTuning::output> mTunneledSideband;
@@ -1111,11 +1126,17 @@ c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
     uint32_t width = 0, height = 0, level = 0;
     uint32_t refCnt = 0;
 
+    int32_t lowMemoryMode = 0;
+
     {
         IntfImpl::Lock lock = mIntf->lock();
         width  = mIntf->getSize_l()->width;
         height = mIntf->getSize_l()->height;
         level  = mIntf->getProfileLevel_l() ? mIntf->getProfileLevel_l()->level : 0;
+        lowMemoryMode = mIntf->getLowMemoryMode();
+        if (lowMemoryMode) {
+            c2_info("in low memory mode %d, reduce output ref count", lowMemoryMode);
+        }
     }
 
     refCnt = C2RKMediaUtils::calculateVideoRefCount(mCodingType, width, height, level);
@@ -1126,7 +1147,8 @@ c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
             rView = work->input.buffers[0]->data().linearBlocks().front().map().get();
             uint32_t protocolRefCnt = C2RKNaluParser::detectMaxRefCount(
                     const_cast<uint8_t *>(rView.data()), rView.capacity(), mCodingType);
-            if (C2RKPropsDef::getLowMemoryEnable() && protocolRefCnt < refCnt) {
+            if ((lowMemoryMode & LowMemoryMode::MODE_USE_PROTOCOL_REF)
+                    && protocolRefCnt > 0 && protocolRefCnt < refCnt) {
                 refCnt = protocolRefCnt;
             } else {
                 refCnt = C2_MAX(refCnt, protocolRefCnt);
@@ -1147,7 +1169,7 @@ c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
          * Under low memory conditions, the reported delayRef is reduced by 4, which is
          * equivalent to occupying 4 buffer blocks of the framework.
          */
-        if (C2RKPropsDef::getLowMemoryEnable()) {
+        if (lowMemoryMode & LowMemoryMode::MODE_REDUCE_SMOOTH) {
             reduceFactor = 4;
         }
 

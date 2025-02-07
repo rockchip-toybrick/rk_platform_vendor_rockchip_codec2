@@ -93,6 +93,19 @@ private:
         uint32_t flags;
     };
 
+    /*
+     * low memory mode config from user
+     *
+     * - 0x0: default value, normal device mode
+     * - 0x1: low memory case, reduce smoothFactor count from frameworks only.
+     * - 0x2: low memory case, use protocol delayRef.
+     */
+    enum LowMemoryMode {
+        MODE_NONE             = 0x0,
+        MODE_REDUCE_SMOOTH    = 0x1,
+        MODE_USE_PROTOCOL_REF = 0x2,
+    };
+
     class WorkHandler : public AHandler {
     public:
         enum {

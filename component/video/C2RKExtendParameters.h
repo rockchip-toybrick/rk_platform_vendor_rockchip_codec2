@@ -51,6 +51,7 @@ enum ExtendedC2ParamIndexKind : C2Param::type_index_t {
 
     kParamIndexDisableDpbCheck,
     kParamIndexDisableErrorMark,
+    kParamIndexLowMemoryMode,
 
     /* 3. Codec Encoder Extension */
 
@@ -66,6 +67,9 @@ constexpr char C2_PARAMKEY_DISABLE_DPB_CHECK[] = "disable-dpb-check";
 
 typedef C2PortParam<C2Info, C2Int32Value, kParamIndexDisableErrorMark> C2StreamDisableErrorMark;
 constexpr char C2_PARAMKEY_DISABLE_ERROR_MARK[] = "disable-error-mark";
+
+typedef C2PortParam<C2Info, C2Int32Value, kParamIndexLowMemoryMode> C2StreamLowMemoryMode;
+constexpr char C2_PARAMKEY_LOW_MEMORY_MODE[] = "low-memory-mode";
 
 typedef C2PortParam<C2Info, C2Int32Value, kParamIndexSceneMode> C2StreamSceneModeInfo;
 constexpr char C2_PARAMKEY_SCENE_MODE[] = "scene-mode";
