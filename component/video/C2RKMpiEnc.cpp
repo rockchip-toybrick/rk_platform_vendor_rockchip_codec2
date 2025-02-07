@@ -385,6 +385,13 @@ public:
                 .build());
 
         addParameter(
+                DefineParam(mDisableSEI, C2_PARAMKEY_DISABLE_SEI)
+                .withDefault(new C2StreamDisableSEI::input(0))
+                .withFields({C2F(mDisableSEI, value).any()})
+                .withSetter(Setter<decltype(mDisableSEI)::element_type>::StrictValueWithNoDeps)
+                .build());
+
+        addParameter(
                 DefineParam(mMlvecParams->driverInfo, C2_PARAMKEY_MLVEC_ENC_DRI_VERSION)
                 .withConstValue(new C2DriverVersion::output(MLVEC_DRIVER_VERSION))
                 .build());
@@ -904,6 +911,13 @@ public:
         return mSuperMode->value;
     }
 
+    bool getIsDisableSEI() const {
+        if (mDisableSEI && mDisableSEI->value > 0) {
+            return true;
+        }
+        return false;
+    }
+
     // unsafe getters
     std::shared_ptr<C2StreamPictureSizeInfo::input> getSize_l() const
     { return mSize; }
@@ -963,6 +977,7 @@ private:
     std::shared_ptr<C2StreamReencInfo::input> mReencTime;
     std::shared_ptr<C2StreamInputScalar::input> mInputScalar;
     std::shared_ptr<C2StreamSuperModeInfo::input> mSuperMode;
+    std::shared_ptr<C2StreamDisableSEI::input> mDisableSEI;
     std::shared_ptr<MlvecParams> mMlvecParams;
 };
 
@@ -1968,8 +1983,13 @@ c2_status_t C2RKMpiEnc::setupEncCfg() {
         c2_err("failed to setup codec cfg, ret %d", err);
         return C2_CORRUPTED;
     } else {
-        /* optional */
+        /* Video control Set SEI config */
+        IntfImpl::Lock lock = mIntf->lock();
         MppEncSeiMode seiMode = MPP_ENC_SEI_MODE_ONE_FRAME;
+        if (mIntf->getIsDisableSEI()) {
+            c2_info("disable sei info output");
+            seiMode = MPP_ENC_SEI_MODE_DISABLE;
+        }
         mMppMpi->control(mMppCtx, MPP_ENC_SET_SEI_CFG, &seiMode);
     }
 

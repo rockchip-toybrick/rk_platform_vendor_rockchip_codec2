@@ -447,6 +447,13 @@ public:
                     .build());
 
             addParameter(
+                    DefineParam(mDisableErrorMark, C2_PARAMKEY_DISABLE_ERROR_MARK)
+                    .withDefault(new C2StreamDisableErrorMark::input(0))
+                    .withFields({C2F(mDisableErrorMark, value).any()})
+                    .withSetter(Setter<decltype(mDisableErrorMark)::element_type>::StrictValueWithNoDeps)
+                    .build());
+
+            addParameter(
                     DefineParam(mMlvecParams->driverInfo, C2_PARAMKEY_MLVEC_DEC_DRI_VERSION)
                     .withConstValue(new C2DriverVersion::output(MLVEC_DRIVER_VERSION))
                     .build());
@@ -638,6 +645,13 @@ public:
         return false;
     }
 
+    bool getIsDisableErrorMark() const {
+        if (mDisableErrorMark && mDisableErrorMark->value > 0) {
+            return true;
+        }
+        return false;
+    }
+
     bool getIsLowLatencyMode() {
         if (mLowLatency && mLowLatency->value > 0) {
             return true;
@@ -683,6 +697,7 @@ private:
     std::shared_ptr<C2StreamColorAspectsInfo::input> mCodedColorAspects;
     std::shared_ptr<C2StreamColorAspectsInfo::output> mColorAspects;
     std::shared_ptr<C2StreamDisableDpbCheck::input> mDisableDpbCheck;
+    std::shared_ptr<C2StreamDisableErrorMark::input> mDisableErrorMark;
     std::shared_ptr<C2GlobalLowLatencyModeTuning> mLowLatency;
     std::shared_ptr<C2PortTunneledModeTuning::output> mTunneledPlayback;
     std::shared_ptr<C2PortTunnelHandleTuning::output> mTunneledSideband;
@@ -1262,6 +1277,12 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
             uint32_t disableCheck = 1;
             mMppMpi->control(mMppCtx, MPP_DEC_SET_DISABLE_DPB_CHECK, &disableCheck);
             c2_info("disable poc discontinuous check");
+        }
+
+        if (mIntf->getIsDisableErrorMark()) {
+            uint32_t disableError = 1;
+            mMppMpi->control(mMppCtx, MPP_DEC_SET_DISABLE_ERROR, &disableError);
+            c2_info("disable error frame mark");
         }
     }
 

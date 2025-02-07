@@ -23,6 +23,8 @@
 enum ExtendedC2ParamIndexKind : C2Param::type_index_t {
     kParamIndexSceneMode = C2Param::TYPE_INDEX_VENDOR_START,
 
+    /* 1. Microsoft Teams Video Extension */
+
     /* static capability queries */
     kParamIndexMLVECDriVersion,
     kParamIndexMLVECMaxLayerCount,
@@ -45,15 +47,25 @@ enum ExtendedC2ParamIndexKind : C2Param::type_index_t {
     kParamIndexMLVECDownScalar,
     kParamIndexMLVECInputCrop,
 
+    /* 2. Codec Decoder Extension */
+
+    kParamIndexDisableDpbCheck,
+    kParamIndexDisableErrorMark,
+
+    /* 3. Codec Encoder Extension */
+
     kParamIndexSliceSize,
     kParamIndexReencSetup,
-    kParamIndexDisableDpbCheck,
     kParamIndexInputScaler,
     kParamIndexSuperEncodingMode,
+    kParamIndexDisableSEI,
 };
 
 typedef C2PortParam<C2Info, C2Int32Value, kParamIndexDisableDpbCheck> C2StreamDisableDpbCheck;
 constexpr char C2_PARAMKEY_DISABLE_DPB_CHECK[] = "disable-dpb-check";
+
+typedef C2PortParam<C2Info, C2Int32Value, kParamIndexDisableErrorMark> C2StreamDisableErrorMark;
+constexpr char C2_PARAMKEY_DISABLE_ERROR_MARK[] = "disable-error-mark";
 
 typedef C2PortParam<C2Info, C2Int32Value, kParamIndexSceneMode> C2StreamSceneModeInfo;
 constexpr char C2_PARAMKEY_SCENE_MODE[] = "scene-mode";
@@ -66,6 +78,9 @@ constexpr char C2_PARAMKEY_REENC_TIMES[] = "reenc-times";
 
 typedef C2PortParam<C2Info, C2Int32Value, kParamIndexSuperEncodingMode> C2StreamSuperModeInfo;
 constexpr char C2_PARAMKEY_SUPER_ENCODING_MODE[] = "super-encoding-mode";
+
+typedef C2PortParam<C2Info, C2Int32Value, kParamIndexDisableSEI> C2StreamDisableSEI;
+constexpr char C2_PARAMKEY_DISABLE_SEI[] = "disable-sei";
 
 struct C2InputScalarStruct {
     int32_t width;
