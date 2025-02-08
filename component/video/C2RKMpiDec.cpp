@@ -1055,9 +1055,12 @@ c2_status_t C2RKMpiDec::updateSurfaceConfig(const std::shared_ptr<C2BlockPool> &
     MppDecCfg cfg = nullptr;
     uint32_t scaleMode = C2RKChipCapDef::get()->getScaleMode();
 
+    if (!scaleMode || mBufferMode || C2RKPropsDef::getScaleDisable()) {
+        goto cleanUp;
+    }
+
     // enable scale dec only in 8k
-    if (!scaleMode || (mWidth <= 4096 && mHeight <= 4096)
-            || C2RKPropsDef::getScaleDisable()) {
+    if (mWidth <= 4096 && mHeight <= 4096) {
         goto cleanUp;
     }
 
