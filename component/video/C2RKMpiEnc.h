@@ -20,6 +20,7 @@
 #include "C2RKComponent.h"
 #include "C2RKInterface.h"
 #include "C2RKMlvecLegacy.h"
+#include "C2RKMpiRoiUtils.h"
 #include "C2RKDump.h"
 
 #include "rk_mpi.h"
@@ -91,6 +92,7 @@ private:
     MppCtx         mMppCtx;
     MppApi        *mMppMpi;
     MppBuffer      mMdInfo; /* motion info buffer */
+    MppEncRoiCtx   mRoiCtx;
     MppBufferGroup mGroup;
     MppEncCfg      mEncCfg;
     MppCodingType  mCodingType;
@@ -142,6 +144,7 @@ private:
     c2_status_t handleCommonDynamicCfg();
     c2_status_t handleRequestSyncFrame();
     c2_status_t handleMlvecDynamicCfg(MppMeta meta);
+    c2_status_t handleRoiRegionRequestIfNeeded(MppMeta meta);
 
     bool needRgaConvert(uint32_t width, uint32_t height, MppFrameFormat fmt);
     c2_status_t getInBufferFromWork(

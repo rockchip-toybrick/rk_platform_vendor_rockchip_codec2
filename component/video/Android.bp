@@ -21,6 +21,7 @@ cc_library_static {
         "C2RKBitReader.cpp",
         "C2RKNaluParser.cpp",
         "C2RKTunneledSession.cpp",
+        "C2RKMpiRoiUtils.cpp",
     ],
 
     header_libs: [

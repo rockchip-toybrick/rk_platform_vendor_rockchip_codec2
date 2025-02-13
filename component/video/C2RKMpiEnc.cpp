@@ -392,6 +392,66 @@ public:
                 .build());
 
         addParameter(
+                DefineParam(mRoiRegionCfg, C2_PARAMKEY_ROI_REGION_CFG)
+                .withDefault(new C2StreamRoiRegionCfg::input())
+                .withFields({
+                    C2F(mRoiRegionCfg, left).any(),
+                    C2F(mRoiRegionCfg, right).any(),
+                    C2F(mRoiRegionCfg, width).any(),
+                    C2F(mRoiRegionCfg, height).any(),
+                    C2F(mRoiRegionCfg, forceIntra).any(),
+                    C2F(mRoiRegionCfg, qpMode).any(),
+                    C2F(mRoiRegionCfg, qpVal).any()
+                })
+                .withSetter(RoiRegionCfgSetter)
+                .build());
+
+        addParameter(
+                DefineParam(mRoiRegion2Cfg, C2_PARAMKEY_ROI_REGION2_CFG)
+                .withDefault(new C2StreamRoiRegion2Cfg::input())
+                .withFields({
+                    C2F(mRoiRegion2Cfg, left).any(),
+                    C2F(mRoiRegion2Cfg, right).any(),
+                    C2F(mRoiRegion2Cfg, width).any(),
+                    C2F(mRoiRegion2Cfg, height).any(),
+                    C2F(mRoiRegion2Cfg, forceIntra).any(),
+                    C2F(mRoiRegion2Cfg, qpMode).any(),
+                    C2F(mRoiRegion2Cfg, qpVal).any()
+                })
+                .withSetter(RoiRegion2CfgSetter)
+                .build());
+
+        addParameter(
+                DefineParam(mRoiRegion3Cfg, C2_PARAMKEY_ROI_REGION3_CFG)
+                .withDefault(new C2StreamRoiRegion3Cfg::input())
+                .withFields({
+                    C2F(mRoiRegion3Cfg, left).any(),
+                    C2F(mRoiRegion3Cfg, right).any(),
+                    C2F(mRoiRegion3Cfg, width).any(),
+                    C2F(mRoiRegion3Cfg, height).any(),
+                    C2F(mRoiRegion3Cfg, forceIntra).any(),
+                    C2F(mRoiRegion3Cfg, qpMode).any(),
+                    C2F(mRoiRegion3Cfg, qpVal).any()
+                })
+                .withSetter(RoiRegion3CfgSetter)
+                .build());
+
+        addParameter(
+                DefineParam(mRoiRegion4Cfg, C2_PARAMKEY_ROI_REGION4_CFG)
+                .withDefault(new C2StreamRoiRegion4Cfg::input())
+                .withFields({
+                    C2F(mRoiRegion4Cfg, left).any(),
+                    C2F(mRoiRegion4Cfg, right).any(),
+                    C2F(mRoiRegion4Cfg, width).any(),
+                    C2F(mRoiRegion4Cfg, height).any(),
+                    C2F(mRoiRegion4Cfg, forceIntra).any(),
+                    C2F(mRoiRegion4Cfg, qpMode).any(),
+                    C2F(mRoiRegion4Cfg, qpVal).any()
+                })
+                .withSetter(RoiRegion4CfgSetter)
+                .build());
+
+        addParameter(
                 DefineParam(mMlvecParams->driverInfo, C2_PARAMKEY_MLVEC_ENC_DRI_VERSION)
                 .withConstValue(new C2DriverVersion::output(MLVEC_DRIVER_VERSION))
                 .build());
@@ -803,6 +863,34 @@ public:
         return C2R::Ok();
     }
 
+    static C2R RoiRegionCfgSetter(
+            bool mayBlock, C2P<C2StreamRoiRegionCfg::input>& me) {
+        (void)mayBlock;
+        (void)me;
+        return C2R::Ok();
+    }
+
+    static C2R RoiRegion2CfgSetter(
+            bool mayBlock, C2P<C2StreamRoiRegion2Cfg::input>& me) {
+        (void)mayBlock;
+        (void)me;
+        return C2R::Ok();
+    }
+
+    static C2R RoiRegion3CfgSetter(
+            bool mayBlock, C2P<C2StreamRoiRegion3Cfg::input>& me) {
+        (void)mayBlock;
+        (void)me;
+        return C2R::Ok();
+    }
+
+    static C2R RoiRegion4CfgSetter(
+            bool mayBlock, C2P<C2StreamRoiRegion4Cfg::input>& me) {
+        (void)mayBlock;
+        (void)me;
+        return C2R::Ok();
+    }
+
     static C2R MProfileLevelSetter(
             bool mayBlock, C2P<C2MProfileLevel::output> &me) {
         (void)mayBlock;
@@ -918,6 +1006,34 @@ public:
         return false;
     }
 
+#define SET_ROI_REGION(inCfg, outCfg, reginCount) \
+    if (inCfg && inCfg->width > 0 && inCfg->height > 0) { \
+        outCfg.x = inCfg->left; \
+        outCfg.y = inCfg->right; \
+        outCfg.w = inCfg->width; \
+        outCfg.h = inCfg->height; \
+        outCfg.force_intra = inCfg->forceIntra; \
+        outCfg.qp_mode = inCfg->qpMode; \
+        outCfg.qp_val = inCfg->qpVal; \
+        inCfg->width = -1; \
+        inCfg->height = -1; \
+        reginCount++; \
+    } \
+
+   int32_t getRoiRegionCfg(RoiRegionCfg *regions) {
+        int32_t mRegionCnt = 0;
+        if (!regions) {
+            return mRegionCnt;
+        }
+
+        SET_ROI_REGION(mRoiRegionCfg,  regions[mRegionCnt], mRegionCnt)
+        SET_ROI_REGION(mRoiRegion2Cfg, regions[mRegionCnt], mRegionCnt)
+        SET_ROI_REGION(mRoiRegion3Cfg, regions[mRegionCnt], mRegionCnt)
+        SET_ROI_REGION(mRoiRegion4Cfg, regions[mRegionCnt], mRegionCnt)
+
+        return mRegionCnt;
+    }
+
     // unsafe getters
     std::shared_ptr<C2StreamPictureSizeInfo::input> getSize_l() const
     { return mSize; }
@@ -978,6 +1094,10 @@ private:
     std::shared_ptr<C2StreamInputScalar::input> mInputScalar;
     std::shared_ptr<C2StreamSuperModeInfo::input> mSuperMode;
     std::shared_ptr<C2StreamDisableSEI::input> mDisableSEI;
+    std::shared_ptr<C2StreamRoiRegionCfg::input> mRoiRegionCfg;
+    std::shared_ptr<C2StreamRoiRegion2Cfg::input> mRoiRegion2Cfg;
+    std::shared_ptr<C2StreamRoiRegion3Cfg::input> mRoiRegion3Cfg;
+    std::shared_ptr<C2StreamRoiRegion4Cfg::input> mRoiRegion4Cfg;
     std::shared_ptr<MlvecParams> mMlvecParams;
 };
 
@@ -996,6 +1116,7 @@ C2RKMpiEnc::C2RKMpiEnc(
       mMppCtx(nullptr),
       mMppMpi(nullptr),
       mMdInfo(nullptr),
+      mRoiCtx(nullptr),
       mGroup(nullptr),
       mEncCfg(nullptr),
       mCodingType(MPP_VIDEO_CodingUnused),
@@ -1090,6 +1211,11 @@ void C2RKMpiEnc::onRelease() {
     if (mMlvec != nullptr) {
         delete mMlvec;
         mMlvec = nullptr;
+    }
+
+    if (mRoiCtx != nullptr) {
+        mpp_enc_roi_deinit(mRoiCtx);
+        mRoiCtx = nullptr;
     }
 
     if (mDump != nullptr) {
@@ -2483,6 +2609,49 @@ c2_status_t C2RKMpiEnc::handleMlvecDynamicCfg(MppMeta meta) {
     return C2_OK;
 }
 
+c2_status_t C2RKMpiEnc::handleRoiRegionRequestIfNeeded(MppMeta meta) {
+    RoiRegionCfg regions[MPP_MAX_ROI_REGION_COUNT];
+
+    memset(regions, 0, sizeof(regions));
+
+    IntfImpl::Lock lock = mIntf->lock();
+    int32_t regionCount = mIntf->getRoiRegionCfg(regions);
+
+    if (regionCount == 0) return C2_OK;
+
+    if (!mRoiCtx) {
+        if (mpp_enc_roi_init(&mRoiCtx, mSize->width, mSize->height, mCodingType)) {
+            c2_err("failed to init roi context");
+            return C2_CORRUPTED;
+        }
+        c2_info("setup roi done, ctx %p regionCount %d", mRoiCtx, regionCount);
+    }
+
+    for (int i = 0; i < regionCount; i++) {
+        RoiRegionCfg *region = &regions[i];
+        if (region->x > mSize->width || region->y > mSize->height ||
+            region->w > mSize->width || region->h > mSize->height ||
+            (region->x + region->w) > mSize->width ||
+            (region->y + region->h) > mSize->height ||
+            region->qp_val > 51) {
+            c2_err("size limit [%d,%d] qpVal in range 1~51", mSize->width, mSize->height);
+            c2_err("got invalid roi region, rect [%d,%d,%d,%d] intra %d mode %d qp %d",
+                   region->x, region->y, region->w, region->h,
+                   region->force_intra, region->qp_mode, region->qp_val);
+        } else {
+            mpp_enc_roi_add_region(mRoiCtx, region);
+            c2_trace("setup roi region[%d] rect [%d,%d,%d,%d] intra %d mode %d qp %d",
+                     i, region->x, region->y, region->w, region->h,
+                     region->force_intra, region->qp_mode, region->qp_val);
+        }
+    }
+
+    // send roi info by metadata
+    mpp_enc_roi_setup_meta(mRoiCtx, meta);
+
+    return C2_OK;
+}
+
 // Note: Check if the input can be received by mpp driver directly
 bool C2RKMpiEnc::needRgaConvert(uint32_t width, uint32_t height, MppFrameFormat fmt) {
     bool needsRga = true;
@@ -2740,6 +2909,9 @@ c2_status_t C2RKMpiEnc::sendframe(
     if (mMlvec) {
         handleMlvecDynamicCfg(meta);
     }
+
+    /* handle ROI region setup from user */
+    handleRoiRegionRequestIfNeeded(meta);
 
     /* handle IDR request */
     handleRequestSyncFrame();

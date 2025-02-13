@@ -60,6 +60,10 @@ enum ExtendedC2ParamIndexKind : C2Param::type_index_t {
     kParamIndexInputScaler,
     kParamIndexSuperEncodingMode,
     kParamIndexDisableSEI,
+    kParamIndexRoiRegionCfg,
+    kParamIndexRoiRegion2Cfg,
+    kParamIndexRoiRegion3Cfg,
+    kParamIndexRoiRegion4Cfg,
 };
 
 typedef C2PortParam<C2Info, C2Int32Value, kParamIndexDisableDpbCheck> C2StreamDisableDpbCheck;
@@ -80,12 +84,6 @@ constexpr char C2_PARAMKEY_SLICE_SIZE[] = "slice-size";
 typedef C2PortParam<C2Info, C2Int32Value, kParamIndexReencSetup> C2StreamReencInfo;
 constexpr char C2_PARAMKEY_REENC_TIMES[] = "reenc-times";
 
-typedef C2PortParam<C2Info, C2Int32Value, kParamIndexSuperEncodingMode> C2StreamSuperModeInfo;
-constexpr char C2_PARAMKEY_SUPER_ENCODING_MODE[] = "super-encoding-mode";
-
-typedef C2PortParam<C2Info, C2Int32Value, kParamIndexDisableSEI> C2StreamDisableSEI;
-constexpr char C2_PARAMKEY_DISABLE_SEI[] = "disable-sei";
-
 struct C2InputScalarStruct {
     int32_t width;
     int32_t height;
@@ -98,6 +96,45 @@ struct C2InputScalarStruct {
 
 typedef C2PortParam<C2Info, C2InputScalarStruct, kParamIndexInputScaler> C2StreamInputScalar;
 constexpr char C2_PARAMKEY_INPUT_SCALAR[] = "input-scalar";
+
+typedef C2PortParam<C2Info, C2Int32Value, kParamIndexSuperEncodingMode> C2StreamSuperModeInfo;
+constexpr char C2_PARAMKEY_SUPER_ENCODING_MODE[] = "super-encoding-mode";
+
+typedef C2PortParam<C2Info, C2Int32Value, kParamIndexDisableSEI> C2StreamDisableSEI;
+constexpr char C2_PARAMKEY_DISABLE_SEI[] = "disable-sei";
+
+struct C2RoiRegionCfgStruct {
+    int32_t left;           /**< horizontal position of top left corner */
+    int32_t right;          /**< vertical position of top left corner */
+    int32_t width;          /**< width of ROI rectangle */
+    int32_t height;         /**< height of ROI rectangle */
+    int32_t forceIntra;     /**< flag of forced intra macroblock */
+    int32_t qpMode;         /**< 0 - relative qp 1 - absolute qp */
+    int32_t qpVal;          /**< absolute / relative qp of macroblock */
+
+    C2RoiRegionCfgStruct() :
+        left(0), right(0), width(0), height(0), forceIntra(0), qpMode(0), qpVal(0) {}
+    C2RoiRegionCfgStruct(
+        int32_t _left, int32_t _right, int32_t _width, int32_t _height,
+        int32_t _forceIntra, int32_t _qpMode, int32_t _qpVal) :
+        left(_left), right(_right), width(_width), height(_height),
+        forceIntra(_forceIntra), qpMode(_qpMode), qpVal(_qpVal) {}
+
+    const static std::vector<C2FieldDescriptor> _FIELD_LIST;
+    static const std::vector<C2FieldDescriptor> FieldList();
+};
+
+typedef C2PortParam<C2Info, C2RoiRegionCfgStruct, kParamIndexRoiRegionCfg> C2StreamRoiRegionCfg;
+constexpr char C2_PARAMKEY_ROI_REGION_CFG[]  = "roi-region-config";
+
+typedef C2PortParam<C2Info, C2RoiRegionCfgStruct, kParamIndexRoiRegion2Cfg> C2StreamRoiRegion2Cfg;
+constexpr char C2_PARAMKEY_ROI_REGION2_CFG[] = "roi-region2-config";
+
+typedef C2PortParam<C2Info, C2RoiRegionCfgStruct, kParamIndexRoiRegion3Cfg> C2StreamRoiRegion3Cfg;
+constexpr char C2_PARAMKEY_ROI_REGION3_CFG[] = "roi-region3-config";
+
+typedef C2PortParam<C2Info, C2RoiRegionCfgStruct, kParamIndexRoiRegion4Cfg> C2StreamRoiRegion4Cfg;
+constexpr char C2_PARAMKEY_ROI_REGION4_CFG[] = "roi-region4-config";
 
 /*
  * 1. MLVEC hardware driver version

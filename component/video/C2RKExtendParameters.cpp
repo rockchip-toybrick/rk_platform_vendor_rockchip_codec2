@@ -24,6 +24,19 @@ const std::vector<C2FieldDescriptor> C2InputScalarStruct::_FIELD_LIST = {
     { C2FieldDescriptor::INT32, 1, "height", 4, 4 }
 };
 
+const std::vector<C2FieldDescriptor> C2RoiRegionCfgStruct::FieldList() {
+    return _FIELD_LIST;
+}
+const std::vector<C2FieldDescriptor> C2RoiRegionCfgStruct::_FIELD_LIST = {
+    { C2FieldDescriptor::INT32, 1, "left", 0, 4 },
+    { C2FieldDescriptor::INT32, 1, "right", 4, 4 },
+    { C2FieldDescriptor::INT32, 1, "width", 8, 4 },
+    { C2FieldDescriptor::INT32, 1, "height", 12, 4 },
+    { C2FieldDescriptor::INT32, 1, "force-intra", 16, 4 },
+    { C2FieldDescriptor::INT32, 1, "qp-mode", 20, 4 },
+    { C2FieldDescriptor::INT32, 1, "qp-val", 24, 4 },
+};
+
 const std::vector<C2FieldDescriptor> C2NumberStruct::FieldList() {
     return _FIELD_LIST;
 }
