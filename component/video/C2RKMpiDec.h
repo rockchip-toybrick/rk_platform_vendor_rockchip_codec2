@@ -154,7 +154,6 @@ private:
     uint32_t mGrallocVersion;
     uint32_t mPixelFormat;
     uint32_t mScaleMode;
-    uint32_t mAIPQMetaEnable;
 
     bool mStarted;
     bool mFlushed;
