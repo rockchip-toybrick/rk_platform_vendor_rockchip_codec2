@@ -2152,8 +2152,8 @@ c2_status_t C2RKMpiDec::sendpacket(uint8_t *data, size_t size, uint64_t pts, uin
         if (err == MPP_OK) {
             c2_trace("send packet pts %lld size %d", pts, size);
             /* dump input data if neccessary */
-            mDump->recordInFile(data, size);
-            mDump->showDebugFps(DUMP_ROLE_INPUT);
+            mDump->recordFile(ROLE_INPUT, data, size);
+            mDump->showDebugFps(ROLE_INPUT);
             break;
         }
 
@@ -2354,13 +2354,13 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
     }
 
     /* dump output data if neccessary */
-    if (C2RKDump::has_debug_flag(C2_DUMP_RECORD_DEC_OUT)) {
+    if (C2RKDump::hasDebugFlags(C2_DUMP_RECORD_DEC_OUT)) {
         void *data = mpp_buffer_get_ptr(mppBuffer);
-        mDump->recordOutFile(data, hstride, vstride, RAW_TYPE_YUV420SP);
+        mDump->recordFile(ROLE_OUTPUT, data, hstride, vstride, mColorFormat);
     }
 
     /* show output process fps and time consuming if neccessary */
-    mDump->showDebugFps(DUMP_ROLE_OUTPUT);
+    mDump->showDebugFps(ROLE_OUTPUT);
     mDump->showFrameTiming(pts);
 
     entry->outblock = mBufferMode ? mOutBlock : outBuffer->mBlock;

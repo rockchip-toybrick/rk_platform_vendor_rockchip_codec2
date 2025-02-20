@@ -2397,7 +2397,7 @@ void C2RKMpiEnc::process(
             work->worklets.front()->output.configUpdate.push_back(std::move(csd));
 
             /* dump output data if neccessary */
-            mDump->recordOutFile(data, dataSize);
+            mDump->recordFile(ROLE_OUTPUT, data, dataSize);
 
             mSpsPpsHeaderReceived = true;
         }
@@ -2749,7 +2749,8 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
         uint32_t fd = c2Handle->data[0];
 
         /* dump input data if neccessary */
-        mDump->recordInFile((void*)input->data()[0], stride, height, RAW_TYPE_RGBA);
+        mDump->recordFile(ROLE_INPUT,
+                (void*)input->data()[0], stride, height, MPP_FMT_RGBA8888);
 
         if (!needRgaConvert(stride, height, MPP_FMT_RGBA8888)) {
             if (mHorStride != stride || mVerStride != height) {
@@ -2787,7 +2788,8 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
         uint32_t fd = c2Handle->data[0];
 
         /* dump input data if neccessary */
-        mDump->recordInFile((void*)input->data()[0], stride, height, RAW_TYPE_YUV420SP);
+        mDump->recordFile(ROLE_INPUT,
+                (void*)input->data()[0], stride, height, MPP_FMT_YUV420SP);
 
         if (mInputMppFmt != MPP_FMT_YUV420SP) {
             c2_info("update use yuv input format.");
@@ -2924,7 +2926,7 @@ c2_status_t C2RKMpiEnc::sendframe(
     }
 
     /* dump show input process fps if neccessary */
-    mDump->showDebugFps(DUMP_ROLE_INPUT);
+    mDump->showDebugFps(ROLE_INPUT);
 
     mInputCount++;
 
@@ -2952,10 +2954,10 @@ c2_status_t C2RKMpiEnc::getoutpacket(OutWorkEntry *entry) {
         c2_trace("get outpacket pts %lld size %d eos %d", pts, len, eos);
 
         /* dump output data if neccessary */
-        mDump->recordOutFile(data, len);
+        mDump->recordFile(ROLE_OUTPUT, data, len);
 
         /* dump show input process fps and time consuming if neccessary */
-        mDump->showDebugFps(DUMP_ROLE_OUTPUT);
+        mDump->showDebugFps(ROLE_OUTPUT);
         mDump->showFrameTiming(pts);
 
         if (eos) {

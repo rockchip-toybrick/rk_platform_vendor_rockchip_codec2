@@ -21,6 +21,8 @@
 #include <utils/Timers.h>
 #include <utils/KeyedVector.h>
 
+#include "rk_mpi.h"
+
 using namespace android;
 
 #define C2_DUMP_LOG_TRACE                   (0x00000001)
@@ -36,15 +38,10 @@ using namespace android;
 /* decoding/encoding frame time consuming */
 #define C2_DUMP_FRAME_TIMING                (0x00000100)
 
-enum C2RecRawType {
-    RAW_TYPE_YUV420SP = 0,
-    RAW_TYPE_RGBA,
-};
-
 enum C2DumpRole {
-    DUMP_ROLE_INPUT = 0,     // for input buffer fps show
-    DUMP_ROLE_OUTPUT,        // for output buffer fps show
-    DUMP_ROLE_BUTT,
+    ROLE_INPUT = 0,
+    ROLE_OUTPUT,
+    ROLE_BUTT,
 };
 
 class C2RKDump {
@@ -54,17 +51,17 @@ public:
 
     void initDump(uint32_t width, uint32_t height, bool isEncoder);
 
-    void recordInFile(void *data, size_t size);
-    void recordInFile(void *data, uint32_t w, uint32_t h, C2RecRawType type);
-    void recordOutFile(void *data, size_t size);
-    void recordOutFile(void *data, uint32_t w, uint32_t h, C2RecRawType type);
+    void recordFile(C2DumpRole role, void *data, size_t size);
+    void recordFile(
+            C2DumpRole role, void *data,
+            uint32_t w, uint32_t h, MppFrameFormat fmt);
 
     void recordFrameTime(int64_t frameIndex);
     void showFrameTiming(int64_t frameIndex);
 
     void showDebugFps(C2DumpRole role);
 
-    static int32_t has_debug_flag(int32_t flag) { return (mFlag & flag); }
+    static bool hasDebugFlags(int32_t flag) { return (mFlag & flag); }
 
 private:
     static int32_t mFlag;
@@ -77,9 +74,9 @@ private:
     FILE    *mOutFile;
 
     /* debug show fps */
-    uint32_t mFrameCount[DUMP_ROLE_BUTT];
-    uint32_t mLastFrameCount[DUMP_ROLE_BUTT];
-    nsecs_t  mLastFpsTime[DUMP_ROLE_BUTT];
+    uint32_t mFrameCount[ROLE_BUTT];
+    uint32_t mLastFrameCount[ROLE_BUTT];
+    nsecs_t  mLastFpsTime[ROLE_BUTT];
 };
 
 #endif // ANDROID_C2_RK_DUMP_H__

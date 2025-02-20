@@ -25,6 +25,7 @@
 
 #include "C2RKDump.h"
 #include "C2RKLog.h"
+#include "C2RKMediaUtils.h"
 
 #define  C2_RECORD_DIR   "/data/video/"
 
@@ -32,8 +33,8 @@ int32_t C2RKDump::mFlag = 0;
 
 const char *toStr_DumpRole(uint32_t role) {
     switch (role) {
-        case DUMP_ROLE_INPUT:       return "input";
-        case DUMP_ROLE_OUTPUT:      return "output";
+        case ROLE_INPUT:       return "input";
+        case ROLE_OUTPUT:      return "output";
     }
 
     c2_warn("unsupport dump role %d", role);
@@ -42,8 +43,9 @@ const char *toStr_DumpRole(uint32_t role) {
 
 const char *toStr_RawType(uint32_t type) {
     switch (type) {
-        case RAW_TYPE_YUV420SP:     return "yuv";
-        case RAW_TYPE_RGBA:         return "rgba";
+        case MPP_FMT_YUV420SP:         return "yuv";
+        case MPP_FMT_YUV420SP_10BIT:   return "10bit_yuv";
+        case MPP_FMT_RGBA8888:         return "rgba";
     }
 
     c2_warn("unsupport raw type %d", type);
@@ -60,7 +62,7 @@ C2RKDump::C2RKDump()
     : mIsEncoder(false),
       mInFile(nullptr),
       mOutFile(nullptr) {
-    for (int i = 0; i < DUMP_ROLE_BUTT; i++) {
+    for (int i = 0; i < ROLE_BUTT; i++) {
         mFrameCount[i] = 0;
         mLastFrameCount[i] = 0;
         mLastFpsTime[i] = 0;
@@ -87,8 +89,8 @@ C2RKDump::~C2RKDump() {
 void C2RKDump::initDump(uint32_t width, uint32_t height, bool isEncoder) {
     char fileName[128];
 
-    if ((has_debug_flag(C2_DUMP_RECORD_ENC_IN) && isEncoder) ||
-        (has_debug_flag(C2_DUMP_RECORD_DEC_IN) && !isEncoder)) {
+    if ((hasDebugFlags(C2_DUMP_RECORD_ENC_IN) && isEncoder) ||
+        (hasDebugFlags(C2_DUMP_RECORD_DEC_IN) && !isEncoder)) {
         memset(fileName, 0, 128);
 
         sprintf(fileName, "%s%s_in_%dx%d_%ld.bin", C2_RECORD_DIR,
@@ -101,8 +103,8 @@ void C2RKDump::initDump(uint32_t width, uint32_t height, bool isEncoder) {
         }
     }
 
-    if ((has_debug_flag(C2_DUMP_RECORD_ENC_OUT) && isEncoder) ||
-        (has_debug_flag(C2_DUMP_RECORD_DEC_OUT) && !isEncoder)) {
+    if ((hasDebugFlags(C2_DUMP_RECORD_ENC_OUT) && isEncoder) ||
+        (hasDebugFlags(C2_DUMP_RECORD_DEC_OUT) && !isEncoder)) {
         memset(fileName, 0, 128);
 
         sprintf(fileName, "%s%s_out_%dx%d_%ld.bin", C2_RECORD_DIR,
@@ -118,64 +120,63 @@ void C2RKDump::initDump(uint32_t width, uint32_t height, bool isEncoder) {
     mIsEncoder = isEncoder;
 }
 
-void C2RKDump::recordInFile(void *data, size_t size) {
-    if (mInFile) {
-        fwrite(data, 1, size, mInFile);
-        fflush(mInFile);
+void C2RKDump::recordFile(C2DumpRole role, void *data, size_t size) {
+    FILE *file = (role == ROLE_INPUT) ? mInFile : mOutFile;
+    if (file) {
+        fwrite(data, 1, size, file);
+        fflush(file);
+
+        c2_info("dump_%s: data 0x%08x size %d", toStr_DumpRole(role), data, size);
     }
 }
 
-void C2RKDump::recordInFile(void *data, uint32_t w, uint32_t h, C2RecRawType type) {
-    if (mInFile) {
-        size_t size = 0;
-
-        if (type == RAW_TYPE_RGBA) {
-            size = w * h * 4;
-        } else {
-            size = w * h * 3 / 2;
+void C2RKDump::recordFile(
+        C2DumpRole role, void *data,
+        uint32_t w, uint32_t h, MppFrameFormat fmt) {
+    FILE *file = (role == ROLE_INPUT) ? mInFile : mOutFile;
+    if (file) {
+        if (MPP_FRAME_FMT_IS_FBC(fmt)) {
+            c2_warn("not support fbc buffer dump");
+            return;
         }
 
-        fwrite(data, 1, size, mInFile);
-        fflush(mInFile);
-
-        c2_info("dump_input_%s: data 0x%08x w:h [%d:%d]",
-                toStr_RawType(type), data, w, h);
-    }
-}
-
-void C2RKDump::recordOutFile(void *data, size_t size) {
-    if (mOutFile) {
-        fwrite(data, 1, size, mOutFile);
-        fflush(mOutFile);
-    }
-}
-
-void C2RKDump::recordOutFile(void *data, uint32_t w, uint32_t h, C2RecRawType type) {
-    if (mOutFile) {
         size_t size = 0;
 
-        if (type == RAW_TYPE_RGBA) {
-            size = w * h * 4;
-        } else {
+        if (MPP_FRAME_FMT_IS_YUV_10BIT(fmt)) {
+            // convert platform 10bit into 8bit yuv
             size = w * h * 3 / 2;
+            uint8_t *tempData = (uint8_t *)malloc(size);
+            if (!tempData) {
+                c2_warn("failed to malloc temp 8bit dump buffer");
+                return;
+            }
+
+            C2RKMediaUtils::convert10BitNV12ToNV12(
+                tempData, tempData + w * h, w, w, (uint8_t*)data, w, h, w, h);
+            fwrite(tempData, 1, size, file);
+
+            free(tempData);
+            tempData = nullptr;
+        } else {
+            size = MPP_FRAME_FMT_IS_RGB(fmt) ? (w * h * 4) : (w * h * 3 / 2);
+            fwrite(data, 1, size, file);
         }
 
-        fwrite(data, 1, size, mOutFile);
-        fflush(mOutFile);
+        fflush(file);
 
-        c2_info("dump_output_%s: data 0x%08x w:h [%d:%d]",
-               toStr_RawType(type), data, w, h);
+        c2_info("dump_%s_%s: data 0x%08x w:h [%d:%d]",
+                toStr_DumpRole(role), toStr_RawType(fmt), data, w, h);
     }
 }
 
 void C2RKDump::recordFrameTime(int64_t frameIndex) {
-    if (has_debug_flag(C2_DUMP_FRAME_TIMING)) {
+    if (hasDebugFlags(C2_DUMP_FRAME_TIMING)) {
         mRecordStartTimes.add(frameIndex, getCurrentTimeMillis());
     }
 }
 
 void C2RKDump::showFrameTiming(int64_t frameIndex) {
-    if (has_debug_flag(C2_DUMP_FRAME_TIMING)) {
+    if (hasDebugFlags(C2_DUMP_FRAME_TIMING)) {
         ssize_t index = mRecordStartTimes.indexOfKey(frameIndex);
         if (index != NAME_NOT_FOUND) {
             int64_t startTime = mRecordStartTimes.valueAt(index);
@@ -187,8 +188,8 @@ void C2RKDump::showFrameTiming(int64_t frameIndex) {
 }
 
 void C2RKDump::showDebugFps(C2DumpRole role) {
-    if ((role == DUMP_ROLE_INPUT && !has_debug_flag(C2_DUMP_FPS_SHOW_INPUT)) ||
-        (role == DUMP_ROLE_OUTPUT && !has_debug_flag(C2_DUMP_FPS_SHOW_OUTPUT))) {
+    if ((role == ROLE_INPUT && !hasDebugFlags(C2_DUMP_FPS_SHOW_INPUT)) ||
+        (role == ROLE_OUTPUT && !hasDebugFlags(C2_DUMP_FPS_SHOW_OUTPUT))) {
         return;
     }
 
