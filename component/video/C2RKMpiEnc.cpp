@@ -1497,7 +1497,7 @@ c2_status_t C2RKMpiEnc::setupProfileParams() {
 c2_status_t C2RKMpiEnc::setupQp() {
     int32_t defaultIMin = 0, defaultIMax = 0;
     int32_t defaultPMin = 0, defaultPMax = 0;
-    int32_t qpInit = -1, fixQPMode /* const qp mode */ = 0;
+    int32_t qpInit = -1;
 
     if (mCodingType == MPP_VIDEO_CodingVP8) {
         defaultIMin = defaultPMin = 0;
@@ -1517,7 +1517,26 @@ c2_status_t C2RKMpiEnc::setupQp() {
             mIntf->getPictureQuantization_l();
     std::shared_ptr<C2EncodingQualityLevel> minQuality = mIntf->getQualityLevel_l();
 
-    fixQPMode = (mIntf->getBitrateMode_l() == MPP_ENC_RC_MODE_FIXQP) ? 1 : 0;
+    if (!qp->flexCount()) {
+        int32_t rcMode = mIntf->getBitrateMode_l();
+        if (rcMode == MPP_ENC_RC_MODE_FIXQP) {
+            /* use const qp for p-frame in FIXQP mode */
+            c2_info("setupQp: raise qp quality in fixQpMode");
+            pMax = pMin = 10;
+        } else if (rcMode == MPP_ENC_RC_MODE_VBR && minQuality->value ==
+                C2PlatformConfig::encoding_quality_level_t::S_HANDHELD) {
+            // Encoding quality level signaling, indicate that the codec is to apply
+            // a minimum quality bar.
+            // "S_HANDHELD" corresponds to VMAF=70.
+            c2_info("setupQp: minquality request, force fqp range VMAF=70");
+            iMin = pMin = 1;
+            if (mCodingType == MPP_VIDEO_CodingVP8) {
+                iMax = pMax = 90;
+            } else {
+                iMax = pMax = 35;
+            }
+        }
+    }
 
     for (size_t i = 0; i < qp->flexCount(); ++i) {
         const C2PictureQuantizationStruct &layer = qp->m.values[i];
@@ -1537,25 +1556,6 @@ c2_status_t C2RKMpiEnc::setupQp() {
     iMin = std::clamp(iMin, defaultIMin, defaultIMax);
     pMax = std::clamp(pMax, defaultPMin, defaultPMax);
     pMin = std::clamp(pMin, defaultPMin, defaultPMax);
-
-    if (fixQPMode) {
-        /* use const qp for p-frame in FIXQP mode */
-        pMax = pMin = qpInit;
-    }
-
-    // Encoding quality level signaling, indicate that the codec is to apply
-    // a minimum quality bar.
-    // "S_HANDHELD" corresponds to VMAF=70.
-    if (mIntf->getBitrateMode_l() == MPP_ENC_RC_MODE_VBR &&
-            minQuality->value == C2PlatformConfig::encoding_quality_level_t::S_HANDHELD) {
-        c2_info("setupQp: minquality request, force fqp range VMAF=70");
-        iMin = pMin = 1;
-        if (mCodingType == MPP_VIDEO_CodingVP8) {
-            iMax = pMax = 90;
-        } else {
-            iMax = pMax = 35;
-        }
-    }
 
     c2_info("setupQp: qpInit %d i %d-%d p %d-%d", qpInit, iMin, iMax, pMin, pMax);
 
@@ -2345,17 +2345,6 @@ void C2RKMpiEnc::process(
                 inputBuffer->data().graphicBlocks().front().map().get());
         if (view->error() != C2_OK) {
             c2_err("graphic view map err = %d", view->error());
-            mSignalledError = true;
-            work->result = C2_CORRUPTED;
-            work->workletsProcessed = 1u;
-            return;
-        }
-        const C2GraphicView *const input = view.get();
-        if ((input != nullptr) && (input->width() < mSize->width ||
-            input->height() < mSize->height) && !mInputScalar) {
-            /* Expect width height to be configured */
-            c2_err("unexpected Capacity Aspect %d(%d) x %d(%d)",
-                   input->width(), mSize->width, input->height(), mSize->height);
             mSignalledError = true;
             work->result = C2_CORRUPTED;
             work->workletsProcessed = 1u;
