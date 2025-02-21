@@ -288,6 +288,19 @@ bool C2RKMlvecLegacy::setupDynamicConfig(MDynamicCfg *cfg, MppMeta meta) {
         if (cfg->updated & MLVEC_ENC_BASE_PID_UPDATED)
             dst->baseLayerPid = cfg->baseLayerPid;
 
+        if (cfg->updated & MLVEC_ENC_SLICE_MBS_UPDATED) {
+            if (mStaticCfg.sliceMbs != cfg->sliceMbs) {
+                MppEncSliceSplit sliceCfg;
+                sliceCfg.change = MPP_ENC_SPLIT_CFG_CHANGE_MODE;
+                sliceCfg.split_mode = MPP_ENC_SPLIT_BY_CTU;
+                sliceCfg.split_arg = cfg->sliceMbs;
+                mMppMpi->control(mMppCtx, MPP_ENC_SET_SPLIT, &sliceCfg);
+
+                c2_info("got sliceMbs %d update", cfg->sliceMbs);
+                mStaticCfg.sliceMbs = cfg->sliceMbs;
+             }
+        }
+
         cfg->updated = 0;
     }
 

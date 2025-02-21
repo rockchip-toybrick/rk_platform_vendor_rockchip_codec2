@@ -26,6 +26,7 @@
 #define  MLVEC_ENC_USE_LTR_UPDATED         (0x00000002)
 #define  MLVEC_ENC_FRAME_QP_UPDATED        (0x00000004)
 #define  MLVEC_ENC_BASE_PID_UPDATED        (0x00000008)
+#define  MLVEC_ENC_SLICE_MBS_UPDATED       (0x00000010)
 
 /* hardware driver version */
 #define  MLVEC_DRIVER_VERSION               3588
@@ -72,6 +73,7 @@ public:
         int32_t useLtr;
         int32_t frameQP;
         int32_t baseLayerPid;
+        int32_t sliceMbs;
     };
 
     bool setupMaxTid(int32_t maxTid);

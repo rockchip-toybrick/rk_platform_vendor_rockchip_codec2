@@ -2591,6 +2591,13 @@ c2_status_t C2RKMpiEnc::handleMlvecDynamicCfg(MppMeta meta) {
         params->baseLayerPid->value = -1;
     }
 
+    if (params->sliceSpacing->spacing >= 0) {
+        c2_trace("sliceSpacing change, value %d", params->sliceSpacing->spacing);
+        cfg.updated |= MLVEC_ENC_SLICE_MBS_UPDATED;
+        cfg.sliceMbs = params->sliceSpacing->spacing;
+        params->sliceSpacing->spacing = -1;
+    }
+
     if (cfg.updated) {
         mMlvec->setupDynamicConfig(&cfg, meta);
     }
