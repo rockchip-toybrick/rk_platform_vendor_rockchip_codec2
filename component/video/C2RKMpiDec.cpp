@@ -799,6 +799,7 @@ C2RKMpiDec::C2RKMpiDec(
       mGrallocVersion(C2RKChipCapDef::get()->getGrallocVersion()),
       mPixelFormat(0),
       mScaleMode(0),
+      mFdPerf(-1),
       mStarted(false),
       mFlushed(true),
       mSignalledInputEos(false),
@@ -912,6 +913,8 @@ void C2RKMpiDec::onRelease() {
         delete mTunneledSession;
         mTunneledSession = nullptr;
     }
+
+    setMppPerformance(false);
 
     mStarted = false;
 }
@@ -1438,6 +1441,48 @@ error:
     return C2_CORRUPTED;
 }
 
+c2_status_t C2RKMpiDec::setMppPerformance(bool on) {
+    int32_t width     = 1920;
+    int32_t height    = 1080;
+    int32_t byteHevc  = 0;
+    int32_t byteColor = 8;
+
+    width  = C2_MAX(width, mWidth);
+    height = C2_MAX(height, mHeight);
+
+    if (MPP_FRAME_FMT_IS_YUV_10BIT(mColorFormat)) {
+        byteColor = 10;
+    }
+    if (mCodingType == MPP_VIDEO_CodingHEVC) {
+        byteHevc = 1;
+    }
+
+    if (-1 == mFdPerf) {
+        mFdPerf = open("/dev/video_state", O_WRONLY);
+    }
+    if (-1 == mFdPerf) {
+        mFdPerf = open("/sys/class/devfreq/dmc/system_status", O_WRONLY);
+        if (mFdPerf == -1) {
+            c2_err("failed to open /sys/class/devfreq/dmc/system_status");
+        }
+    }
+
+    if (mFdPerf != -1) {
+        char buffer[128] = { 0 };
+        int32_t len = snprintf(buffer, sizeof(buffer),
+                "%d,width=%d,height=%d,ishevc=%d,videoFramerate=%d,streamBitrate=%d",
+                on, width, height, byteHevc, 0, byteColor);
+        c2_info("config performance(%s, len=%d) of dmc driver", buffer, len);
+        write(mFdPerf, buffer, len);
+        if (!on) {
+            close(mFdPerf);
+            mFdPerf = -1;
+        }
+    }
+
+    return C2_OK;
+}
+
 void C2RKMpiDec::finishWork(OutWorkEntry entry) {
     std::shared_ptr<C2Buffer> c2Buffer = nullptr;
 
@@ -1571,6 +1616,10 @@ void C2RKMpiDec::process(
             work->result = C2_BAD_VALUE;
             return;
         }
+
+        // scene ddr frequency control
+        setMppPerformance(true);
+
         mStarted = true;
     }
 

@@ -146,14 +146,15 @@ private:
     Vector<OutBuffer*>   mOutBuffers;
     C2RKTunneledSession *mTunneledSession;
 
-    uint32_t mWidth;
-    uint32_t mHeight;
-    uint32_t mHorStride;
-    uint32_t mVerStride;
-    uint32_t mOutputDelay;
-    uint32_t mGrallocVersion;
-    uint32_t mPixelFormat;
-    uint32_t mScaleMode;
+    int32_t mWidth;
+    int32_t mHeight;
+    int32_t mHorStride;
+    int32_t mVerStride;
+    int32_t mOutputDelay;
+    int32_t mGrallocVersion;
+    int32_t mPixelFormat;
+    int32_t mScaleMode;
+    int32_t mFdPerf;
 
     bool mStarted;
     bool mFlushed;
@@ -217,6 +218,7 @@ private:
     void finishWork(OutWorkEntry entry);
 
     c2_status_t initDecoder(const std::unique_ptr<C2Work> &work);
+    c2_status_t setMppPerformance(bool on);
     void setDefaultCodecColorAspectsIfNeeded(ColorAspects &aspects);
     void getVuiParams(MppFrame frame);
     c2_status_t updateFbcModeIfNeeded();
