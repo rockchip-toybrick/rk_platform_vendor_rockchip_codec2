@@ -120,9 +120,22 @@ public:
 
         int64_t inputUsage = 0;
 
+        /*
+         * Some encoders have input alignment requirement, input buffer need
+         * rga conversion in first. detail see needRgaConvert(). so for fit rga
+         * compatibility, add following buffer usages:
+         * 1. allocate buffer within 4G to avoid rga2 error.
+         * 2. add the minimum RGA alignment in all platforms may needs rga conversion.
+         */
         if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_3588 ||
             C2RKChipCapDef::get()->getChipType() == RK_CHIP_356X) {
             inputUsage |= RK_GRALLOC_USAGE_WITHIN_4G;
+        }
+        if (C2RKChipCapDef::get()->getChipType() != RK_CHIP_3588 &&
+            C2RKChipCapDef::get()->getChipType() != RK_CHIP_3562 &&
+            C2RKChipCapDef::get()->getChipType() != RK_CHIP_3576 &&
+            C2RKChipCapDef::get()->getChipType() != RK_CHIP_3528) {
+            inputUsage |= RK_GRALLOC_USAGE_STRIDE_ALIGN_16;
         }
 
         addParameter(
