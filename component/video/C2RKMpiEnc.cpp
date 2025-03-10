@@ -2759,7 +2759,7 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
             }
 
             if (mInputMppFmt != MPP_FMT_RGBA8888) {
-                c2_info("update use rgba input format.");
+                c2_info("update use rgba input format");
                 mInputMppFmt = MPP_FMT_RGBA8888;
                 configChanged = true;
             }
@@ -2767,12 +2767,16 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
             outBuffer->fd = fd;
             outBuffer->size = mHorStride * mVerStride * 4;
         } else {
-            RgaInfo src, dst;
+            RgaInfo srcInfo, dstInfo;
 
-            C2RKRgaDef::SetRgaInfo(&src, fd, width, height, stride, height);
-            C2RKRgaDef::SetRgaInfo(&dst, mDmaMem->fd,
+            C2RKRgaDef::SetRgaInfo(
+                    &srcInfo, fd, HAL_PIXEL_FORMAT_RGBA_8888,
+                    width, height, stride, height);
+            C2RKRgaDef::SetRgaInfo(
+                    &dstInfo, mDmaMem->fd, HAL_PIXEL_FORMAT_YCrCb_NV12,
                     mSize->width, mSize->height, mHorStride, mVerStride);
-            if (!C2RKRgaDef::RGBToNV12(src, dst)) {
+            if (!C2RKRgaDef::DoBlit(srcInfo, dstInfo)) {
+                c2_err("failed to RgaConver(RGBA->NV12)");
                 ret = C2_CORRUPTED;
             }
 
@@ -2788,7 +2792,7 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
                 (void*)input->data()[0], stride, height, MPP_FMT_YUV420SP);
 
         if (mInputMppFmt != MPP_FMT_YUV420SP) {
-            c2_info("update use yuv input format.");
+            c2_info("update use yuv input format");
             mInputMppFmt = MPP_FMT_YUV420SP;
             configChanged = true;
         }
@@ -2805,12 +2809,16 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
             outBuffer->fd = fd;
             outBuffer->size = mHorStride * mVerStride * 3 / 2;
         } else {
-            RgaInfo src, dst;
+            RgaInfo srcInfo, dstInfo;
 
-            C2RKRgaDef::SetRgaInfo(&src, fd, width, height, stride, height);
-            C2RKRgaDef::SetRgaInfo(&dst, mDmaMem->fd,
+            C2RKRgaDef::SetRgaInfo(
+                    &srcInfo, fd, HAL_PIXEL_FORMAT_YCrCb_NV12,
+                    width, height, stride, height);
+            C2RKRgaDef::SetRgaInfo(
+                    &dstInfo, mDmaMem->fd, HAL_PIXEL_FORMAT_YCrCb_NV12,
                     mSize->width, mSize->height, mHorStride, mVerStride);
-            if (!C2RKRgaDef::NV12ToNV12(src, dst)) {
+            if (!C2RKRgaDef::DoBlit(srcInfo, dstInfo)) {
+                c2_err("failed to RgaCrop(NV12->NV12)");
                 ret = C2_CORRUPTED;
             }
 

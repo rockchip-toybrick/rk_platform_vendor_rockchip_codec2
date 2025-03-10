@@ -21,6 +21,7 @@
 
 typedef struct {
     int32_t fd;
+    int32_t format;
     int32_t width;
     int32_t height;
     int32_t wstride;
@@ -29,17 +30,11 @@ typedef struct {
 
 class C2RKRgaDef {
 public:
-    static void SetRgaInfo(RgaInfo *param, int32_t fd,
-                           int32_t width, int32_t height,
-                           int32_t wstride = 0, int32_t hstride = 0);
+    static void SetRgaInfo(
+            RgaInfo *param, int32_t fd, int32_t format,
+            int32_t width, int32_t height, int32_t wstride = 0, int32_t hstride = 0);
 
-    static bool RGBToNV12(RgaInfo srcInfo, RgaInfo dstInfo);
-    static bool NV12ToNV12(RgaInfo srcInfo, RgaInfo dstInfo);
-    static bool P10BToNV12(RgaInfo srcInfo, RgaInfo dstInfo);
-
-private:
-    static bool DoBlit(
-        RgaInfo srcInfo, uint32_t srcFmt, RgaInfo dstInfo, uint32_t dstFmt);
+    static bool DoBlit(RgaInfo srcInfo, RgaInfo dstInfo);
 };
 
 #endif  // ANDROID_C2_RK_RGA_DEF_H__

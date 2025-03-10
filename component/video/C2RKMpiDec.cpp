@@ -2371,10 +2371,12 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
             RgaInfo srcInfo, dstInfo;
 
             C2RKRgaDef::SetRgaInfo(
-                    &srcInfo, srcFd, mWidth, mHeight, mHorStride, mVerStride);
+                    &srcInfo, srcFd, HAL_PIXEL_FORMAT_YCrCb_NV12,
+                    mWidth, mHeight, mHorStride, mVerStride);
             C2RKRgaDef::SetRgaInfo(
-                    &dstInfo, dstFd, mWidth, mHeight, mHorStride, mVerStride);
-            if (!C2RKRgaDef::NV12ToNV12(srcInfo, dstInfo)) {
+                    &dstInfo, dstFd, HAL_PIXEL_FORMAT_YCrCb_NV12,
+                    mWidth, mHeight, mHorStride, mVerStride);
+            if (!C2RKRgaDef::DoBlit(srcInfo, dstInfo)) {
                 // fallback software copy
                 uint8_t *srcPtr = (uint8_t*)mpp_buffer_get_ptr(mppBuffer);
                 uint8_t *dstPtr = mOutBlock->map().get().data()[C2PlanarLayout::PLANE_Y];
@@ -2391,6 +2393,7 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
         if (mTunneled) {
             mTunneledSession->renderBuffer(outBuffer->mTunnelBuffer);
         }
+
         // signal buffer occupied by users
         outBuffer->holdThisBuffer();
     }

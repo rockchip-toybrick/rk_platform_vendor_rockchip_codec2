@@ -43,47 +43,20 @@ void freeRgaBuffer(rga_buffer_handle_t handle) {
     releasebuffer_handle(handle);
 }
 
-void C2RKRgaDef::SetRgaInfo(RgaInfo *info, int32_t fd,
-                           int32_t width, int32_t height,
-                           int32_t wstride, int32_t hstride) {
+void C2RKRgaDef::SetRgaInfo(
+        RgaInfo *info, int32_t fd, int32_t format,
+        int32_t width, int32_t height, int32_t wstride, int32_t hstride) {
     memset(info, 0, sizeof(RgaInfo));
 
     info->fd = fd;
+    info->format = format;
     info->width = width;
     info->height = height;
     info->wstride = (wstride > 0) ? wstride : width;
     info->hstride = (hstride > 0) ? hstride : height;
 }
 
-bool C2RKRgaDef::RGBToNV12(RgaInfo srcInfo, RgaInfo dstInfo) {
-    if (!DoBlit(srcInfo, HAL_PIXEL_FORMAT_RGBA_8888,
-                dstInfo, HAL_PIXEL_FORMAT_YCrCb_NV12)) {
-        c2_err("DoBlit fail, RGBToNV12");
-        return false;
-    }
-    return true;
-}
-
-bool C2RKRgaDef::NV12ToNV12(RgaInfo srcInfo, RgaInfo dstInfo) {
-    if (!DoBlit(srcInfo, HAL_PIXEL_FORMAT_YCrCb_NV12,
-                dstInfo, HAL_PIXEL_FORMAT_YCrCb_NV12)) {
-        c2_err("DoBlit fail, NV12ToNV12");
-        return false;
-    }
-    return true;
-}
-
-bool C2RKRgaDef::P10BToNV12(RgaInfo srcInfo, RgaInfo dstInfo) {
-    if (!DoBlit(srcInfo, HAL_PIXEL_FORMAT_YCrCb_NV12_10,
-                dstInfo, HAL_PIXEL_FORMAT_YCrCb_NV12)) {
-        c2_err("DoBlit fail, P10BToNV12");
-        return false;
-    }
-    return true;
-}
-
-bool C2RKRgaDef::DoBlit(
-        RgaInfo srcInfo, uint32_t srcFmt, RgaInfo dstInfo, uint32_t dstFmt) {
+bool C2RKRgaDef::DoBlit(RgaInfo srcInfo, RgaInfo dstInfo) {
     bool ret = true;
 
     rga_info_t src;
@@ -93,10 +66,12 @@ bool C2RKRgaDef::DoBlit(
 
     RockchipRga& rkRga(RockchipRga::get());
 
-    c2_trace("src fd %d rect[%d, %d, %d, %d]", srcInfo.fd,
-             srcInfo.width, srcInfo.height, srcInfo.wstride, srcInfo.hstride);
-    c2_trace("dst fd %d rect[%d, %d, %d, %d]", dstInfo.fd,
-             dstInfo.width, dstInfo.height, dstInfo.wstride, dstInfo.hstride);
+    c2_trace("src fd %d rect[%d, %d, %d, %d] fmt 0x%x",
+              srcInfo.fd, srcInfo.width, srcInfo.height,
+              srcInfo.wstride, srcInfo.hstride, srcInfo.format);
+    c2_trace("dst fd %d rect[%d, %d, %d, %d] fmt 0x%x",
+              dstInfo.fd, dstInfo.width, dstInfo.height,
+              dstInfo.wstride, dstInfo.hstride, dstInfo.format);
 
     if ((srcInfo.wstride % 4) != 0) {
         c2_warn("err yuv not align to 4");
@@ -106,8 +81,8 @@ bool C2RKRgaDef::DoBlit(
     memset((void*)&src, 0, sizeof(rga_info_t));
     memset((void*)&dst, 0, sizeof(rga_info_t));
 
-    srcHdl = importRgaBuffer(&srcInfo, srcFmt);
-    dstHdl = importRgaBuffer(&dstInfo, dstFmt);
+    srcHdl = importRgaBuffer(&srcInfo, srcInfo.format);
+    dstHdl = importRgaBuffer(&dstInfo, dstInfo.format);
     if (!srcHdl || !dstHdl) {
         c2_err("failed to import rga buffer");
         return false;
@@ -116,9 +91,9 @@ bool C2RKRgaDef::DoBlit(
     src.handle = srcHdl;
     dst.handle = dstHdl;
     rga_set_rect(&src.rect, 0, 0, srcInfo.width, srcInfo.height,
-                 srcInfo.wstride, srcInfo.hstride, srcFmt);
+                 srcInfo.wstride, srcInfo.hstride, srcInfo.format);
     rga_set_rect(&dst.rect, 0, 0, dstInfo.width, dstInfo.height,
-                 dstInfo.wstride, dstInfo.hstride, dstFmt);
+                 dstInfo.wstride, dstInfo.hstride, dstInfo.format);
 
     if (rkRga.RkRgaBlit(&src, &dst, NULL)) {
         ret = false;
