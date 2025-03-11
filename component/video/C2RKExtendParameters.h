@@ -21,7 +21,7 @@
 #include <C2Config.h>
 
 enum ExtendedC2ParamIndexKind : C2Param::type_index_t {
-    kParamIndexSceneMode = C2Param::TYPE_INDEX_VENDOR_START,
+    kParamIndexEncSceneMode = C2Param::TYPE_INDEX_VENDOR_START,
 
     /* 1. Microsoft Teams Video Extension */
 
@@ -49,33 +49,33 @@ enum ExtendedC2ParamIndexKind : C2Param::type_index_t {
 
     /* 2. Codec Decoder Extension */
 
-    kParamIndexDisableDpbCheck,
-    kParamIndexDisableErrorMark,
-    kParamIndexLowMemoryMode,
+    kParamIndexDecDisableDpbCheck,
+    kParamIndexDecDisableErrorMark,
+    kParamIndexDecLowMemoryMode,
     kParamIndexDecFbcDisable,
     kParamIndexDecOutputCrop,
 
     /* 3. Codec Encoder Extension */
 
-    kParamIndexSliceSize,
-    kParamIndexReencSetup,
-    kParamIndexInputScaler,
-    kParamIndexSuperEncodingMode,
-    kParamIndexDisableSEI,
-    kParamIndexRoiRegionCfg,
-    kParamIndexRoiRegion2Cfg,
-    kParamIndexRoiRegion3Cfg,
-    kParamIndexRoiRegion4Cfg,
+    kParamIndexEncSliceSize,
+    kParamIndexEncReencSetup,
+    kParamIndexEncInputScaler,
+    kParamIndexEncSuperEncodingMode,
+    kParamIndexEncDisableSEI,
+    kParamIndexEncRoiRegionCfg,
+    kParamIndexEncRoiRegion2Cfg,
+    kParamIndexEncRoiRegion3Cfg,
+    kParamIndexEncRoiRegion4Cfg,
 };
 
-typedef C2PortParam<C2Info, C2Int32Value, kParamIndexDisableDpbCheck> C2StreamDisableDpbCheck;
-constexpr char C2_PARAMKEY_DISABLE_DPB_CHECK[] = "disable-dpb-check";
+typedef C2PortParam<C2Info, C2Int32Value, kParamIndexDecDisableDpbCheck> C2StreamDecDisableDpbCheck;
+constexpr char C2_PARAMKEY_DEC_DISABLE_DPB_CHECK[] = "c2-dec-disable-dpb-check";
 
-typedef C2PortParam<C2Info, C2Int32Value, kParamIndexDisableErrorMark> C2StreamDisableErrorMark;
-constexpr char C2_PARAMKEY_DISABLE_ERROR_MARK[] = "disable-error-mark";
+typedef C2PortParam<C2Info, C2Int32Value, kParamIndexDecDisableErrorMark> C2StreamDecDisableErrorMark;
+constexpr char C2_PARAMKEY_DEC_DISABLE_ERROR_MARK[] = "c2-dec-disable-error-mark";
 
-typedef C2PortParam<C2Info, C2Int32Value, kParamIndexLowMemoryMode> C2StreamLowMemoryMode;
-constexpr char C2_PARAMKEY_LOW_MEMORY_MODE[] = "low-memory-mode";
+typedef C2PortParam<C2Info, C2Int32Value, kParamIndexDecLowMemoryMode> C2StreamDecLowMemoryMode;
+constexpr char C2_PARAMKEY_DEC_LOW_MEMORY_MODE[] = "c2-dec-low-memory-mode";
 
 typedef C2PortParam<C2Info, C2Int32Value, kParamIndexDecFbcDisable> C2StreamDecFbcDisable;
 constexpr char C2_PARAMKEY_DEC_FBC_DISABLE[] = "c2-dec-fbc-disable";
@@ -83,14 +83,14 @@ constexpr char C2_PARAMKEY_DEC_FBC_DISABLE[] = "c2-dec-fbc-disable";
 typedef C2PortParam<C2Info, C2Int32Value, kParamIndexDecOutputCrop> C2StreamDecOutputCropEnable;
 constexpr char C2_PARAMKEY_DEC_OUTPUT_CROP[] = "c2-dec-output-crop-enable";
 
-typedef C2PortParam<C2Info, C2Int32Value, kParamIndexSceneMode> C2StreamSceneModeInfo;
-constexpr char C2_PARAMKEY_SCENE_MODE[] = "scene-mode";
+typedef C2PortParam<C2Info, C2Int32Value, kParamIndexEncSceneMode> C2StreamEncSceneModeInfo;
+constexpr char C2_PARAMKEY_ENC_SCENE_MODE[] = "c2-enc-scene-mode";
 
-typedef C2PortParam<C2Info, C2Int32Value, kParamIndexSliceSize> C2StreamSliceSizeInfo;
-constexpr char C2_PARAMKEY_SLICE_SIZE[] = "slice-size";
+typedef C2PortParam<C2Info, C2Int32Value, kParamIndexEncSliceSize> C2StreamEncSliceSizeInfo;
+constexpr char C2_PARAMKEY_ENC_SLICE_SIZE[] = "c2-enc-slice-size";
 
-typedef C2PortParam<C2Info, C2Int32Value, kParamIndexReencSetup> C2StreamReencInfo;
-constexpr char C2_PARAMKEY_REENC_TIMES[] = "reenc-times";
+typedef C2PortParam<C2Info, C2Int32Value, kParamIndexEncReencSetup> C2StreamEncReencInfo;
+constexpr char C2_PARAMKEY_ENC_REENC_TIMES[] = "c2-enc-reenc-times";
 
 struct C2InputScalarStruct {
     int32_t width;
@@ -102,14 +102,14 @@ struct C2InputScalarStruct {
     static const std::vector<C2FieldDescriptor> FieldList();
 };
 
-typedef C2PortParam<C2Info, C2InputScalarStruct, kParamIndexInputScaler> C2StreamInputScalar;
-constexpr char C2_PARAMKEY_INPUT_SCALAR[] = "input-scalar";
+typedef C2PortParam<C2Info, C2InputScalarStruct, kParamIndexEncInputScaler> C2StreamEncInputScalar;
+constexpr char C2_PARAMKEY_ENC_INPUT_SCALAR[] = "c2-enc-input-scalar";
 
-typedef C2PortParam<C2Info, C2Int32Value, kParamIndexSuperEncodingMode> C2StreamSuperModeInfo;
-constexpr char C2_PARAMKEY_SUPER_ENCODING_MODE[] = "super-encoding-mode";
+typedef C2PortParam<C2Info, C2Int32Value, kParamIndexEncSuperEncodingMode> C2StreamEncSuperModeInfo;
+constexpr char C2_PARAMKEY_ENC_SUPER_ENCODING_MODE[] = "c2-enc-super-encoding-mode";
 
-typedef C2PortParam<C2Info, C2Int32Value, kParamIndexDisableSEI> C2StreamDisableSEI;
-constexpr char C2_PARAMKEY_DISABLE_SEI[] = "disable-sei";
+typedef C2PortParam<C2Info, C2Int32Value, kParamIndexEncDisableSEI> C2StreamEncDisableSEI;
+constexpr char C2_PARAMKEY_ENC_DISABLE_SEI[] = "c2-enc-disable-sei";
 
 struct C2RoiRegionCfgStruct {
     int32_t left;           /**< horizontal position of top left corner */
@@ -132,17 +132,17 @@ struct C2RoiRegionCfgStruct {
     static const std::vector<C2FieldDescriptor> FieldList();
 };
 
-typedef C2PortParam<C2Info, C2RoiRegionCfgStruct, kParamIndexRoiRegionCfg> C2StreamRoiRegionCfg;
-constexpr char C2_PARAMKEY_ROI_REGION_CFG[]  = "roi-region-config";
+typedef C2PortParam<C2Info, C2RoiRegionCfgStruct, kParamIndexEncRoiRegionCfg> C2StreamEncRoiRegionCfg;
+constexpr char C2_PARAMKEY_ENC_ROI_REGION_CFG[]  = "c2-enc-roi-region-config";
 
-typedef C2PortParam<C2Info, C2RoiRegionCfgStruct, kParamIndexRoiRegion2Cfg> C2StreamRoiRegion2Cfg;
-constexpr char C2_PARAMKEY_ROI_REGION2_CFG[] = "roi-region2-config";
+typedef C2PortParam<C2Info, C2RoiRegionCfgStruct, kParamIndexEncRoiRegion2Cfg> C2StreamEncRoiRegion2Cfg;
+constexpr char C2_PARAMKEY_ENC_ROI_REGION2_CFG[] = "c2-enc-roi-region2-config";
 
-typedef C2PortParam<C2Info, C2RoiRegionCfgStruct, kParamIndexRoiRegion3Cfg> C2StreamRoiRegion3Cfg;
-constexpr char C2_PARAMKEY_ROI_REGION3_CFG[] = "roi-region3-config";
+typedef C2PortParam<C2Info, C2RoiRegionCfgStruct, kParamIndexEncRoiRegion3Cfg> C2StreamEncRoiRegion3Cfg;
+constexpr char C2_PARAMKEY_ENC_ROI_REGION3_CFG[] = "c2-enc-roi-region3-config";
 
-typedef C2PortParam<C2Info, C2RoiRegionCfgStruct, kParamIndexRoiRegion4Cfg> C2StreamRoiRegion4Cfg;
-constexpr char C2_PARAMKEY_ROI_REGION4_CFG[] = "roi-region4-config";
+typedef C2PortParam<C2Info, C2RoiRegionCfgStruct, kParamIndexEncRoiRegion4Cfg> C2StreamEncRoiRegion4Cfg;
+constexpr char C2_PARAMKEY_ENC_ROI_REGION4_CFG[] = "c2-enc-roi-region4-config";
 
 /*
  * 1. MLVEC hardware driver version

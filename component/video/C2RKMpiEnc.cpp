@@ -347,29 +347,29 @@ public:
 
         /* extend parameter definition */
         addParameter(
-                DefineParam(mSceneMode, C2_PARAMKEY_SCENE_MODE)
-                .withDefault(new C2StreamSceneModeInfo::input(0))
+                DefineParam(mSceneMode, C2_PARAMKEY_ENC_SCENE_MODE)
+                .withDefault(new C2StreamEncSceneModeInfo::input(0))
                 .withFields({C2F(mSceneMode, value).any()})
                 .withSetter(Setter<decltype(mSceneMode)::element_type>::StrictValueWithNoDeps)
                 .build());
 
         addParameter(
-                DefineParam(mSliceSize, C2_PARAMKEY_SLICE_SIZE)
-                .withDefault(new C2StreamSliceSizeInfo::input(0))
+                DefineParam(mSliceSize, C2_PARAMKEY_ENC_SLICE_SIZE)
+                .withDefault(new C2StreamEncSliceSizeInfo::input(0))
                 .withFields({C2F(mSliceSize, value).any()})
                 .withSetter(Setter<decltype(mSliceSize)::element_type>::StrictValueWithNoDeps)
                 .build());
 
         addParameter(
-                DefineParam(mReencTime, C2_PARAMKEY_REENC_TIMES)
-                .withDefault(new C2StreamReencInfo::input(0))
+                DefineParam(mReencTime, C2_PARAMKEY_ENC_REENC_TIMES)
+                .withDefault(new C2StreamEncReencInfo::input(0))
                 .withFields({C2F(mReencTime, value).any()})
                 .withSetter(Setter<decltype(mReencTime)::element_type>::StrictValueWithNoDeps)
                 .build());
 
         addParameter(
-                DefineParam(mInputScalar, C2_PARAMKEY_INPUT_SCALAR)
-                .withDefault(new C2StreamInputScalar::input(0, 0))
+                DefineParam(mInputScalar, C2_PARAMKEY_ENC_INPUT_SCALAR)
+                .withDefault(new C2StreamEncInputScalar::input(0, 0))
                 .withFields({
                     C2F(mInputScalar, width).any(),
                     C2F(mInputScalar, height).any()
@@ -378,22 +378,22 @@ public:
                 .build());
 
         addParameter(
-                DefineParam(mSuperMode, C2_PARAMKEY_SUPER_ENCODING_MODE)
-                .withDefault(new C2StreamSuperModeInfo::input(0))
+                DefineParam(mSuperMode, C2_PARAMKEY_ENC_SUPER_ENCODING_MODE)
+                .withDefault(new C2StreamEncSuperModeInfo::input(0))
                 .withFields({C2F(mSuperMode, value).any()})
                 .withSetter(Setter<decltype(mSuperMode)::element_type>::StrictValueWithNoDeps)
                 .build());
 
         addParameter(
-                DefineParam(mDisableSEI, C2_PARAMKEY_DISABLE_SEI)
-                .withDefault(new C2StreamDisableSEI::input(0))
+                DefineParam(mDisableSEI, C2_PARAMKEY_ENC_DISABLE_SEI)
+                .withDefault(new C2StreamEncDisableSEI::input(0))
                 .withFields({C2F(mDisableSEI, value).any()})
                 .withSetter(Setter<decltype(mDisableSEI)::element_type>::StrictValueWithNoDeps)
                 .build());
 
         addParameter(
-                DefineParam(mRoiRegionCfg, C2_PARAMKEY_ROI_REGION_CFG)
-                .withDefault(new C2StreamRoiRegionCfg::input())
+                DefineParam(mRoiRegionCfg, C2_PARAMKEY_ENC_ROI_REGION_CFG)
+                .withDefault(new C2StreamEncRoiRegionCfg::input())
                 .withFields({
                     C2F(mRoiRegionCfg, left).any(),
                     C2F(mRoiRegionCfg, right).any(),
@@ -407,8 +407,8 @@ public:
                 .build());
 
         addParameter(
-                DefineParam(mRoiRegion2Cfg, C2_PARAMKEY_ROI_REGION2_CFG)
-                .withDefault(new C2StreamRoiRegion2Cfg::input())
+                DefineParam(mRoiRegion2Cfg, C2_PARAMKEY_ENC_ROI_REGION2_CFG)
+                .withDefault(new C2StreamEncRoiRegion2Cfg::input())
                 .withFields({
                     C2F(mRoiRegion2Cfg, left).any(),
                     C2F(mRoiRegion2Cfg, right).any(),
@@ -422,8 +422,8 @@ public:
                 .build());
 
         addParameter(
-                DefineParam(mRoiRegion3Cfg, C2_PARAMKEY_ROI_REGION3_CFG)
-                .withDefault(new C2StreamRoiRegion3Cfg::input())
+                DefineParam(mRoiRegion3Cfg, C2_PARAMKEY_ENC_ROI_REGION3_CFG)
+                .withDefault(new C2StreamEncRoiRegion3Cfg::input())
                 .withFields({
                     C2F(mRoiRegion3Cfg, left).any(),
                     C2F(mRoiRegion3Cfg, right).any(),
@@ -437,8 +437,8 @@ public:
                 .build());
 
         addParameter(
-                DefineParam(mRoiRegion4Cfg, C2_PARAMKEY_ROI_REGION4_CFG)
-                .withDefault(new C2StreamRoiRegion4Cfg::input())
+                DefineParam(mRoiRegion4Cfg, C2_PARAMKEY_ENC_ROI_REGION4_CFG)
+                .withDefault(new C2StreamEncRoiRegion4Cfg::input())
                 .withFields({
                     C2F(mRoiRegion4Cfg, left).any(),
                     C2F(mRoiRegion4Cfg, right).any(),
@@ -857,35 +857,35 @@ public:
     }
 
     static C2R InputScalarSetter(
-            bool mayBlock, C2P<C2StreamInputScalar::input>& me) {
+            bool mayBlock, C2P<C2StreamEncInputScalar::input>& me) {
         (void)mayBlock;
         (void)me;
         return C2R::Ok();
     }
 
     static C2R RoiRegionCfgSetter(
-            bool mayBlock, C2P<C2StreamRoiRegionCfg::input>& me) {
+            bool mayBlock, C2P<C2StreamEncRoiRegionCfg::input>& me) {
         (void)mayBlock;
         (void)me;
         return C2R::Ok();
     }
 
     static C2R RoiRegion2CfgSetter(
-            bool mayBlock, C2P<C2StreamRoiRegion2Cfg::input>& me) {
+            bool mayBlock, C2P<C2StreamEncRoiRegion2Cfg::input>& me) {
         (void)mayBlock;
         (void)me;
         return C2R::Ok();
     }
 
     static C2R RoiRegion3CfgSetter(
-            bool mayBlock, C2P<C2StreamRoiRegion3Cfg::input>& me) {
+            bool mayBlock, C2P<C2StreamEncRoiRegion3Cfg::input>& me) {
         (void)mayBlock;
         (void)me;
         return C2R::Ok();
     }
 
     static C2R RoiRegion4CfgSetter(
-            bool mayBlock, C2P<C2StreamRoiRegion4Cfg::input>& me) {
+            bool mayBlock, C2P<C2StreamEncRoiRegion4Cfg::input>& me) {
         (void)mayBlock;
         (void)me;
         return C2R::Ok();
@@ -1059,13 +1059,13 @@ public:
     { return mPrependHeaderMode; }
     std::shared_ptr<C2EncodingQualityLevel> getQualityLevel_l() const
     { return mMinQuality; }
-    std::shared_ptr<C2StreamSceneModeInfo::input> getSceneMode_l() const
+    std::shared_ptr<C2StreamEncSceneModeInfo::input> getSceneMode_l() const
     { return mSceneMode; }
-    std::shared_ptr<C2StreamSliceSizeInfo::input> getSliceSize_l() const
+    std::shared_ptr<C2StreamEncSliceSizeInfo::input> getSliceSize_l() const
     { return mSliceSize; }
-    std::shared_ptr<C2StreamReencInfo::input> getReencTime_l() const
+    std::shared_ptr<C2StreamEncReencInfo::input> getReencTime_l() const
     { return mReencTime; }
-    std::shared_ptr<C2StreamInputScalar::input> getInputScalar_l() const
+    std::shared_ptr<C2StreamEncInputScalar::input> getInputScalar_l() const
     { return mInputScalar; }
     std::shared_ptr<MlvecParams> getMlvecParams_l() const
     { return mMlvecParams; }
@@ -1088,16 +1088,18 @@ private:
     std::shared_ptr<C2StreamTemporalLayeringTuning::output> mLayering;
     std::shared_ptr<C2PrependHeaderModeSetting> mPrependHeaderMode;
     std::shared_ptr<C2EncodingQualityLevel> mMinQuality;
-    std::shared_ptr<C2StreamSceneModeInfo::input> mSceneMode;
-    std::shared_ptr<C2StreamSliceSizeInfo::input> mSliceSize;
-    std::shared_ptr<C2StreamReencInfo::input> mReencTime;
-    std::shared_ptr<C2StreamInputScalar::input> mInputScalar;
-    std::shared_ptr<C2StreamSuperModeInfo::input> mSuperMode;
-    std::shared_ptr<C2StreamDisableSEI::input> mDisableSEI;
-    std::shared_ptr<C2StreamRoiRegionCfg::input> mRoiRegionCfg;
-    std::shared_ptr<C2StreamRoiRegion2Cfg::input> mRoiRegion2Cfg;
-    std::shared_ptr<C2StreamRoiRegion3Cfg::input> mRoiRegion3Cfg;
-    std::shared_ptr<C2StreamRoiRegion4Cfg::input> mRoiRegion4Cfg;
+
+    /* extend parameter definition */
+    std::shared_ptr<C2StreamEncSceneModeInfo::input> mSceneMode;
+    std::shared_ptr<C2StreamEncSliceSizeInfo::input> mSliceSize;
+    std::shared_ptr<C2StreamEncReencInfo::input> mReencTime;
+    std::shared_ptr<C2StreamEncInputScalar::input> mInputScalar;
+    std::shared_ptr<C2StreamEncSuperModeInfo::input> mSuperMode;
+    std::shared_ptr<C2StreamEncDisableSEI::input> mDisableSEI;
+    std::shared_ptr<C2StreamEncRoiRegionCfg::input> mRoiRegionCfg;
+    std::shared_ptr<C2StreamEncRoiRegion2Cfg::input> mRoiRegion2Cfg;
+    std::shared_ptr<C2StreamEncRoiRegion3Cfg::input> mRoiRegion3Cfg;
+    std::shared_ptr<C2StreamEncRoiRegion4Cfg::input> mRoiRegion4Cfg;
     std::shared_ptr<MlvecParams> mMlvecParams;
 };
 
@@ -1262,7 +1264,7 @@ c2_status_t C2RKMpiEnc::setupBaseCodec() {
 
 c2_status_t C2RKMpiEnc::setupInputScalar() {
     IntfImpl::Lock lock = mIntf->lock();
-    std::shared_ptr<C2StreamInputScalar::input> c2Scalar
+    std::shared_ptr<C2StreamEncInputScalar::input> c2Scalar
             = mIntf->getInputScalar_l();
 
     if (c2Scalar && c2Scalar->width > 0 && c2Scalar->height > 0 &&
@@ -1320,7 +1322,7 @@ c2_status_t C2RKMpiEnc::setupRotation() {
 c2_status_t C2RKMpiEnc::setupSceneMode() {
     IntfImpl::Lock lock = mIntf->lock();
 
-    std::shared_ptr<C2StreamSceneModeInfo::input> c2Mode = mIntf->getSceneMode_l();
+    std::shared_ptr<C2StreamEncSceneModeInfo::input> c2Mode = mIntf->getSceneMode_l();
 
     c2_info("setupSceneMode: scene-mode %d", c2Mode->value);
 
@@ -1337,7 +1339,7 @@ c2_status_t C2RKMpiEnc::setupSceneMode() {
 c2_status_t C2RKMpiEnc::setupSliceSize() {
     IntfImpl::Lock lock = mIntf->lock();
 
-    std::shared_ptr<C2StreamSliceSizeInfo::input> c2Size = mIntf->getSliceSize_l();
+    std::shared_ptr<C2StreamEncSliceSizeInfo::input> c2Size = mIntf->getSliceSize_l();
 
     if (c2Size->value > 0) {
         c2_info("setupSliceSize: slice-size %d", c2Size->value);
@@ -1351,7 +1353,7 @@ c2_status_t C2RKMpiEnc::setupSliceSize() {
 c2_status_t C2RKMpiEnc::setupReencTimes() {
     IntfImpl::Lock lock = mIntf->lock();
 
-    std::shared_ptr<C2StreamReencInfo::input> reencTime = mIntf->getReencTime_l();
+    std::shared_ptr<C2StreamEncReencInfo::input> reencTime = mIntf->getReencTime_l();
 
     if (reencTime->value > 0) {
         c2_info("setupReencTimes: reenc-times %d", reencTime->value);

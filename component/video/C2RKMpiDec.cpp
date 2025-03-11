@@ -438,22 +438,22 @@ public:
 
             /* extend parameter definition */
             addParameter(
-                    DefineParam(mDisableDpbCheck, C2_PARAMKEY_DISABLE_DPB_CHECK)
-                    .withDefault(new C2StreamDisableDpbCheck::input(0))
+                    DefineParam(mDisableDpbCheck, C2_PARAMKEY_DEC_DISABLE_DPB_CHECK)
+                    .withDefault(new C2StreamDecDisableDpbCheck::input(0))
                     .withFields({C2F(mDisableDpbCheck, value).any()})
                     .withSetter(Setter<decltype(mDisableDpbCheck)::element_type>::StrictValueWithNoDeps)
                     .build());
 
             addParameter(
-                    DefineParam(mDisableErrorMark, C2_PARAMKEY_DISABLE_ERROR_MARK)
-                    .withDefault(new C2StreamDisableErrorMark::input(0))
+                    DefineParam(mDisableErrorMark, C2_PARAMKEY_DEC_DISABLE_ERROR_MARK)
+                    .withDefault(new C2StreamDecDisableErrorMark::input(0))
                     .withFields({C2F(mDisableErrorMark, value).any()})
                     .withSetter(Setter<decltype(mDisableErrorMark)::element_type>::StrictValueWithNoDeps)
                     .build());
 
             addParameter(
-                    DefineParam(mLowMemoryMode, C2_PARAMKEY_LOW_MEMORY_MODE)
-                    .withDefault(new C2StreamLowMemoryMode::input(0))
+                    DefineParam(mLowMemoryMode, C2_PARAMKEY_DEC_LOW_MEMORY_MODE)
+                    .withDefault(new C2StreamDecLowMemoryMode::input(0))
                     .withFields({C2F(mLowMemoryMode, value).any()})
                     .withSetter(Setter<decltype(mLowMemoryMode)::element_type>::StrictValueWithNoDeps)
                     .build());
@@ -740,14 +740,16 @@ private:
     std::shared_ptr<C2StreamColorAspectsTuning::output> mDefaultColorAspects;
     std::shared_ptr<C2StreamColorAspectsInfo::input> mCodedColorAspects;
     std::shared_ptr<C2StreamColorAspectsInfo::output> mColorAspects;
-    std::shared_ptr<C2StreamDisableDpbCheck::input> mDisableDpbCheck;
-    std::shared_ptr<C2StreamDisableErrorMark::input> mDisableErrorMark;
-    std::shared_ptr<C2StreamLowMemoryMode::input> mLowMemoryMode;
-    std::shared_ptr<C2StreamDecFbcDisable::input> mFbcDisable;
-    std::shared_ptr<C2StreamDecOutputCropEnable::input> mOutputCropEnable;
     std::shared_ptr<C2GlobalLowLatencyModeTuning> mLowLatency;
     std::shared_ptr<C2PortTunneledModeTuning::output> mTunneledPlayback;
     std::shared_ptr<C2PortTunnelHandleTuning::output> mTunneledSideband;
+
+    /* extend parameter definition */
+    std::shared_ptr<C2StreamDecDisableDpbCheck::input> mDisableDpbCheck;
+    std::shared_ptr<C2StreamDecDisableErrorMark::input> mDisableErrorMark;
+    std::shared_ptr<C2StreamDecLowMemoryMode::input> mLowMemoryMode;
+    std::shared_ptr<C2StreamDecFbcDisable::input> mFbcDisable;
+    std::shared_ptr<C2StreamDecOutputCropEnable::input> mOutputCropEnable;
     std::shared_ptr<MlvecParams> mMlvecParams;
 };
 
