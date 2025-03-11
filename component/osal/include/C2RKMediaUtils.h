@@ -61,6 +61,16 @@ using namespace android;
 #define C2_CLIP(a, l, h)            ((a) < (l) ? (l) : ((a) > (h) ? (h) : (a)))
 #define C2_ARRAY_ELEMS(a)           (sizeof(a) / sizeof((a)[0]))
 
+typedef struct {
+    uint8_t *ptr;
+    int32_t fd;
+    int32_t format;
+    int32_t width;
+    int32_t height;
+    int32_t hstride;
+    int32_t vstride;
+} C2FrameInfo;
+
 class C2RKMediaUtils {
 public:
     static uint32_t getAndroidColorFmt(uint32_t format, uint32_t fbcMode);
@@ -69,18 +79,18 @@ public:
     static uint32_t calculateVideoRefCount(
                 MppCodingType type, int32_t width, int32_t height, int32_t level);
     static bool isP010Allowed();
-    static void convert10BitNV12ToRequestFmt(
-                uint32_t dstFormat, uint8_t *dstY, uint8_t *dstUV,
-                size_t dstYStride, size_t dstUVStride, uint8_t *src,
-                size_t hstride, size_t vstride, size_t width, size_t height);
+
+    static void convertBufferToRequestFmt(
+            C2FrameInfo srcInfo, C2FrameInfo dstInfo, bool cacheSync = false);
+
     static void convert10BitNV12ToP010(
-                uint8_t *dstY, uint8_t *dstUV, size_t dstYStride,
-                size_t dstUVStride, uint8_t *src, size_t hstride,
-                size_t vstride, size_t width, size_t height);
+            C2FrameInfo srcInfo, C2FrameInfo dstInfo, bool cacheSync = false);
+
     static void convert10BitNV12ToNV12(
-                uint8_t *dstY, uint8_t *dstUV, size_t dstYStride,
-                size_t dstUVStride, uint8_t *src, size_t hstride,
-                size_t vstride, size_t width, size_t height);
+            C2FrameInfo srcInfo, C2FrameInfo dstInfo, bool cacheSync = false);
+
+    static void convertNV12ToNV12(
+            C2FrameInfo srcInfo, C2FrameInfo dstInfo, bool cacheSync = false);
 };
 
 #endif  // ANDROID_C2_RK_MEDIA_UTILS_H_

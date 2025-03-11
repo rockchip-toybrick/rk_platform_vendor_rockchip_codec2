@@ -38,7 +38,6 @@
 #include "C2RKMemTrace.h"
 #include "C2RKTunneledSession.h"
 #include "C2RKPropsDef.h"
-#include "C2RKDmaBufSync.h"
 #include "C2RKVersion.h"
 
 namespace android {
@@ -460,6 +459,20 @@ public:
                     .build());
 
             addParameter(
+                    DefineParam(mFbcDisable, C2_PARAMKEY_DEC_FBC_DISABLE)
+                    .withDefault(new C2StreamDecFbcDisable::input(0))
+                    .withFields({C2F(mFbcDisable, value).any()})
+                    .withSetter(Setter<decltype(mFbcDisable)::element_type>::StrictValueWithNoDeps)
+                    .build());
+
+            addParameter(
+                    DefineParam(mOutputCropEnable, C2_PARAMKEY_DEC_OUTPUT_CROP)
+                    .withDefault(new C2StreamDecOutputCropEnable::input(0))
+                    .withFields({C2F(mOutputCropEnable, value).any()})
+                    .withSetter(Setter<decltype(mOutputCropEnable)::element_type>::StrictValueWithNoDeps)
+                    .build());
+
+            addParameter(
                     DefineParam(mMlvecParams->driverInfo, C2_PARAMKEY_MLVEC_DEC_DRI_VERSION)
                     .withConstValue(new C2DriverVersion::output(MLVEC_DRIVER_VERSION))
                     .build());
@@ -669,6 +682,20 @@ public:
         return C2RKPropsDef::getLowMemoryMode();
     }
 
+    bool getFbcDisable() const {
+        if (mFbcDisable && mFbcDisable->value > 0) {
+            return true;
+        }
+        return false;
+    }
+
+    bool getOutputCropEnable() const {
+        if (mOutputCropEnable && mOutputCropEnable->value > 0) {
+            return true;
+        }
+        return false;
+    }
+
     bool getIsLowLatencyMode() {
         if (mLowLatency && mLowLatency->value > 0) {
             return true;
@@ -716,6 +743,8 @@ private:
     std::shared_ptr<C2StreamDisableDpbCheck::input> mDisableDpbCheck;
     std::shared_ptr<C2StreamDisableErrorMark::input> mDisableErrorMark;
     std::shared_ptr<C2StreamLowMemoryMode::input> mLowMemoryMode;
+    std::shared_ptr<C2StreamDecFbcDisable::input> mFbcDisable;
+    std::shared_ptr<C2StreamDecOutputCropEnable::input> mOutputCropEnable;
     std::shared_ptr<C2GlobalLowLatencyModeTuning> mLowLatency;
     std::shared_ptr<C2PortTunneledModeTuning::output> mTunneledPlayback;
     std::shared_ptr<C2PortTunnelHandleTuning::output> mTunneledSideband;
@@ -809,7 +838,8 @@ C2RKMpiDec::C2RKMpiDec(
       mIsGBSource(false),
       mHdrMetaEnabled(false),
       mTunneled(false),
-      mBufferMode(false) {
+      mBufferMode(false),
+      mUseRgaBlit(true) {
     c2_info("[%s] version %s", name, C2_COMPONENT_FULL_VERSION);
     mCodingType = (MppCodingType)GetMppCodingFromComponentName(name);
     if (mCodingType == MPP_VIDEO_CodingUnused) {
@@ -980,6 +1010,14 @@ uint32_t C2RKMpiDec::getFbcOutputMode(const std::unique_ptr<C2Work> &work) {
 
     if (!fbcMode || mIsGBSource || mBufferMode) {
         return 0;
+    }
+
+    {
+        IntfImpl::Lock lock = mIntf->lock();
+        if (mIntf->getFbcDisable()) {
+            c2_info("got disable fbc request");
+            return 0;
+        }
     }
 
     if (fbcMode == C2_COMPRESS_AFBC_16x16) {
@@ -1275,6 +1313,13 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
         mLowLatencyMode = mIntf->getIsLowLatencyMode();
         mColorFormat = mIntf->getIs10bitVideo() ? MPP_FMT_YUV420SP_10BIT : MPP_FMT_YUV420SP;
         mTunneled = mIntf->getIsTunnelMode();
+
+        // For some surfaceTexture case, it is hopes that the component output
+        // result without stride since they don't want to deal with crop.
+        if (mIntf->getOutputCropEnable()) {
+            c2_info("got request for output crop");
+            mBufferMode = true;
+        }
     }
 
     c2_info("init: w %d h %d coding %s", mWidth, mHeight, toStr_Coding(mCodingType));
@@ -1620,6 +1665,7 @@ void C2RKMpiDec::process(
         // scene ddr frequency control
         setMppPerformance(true);
 
+        mAllocParams.needUpdate = true;
         mStarted = true;
     }
 
@@ -1855,6 +1901,126 @@ c2_status_t C2RKMpiDec::updateFbcModeIfNeeded() {
     return C2_OK;
 }
 
+c2_status_t C2RKMpiDec::updateAllocParamsIfNeeded(AllocParams *params) {
+    if (!params->needUpdate) {
+        return C2_OK;
+    }
+
+    int32_t allocW = 0, allocH = 0, allocFmt = 0;
+    int64_t allocUsage = RK_GRALLOC_USAGE_SPECIFY_STRIDE;
+
+    int32_t videoW = mWidth;
+    int32_t videoH = mHeight;
+    int32_t frameW = mHorStride;
+    int32_t frameH = mVerStride;
+    int32_t mppFormat = mColorFormat;
+
+    if (mScaleMode == C2_SCALE_MODE_DOWN_SCALE) {
+        // update scale thumbnail info in down scale mode
+        videoW = mScaleInfo.width;
+        videoH = mScaleInfo.height;
+        frameW = mScaleInfo.hstride;
+        frameH = mScaleInfo.vstride;
+        mppFormat = mScaleInfo.format;
+    }
+
+    allocW = frameW;
+    allocH = frameH;
+    allocFmt = C2RKMediaUtils::getAndroidColorFmt(mppFormat, mFbcCfg.mode);
+
+    if (mFbcCfg.mode) {
+        // NOTE: FBC case may have offset y on top and vertical stride
+        // should aligned to 16.
+        allocH = C2_ALIGN(frameH + mFbcCfg.paddingY, 16);
+
+        // In fbc 10bit mode, surfaceCB treat width as pixel stride.
+        if (allocFmt == HAL_PIXEL_FORMAT_YUV420_10BIT_I ||
+            allocFmt == HAL_PIXEL_FORMAT_Y210 ||
+            allocFmt == HAL_PIXEL_FORMAT_YUV420_10BIT_RFBC ||
+            allocFmt == HAL_PIXEL_FORMAT_YUV422_10BIT_RFBC ||
+            allocFmt == HAL_PIXEL_FORMAT_YUV444_10BIT_RFBC) {
+            allocW = C2_ALIGN(videoW, 64);
+        }
+    } else {
+        // NOTE: private gralloc stride usage only support in 4.0.
+        // Update use stride usage if we are able config available stride.
+        if (mGrallocVersion == 4 && !mIsGBSource) {
+            uint64_t horUsage = 0, verUsage = 0;
+
+            // 10bit video calculate stride base on (width * 10 / 8)
+            if (MPP_FRAME_FMT_IS_YUV_10BIT(mppFormat)) {
+                horUsage = C2RKMediaUtils::getStrideUsage(videoW * 10 / 8, frameW);
+            } else {
+                horUsage = C2RKMediaUtils::getStrideUsage(videoW, frameW);
+            }
+            verUsage = C2RKMediaUtils::getHStrideUsage(videoH, frameH);
+
+            if (horUsage > 0 && verUsage > 0) {
+                allocW = videoW;
+                allocH = videoH;
+                allocUsage &= ~RK_GRALLOC_USAGE_SPECIFY_STRIDE;
+                allocUsage |= (horUsage | verUsage);
+                c2_info("update use stride usage 0x%llx", allocUsage);
+            }
+        } else if (mCodingType == MPP_VIDEO_CodingVP9 && mGrallocVersion < 4) {
+            allocW = C2_ALIGN_ODD(videoW, 256);
+        }
+    }
+
+    {
+        IntfImpl::Lock lock = mIntf->lock();
+        std::shared_ptr<C2StreamColorAspectsTuning::output> colorAspects
+                = mIntf->getDefaultColorAspects_l();
+
+        switch (colorAspects->primaries) {
+            case C2Color::PRIMARIES_BT601_525:
+                allocUsage |= MALI_GRALLOC_USAGE_YUV_COLOR_SPACE_BT601;
+                break;
+            case C2Color::PRIMARIES_BT709:
+                allocUsage |= MALI_GRALLOC_USAGE_YUV_COLOR_SPACE_BT709;
+                break;
+            default:
+                break;
+        }
+        switch (colorAspects->range) {
+            case C2Color::RANGE_FULL:
+                allocUsage |= MALI_GRALLOC_USAGE_RANGE_WIDE;
+                break;
+            default:
+                allocUsage |= MALI_GRALLOC_USAGE_RANGE_NARROW;
+                break;
+        }
+    }
+
+    // only large than gralloc 4 can support int64 usage.
+    // otherwise, gralloc 3 will check high 32bit is empty,
+    // if not empty, will alloc buffer failed and return
+    // error. So we need clear high 32 bit.
+    if (mGrallocVersion < 4) {
+        allocUsage &= 0xffffffff;
+    }
+
+#ifdef GRALLOC_USAGE_DYNAMIC_HDR
+    if (mHdrMetaEnabled) {
+        allocUsage |= GRALLOC_USAGE_DYNAMIC_HDR;
+    }
+#endif
+
+#ifdef GRALLOC_USAGE_RKVDEC_SCALING
+    if (mScaleMode == C2_SCALE_MODE_META) {
+        allocUsage |= GRALLOC_USAGE_RKVDEC_SCALING;
+    }
+#endif
+
+    params->width  = allocW;
+    params->height = allocH;
+    params->usage  = allocUsage;
+    params->format = allocFmt;
+    params->needUpdate = false;
+
+    return C2_OK;
+}
+
 c2_status_t C2RKMpiDec::importBufferToMpp(std::shared_ptr<C2GraphicBlock> block) {
     if (!block) {
         c2_err("null block import error");
@@ -1963,130 +2129,42 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
         return ensureTunneledState();
     }
 
-    uint32_t videoW = mWidth;
-    uint32_t videoH = mHeight;
-    uint32_t frameW = mHorStride;
-    uint32_t frameH = mVerStride;
-    uint32_t mppFormat = mColorFormat;
-
-    uint32_t blockW = 0, blockH = 0, format = 0;
-    uint64_t usage = RK_GRALLOC_USAGE_SPECIFY_STRIDE;
-
-    if (mScaleMode == C2_SCALE_MODE_DOWN_SCALE) {
-        // update scale thumbnail info in down scale mode
-        videoW = mScaleInfo.width;
-        videoH = mScaleInfo.height;
-        frameW = mScaleInfo.hstride;
-        frameH = mScaleInfo.vstride;
-        mppFormat = mScaleInfo.format;
+    // update params if w/h/hor/ver/fbcMode changed
+    err = updateAllocParamsIfNeeded(&mAllocParams);
+    if (err != C2_OK) {
+        c2_err("failed to update alloc params, err %d", err);
+        return err;
     }
 
-    blockW = frameW;
-    blockH = frameH;
-    format = C2RKMediaUtils::getAndroidColorFmt(mppFormat, mFbcCfg.mode);
-
-    // NOTE: private gralloc stride usage only support in 4.0.
-    // Update use stride usage if we are able config available stride.
-    if (mGrallocVersion == 4 && !mFbcCfg.mode && !mIsGBSource) {
-        uint64_t horUsage = 0, verUsage = 0;
-
-        // 10bit video calculate stride base on (width * 10 / 8)
-        if (MPP_FRAME_FMT_IS_YUV_10BIT(mppFormat)) {
-            horUsage = C2RKMediaUtils::getStrideUsage(videoW * 10 / 8, frameW);
-        } else {
-            horUsage = C2RKMediaUtils::getStrideUsage(videoW, frameW);
-        }
-        verUsage = C2RKMediaUtils::getHStrideUsage(videoH, frameH);
-
-        if (horUsage > 0 && verUsage > 0) {
-            blockW = videoW;
-            blockH = videoH;
-            usage &= ~RK_GRALLOC_USAGE_SPECIFY_STRIDE;
-            usage |= (horUsage | verUsage);
-        }
-    }
-
-    if (mFbcCfg.mode) {
-        // NOTE: FBC case may have offset y on top and vertical stride
-        // should aligned to 16.
-        blockH = C2_ALIGN(frameH + mFbcCfg.paddingY, 16);
-
-        // In fbc 10bit mode, surfaceCB treat width as pixel stride.
-        if (format == HAL_PIXEL_FORMAT_YUV420_10BIT_I ||
-            format == HAL_PIXEL_FORMAT_Y210 ||
-            format == HAL_PIXEL_FORMAT_YUV420_10BIT_RFBC ||
-            format == HAL_PIXEL_FORMAT_YUV422_10BIT_RFBC ||
-            format == HAL_PIXEL_FORMAT_YUV444_10BIT_RFBC) {
-            blockW = C2_ALIGN(videoW, 64);
-        }
-    } else if (mCodingType == MPP_VIDEO_CodingVP9 && mGrallocVersion < 4) {
-        blockW = C2_ALIGN_ODD(videoW, 256);
-    }
-
-    {
-        IntfImpl::Lock lock = mIntf->lock();
-        std::shared_ptr<C2StreamColorAspectsTuning::output> colorAspects
-                = mIntf->getDefaultColorAspects_l();
-
-        switch (colorAspects->primaries) {
-            case C2Color::PRIMARIES_BT601_525:
-                usage |= MALI_GRALLOC_USAGE_YUV_COLOR_SPACE_BT601;
-                break;
-            case C2Color::PRIMARIES_BT709:
-                usage |= MALI_GRALLOC_USAGE_YUV_COLOR_SPACE_BT709;
-                break;
-            default:
-                break;
-        }
-        switch (colorAspects->range) {
-            case C2Color::RANGE_FULL:
-                usage |= MALI_GRALLOC_USAGE_RANGE_WIDE;
-                break;
-            default:
-                usage |= MALI_GRALLOC_USAGE_RANGE_NARROW;
-                break;
-        }
-    }
-
-    // only large than gralloc 4 can support int64 usage.
-    // otherwise, gralloc 3 will check high 32bit is empty,
-    // if not empty, will alloc buffer failed and return
-    // error. So we need clear high 32 bit.
-    if (mGrallocVersion < 4) {
-        usage &= 0xffffffff;
-    }
-
-#ifdef GRALLOC_USAGE_DYNAMIC_HDR
-    if (mHdrMetaEnabled) {
-        usage |= GRALLOC_USAGE_DYNAMIC_HDR;
-    }
-#endif
-
-#ifdef GRALLOC_USAGE_RKVDEC_SCALING
-    if (mScaleMode == C2_SCALE_MODE_META) {
-        usage |= GRALLOC_USAGE_RKVDEC_SCALING;
-    }
-#endif
+    int32_t width  = mAllocParams.width;
+    int32_t height = mAllocParams.height;
+    int64_t usage  = mAllocParams.usage;
+    int32_t format = mAllocParams.format;
 
     if (mBufferMode) {
-        uint32_t bFormat = (MPP_FRAME_FMT_IS_YUV_10BIT(mppFormat)) ? mPixelFormat : format;
-        uint64_t bUsage  = (usage |= (GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN));
+        int32_t bWidth = mWidth, bHeight = mHeight;
+        int32_t bFormat = (MPP_FRAME_FMT_IS_YUV_10BIT(mColorFormat)) ? mPixelFormat : format;
+        int64_t bUsage  = (GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN);
+
+        // use cachable memory for higher cpu-copy performance
+        usage |= (GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN);
 
         // allocate buffer within 4G to avoid rga2 error.
         if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_3588 ||
             C2RKChipCapDef::get()->getChipType() == RK_CHIP_356X) {
             bUsage |= RK_GRALLOC_USAGE_WITHIN_4G;
         }
+
         /*
          * For buffer mode, since we don't konw when the last buffer will use
          * up by user, so we chose to copy output to another dst block.
          */
         if (mOutBlock &&
-                (mOutBlock->width() != blockW || mOutBlock->height() != blockH)) {
+                (mOutBlock->width() != bWidth || mOutBlock->height() != bHeight)) {
             mOutBlock.reset();
         }
         if (!mOutBlock) {
-            err = mBlockPool->fetchGraphicBlock(blockW, blockH, bFormat,
+            err = mBlockPool->fetchGraphicBlock(bWidth, bHeight, bFormat,
                                                 C2AndroidMemoryUsage::FromGrallocUsage(bUsage),
                                                 &mOutBlock);
             if (err != C2_OK) {
@@ -2105,7 +2183,7 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
 
     uint32_t i = 0;
     for (i = 0; i < count; i++) {
-        err = mBlockPool->fetchGraphicBlock(blockW, blockH, format,
+        err = mBlockPool->fetchGraphicBlock(width, height, format,
                                             C2AndroidMemoryUsage::FromGrallocUsage(usage),
                                             &outblock);
         if (err != C2_OK) {
@@ -2122,7 +2200,7 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
 
     if (err != C2_OK || count > 2) {
         c2_info("required (%dx%d) usage 0x%llx format 0x%x, fetch %d/%d",
-                blockW, blockH, usage, format, i, count);
+                width, height, usage, format, i, count);
     }
 
     return err;
@@ -2246,15 +2324,15 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
         return C2_NOT_FOUND;
     }
 
-    uint32_t width   = mpp_frame_get_width(frame);
-    uint32_t height  = mpp_frame_get_height(frame);
-    uint32_t hstride = mpp_frame_get_hor_stride(frame);
-    uint32_t vstride = mpp_frame_get_ver_stride(frame);
-    uint32_t error   = mpp_frame_get_errinfo(frame);
-    uint32_t discard = mpp_frame_get_discard(frame);
-    uint32_t eos     = mpp_frame_get_eos(frame);
+    int32_t width   = mpp_frame_get_width(frame);
+    int32_t height  = mpp_frame_get_height(frame);
+    int32_t hstride = mpp_frame_get_hor_stride(frame);
+    int32_t vstride = mpp_frame_get_ver_stride(frame);
+    int32_t error   = mpp_frame_get_errinfo(frame);
+    int32_t discard = mpp_frame_get_discard(frame);
+    int32_t eos     = mpp_frame_get_eos(frame);
     uint64_t pts     = mpp_frame_get_pts(frame);
-    uint32_t flags   = 0;
+    int32_t flags   = 0;
 
     MppFrameFormat format = mpp_frame_get_fmt(frame);
     MppBuffer   mppBuffer = mpp_frame_get_buffer(frame);
@@ -2286,6 +2364,9 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
         mHorStride = hstride;
         mVerStride = vstride;
         mColorFormat = format;
+
+        mUseRgaBlit = true;
+        mAllocParams.needUpdate = true;
 
         // support fbc mode change on info change stage
         updateFbcModeIfNeeded();
@@ -2344,45 +2425,46 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
              width, height, hstride, vstride, pts, error, outBuffer->mBufferId);
 
     if (mBufferMode) {
-        Mutex::Autolock autoLock(mBufferLock);
+        do {
+            Mutex::Autolock autoLock(mBufferLock);
 
-        auto c2Handle = mOutBlock->handle();
-        int32_t srcFd = mpp_buffer_get_fd(mppBuffer);
-        int32_t dstFd = c2Handle->data[0];
+            auto c2Handle = mOutBlock->handle();
+            int32_t srcFd = mpp_buffer_get_fd(mppBuffer);
+            int32_t dstFd = c2Handle->data[0];
 
-        if (MPP_FRAME_FMT_IS_YUV_10BIT(mColorFormat)) {
+            int32_t srcFmt = MPP_FRAME_FMT_IS_YUV_10BIT(format) ?
+                             HAL_PIXEL_FORMAT_YCrCb_NV12_10 : HAL_PIXEL_FORMAT_YCrCb_NV12;
+            int32_t dstFmt = mPixelFormat == HAL_PIXEL_FORMAT_YCBCR_P010 ?
+                             HAL_PIXEL_FORMAT_YCBCR_P010 : HAL_PIXEL_FORMAT_YCrCb_NV12;
+
             C2GraphicView wView = mOutBlock->map().get();
             C2PlanarLayout layout = wView.layout();
-            uint8_t *src = (uint8_t*)mpp_buffer_get_ptr(mppBuffer);
-            uint8_t *dstY = const_cast<uint8_t *>(wView.data()[C2PlanarLayout::PLANE_Y]);
-            uint8_t *dstUV = const_cast<uint8_t *>(wView.data()[C2PlanarLayout::PLANE_U]);
-            size_t dstYStride = layout.planes[C2PlanarLayout::PLANE_Y].rowInc;
-            size_t dstUVStride = layout.planes[C2PlanarLayout::PLANE_U].rowInc;
+            int32_t dstStride = layout.planes[C2PlanarLayout::PLANE_Y].rowInc;
 
-            dma_sync_device_to_cpu(srcFd);
+            if (mUseRgaBlit) {
+                RgaInfo srcInfo, dstInfo;
 
-            C2RKMediaUtils::convert10BitNV12ToRequestFmt(
-                    mPixelFormat, dstY, dstUV, dstYStride,
-                    dstUVStride, src, hstride, vstride, width, height);
+                C2RKRgaDef::SetRgaInfo(
+                        &srcInfo, srcFd, srcFmt,width, height, hstride, vstride);
+                C2RKRgaDef::SetRgaInfo(
+                        &dstInfo, dstFd, dstFmt, width, height, dstStride, height);
+                if (C2RKRgaDef::DoBlit(srcInfo, dstInfo)) {
+                    break;
+                }
 
-            /* invalid CPU cache */
-            dma_sync_cpu_to_device(dstFd);
-        } else {
-            RgaInfo srcInfo, dstInfo;
-
-            C2RKRgaDef::SetRgaInfo(
-                    &srcInfo, srcFd, HAL_PIXEL_FORMAT_YCrCb_NV12,
-                    mWidth, mHeight, mHorStride, mVerStride);
-            C2RKRgaDef::SetRgaInfo(
-                    &dstInfo, dstFd, HAL_PIXEL_FORMAT_YCrCb_NV12,
-                    mWidth, mHeight, mHorStride, mVerStride);
-            if (!C2RKRgaDef::DoBlit(srcInfo, dstInfo)) {
-                // fallback software copy
-                uint8_t *srcPtr = (uint8_t*)mpp_buffer_get_ptr(mppBuffer);
-                uint8_t *dstPtr = mOutBlock->map().get().data()[C2PlanarLayout::PLANE_Y];
-                memcpy(dstPtr, srcPtr, mHorStride * mVerStride * 3 / 2);
+                mUseRgaBlit = false;
+                c2_info("not support rga blit, fallback cpu copy");
             }
-        }
+
+            // fallback software copy
+            uint8_t *src = (uint8_t*)mpp_buffer_get_ptr(mppBuffer);
+            uint8_t *dst = const_cast<uint8_t *>(wView.data()[C2PlanarLayout::PLANE_Y]);
+
+            C2RKMediaUtils::convertBufferToRequestFmt(
+                    { src, srcFd, srcFmt, width, height, hstride, vstride },
+                    { dst, dstFd, dstFmt, width, height, dstStride, height },
+                    true /* cache sync */);
+        } while (0);
     } else {
         if (mScaleMode == C2_SCALE_MODE_META) {
             configFrameScaleMeta(frame, outBuffer->mBlock);

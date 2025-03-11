@@ -22,6 +22,7 @@
 #include <cutils/properties.h>
 
 #include "C2RKMediaUtils.h"
+#include "C2RKDmaBufSync.h"
 #include "C2RKLog.h"
 
 using namespace android;
@@ -151,6 +152,12 @@ static C2LevelInfo vp9LevelInfos[] = {
     {   C2Config::LEVEL_VP9_6_1,   35651584 * 4,    "vp9 level 6.1" },
     {   C2Config::LEVEL_VP9_6_2,   35651584 * 4,    "vp9 level 6.2" },
 };
+
+void dumpFrameInfo(C2FrameInfo &info, const char *tag) {
+    c2_trace("%s frame ptr %p fd %d fmt %d rect[%d, %d, %d, %d]",
+              tag, info.ptr, info.fd, info.format,
+              info.width, info.height, info.hstride, info.vstride);
+}
 
 uint32_t C2RKMediaUtils::getAndroidColorFmt(uint32_t format, uint32_t fbcMode) {
     uint32_t androidFormat = HAL_PIXEL_FORMAT_YCrCb_NV12;
@@ -308,103 +315,168 @@ bool C2RKMediaUtils::isP010Allowed() {
     return kFirstApiLevel >= 33;
 }
 
-void C2RKMediaUtils::convert10BitNV12ToRequestFmt(
-        uint32_t dstFormat, uint8_t *dstY, uint8_t *dstUV,
-        size_t dstYStride, size_t dstUVStride, uint8_t *src,
-        size_t hstride, size_t vstride, size_t width, size_t height) {
-    if (dstFormat == HAL_PIXEL_FORMAT_YCBCR_P010) {
-        C2RKMediaUtils::convert10BitNV12ToP010(
-                dstY, dstUV, dstYStride, dstUVStride,
-                src, hstride, vstride, width, height);
-    } else {
-        C2RKMediaUtils::convert10BitNV12ToNV12(
-                dstY, dstUV, dstYStride, dstUVStride,
-                src, hstride, vstride, width, height);
+void C2RKMediaUtils::convertBufferToRequestFmt(
+        C2FrameInfo srcInfo, C2FrameInfo dstInfo, bool cacheSync) {
+    int32_t srcFmt = srcInfo.format;
+    int32_t dstFmt = dstInfo.format;
+
+    switch (srcFmt) {
+    case HAL_PIXEL_FORMAT_YCrCb_NV12: {
+        c2_trace("software convert: nv12 -> nv12");
+        C2RKMediaUtils::convertNV12ToNV12(srcInfo, dstInfo, cacheSync);
+    } break;
+    case HAL_PIXEL_FORMAT_YCrCb_NV12_10: {
+        if (dstFmt == HAL_PIXEL_FORMAT_YCBCR_P010) {
+            c2_trace("software convert: nv12_10 -> p010");
+            C2RKMediaUtils::convert10BitNV12ToP010(srcInfo, dstInfo, cacheSync);
+        } else {
+            c2_trace("software convert: nv12_10 -> nv12");
+            C2RKMediaUtils::convert10BitNV12ToNV12(srcInfo, dstInfo, cacheSync);
+        }
+    } break;
+    default: {
+        c2_err("not support src format %d", srcFmt);
+    } break;
     }
 }
 
 void C2RKMediaUtils::convert10BitNV12ToP010(
-        uint8_t *dstY, uint8_t *dstUV, size_t dstYStride,
-        size_t dstUVStride, uint8_t *src, size_t hstride,
-        size_t vstride, size_t width, size_t height) {
+        C2FrameInfo srcInfo, C2FrameInfo dstInfo, bool cacheSync) {
     uint32_t i, k;
-    uint8_t *base_y = src;
-    uint8_t *base_uv = src + hstride * vstride;
-    for (i = 0; i < height; i++, base_y += hstride, dstY += dstYStride) {
-        for (k = 0; k < (width + 7) / 8; k++) {
-            uint16_t *pix = (uint16_t *)(dstY + k * 16);
-            uint16_t *base_u16 = (uint16_t *)(base_y + k * 10);
+    uint8_t *srcY  = srcInfo.ptr;
+    uint8_t *srcUV = (uint8_t*)(srcInfo.ptr + srcInfo.hstride * srcInfo.vstride);
+    uint8_t *dstY  = dstInfo.ptr;
+    uint8_t *dstUV = (uint8_t*)(dstInfo.ptr + dstInfo.hstride * dstInfo.vstride);
 
-            pix[0] =  (base_u16[0] & 0x03FF) << 6;
-            pix[1] = ((base_u16[0] & 0xFC00) >> 10 | (base_u16[1] & 0x000F) << 6) << 6;
-            pix[2] = ((base_u16[1] & 0x3FF0) >> 4) << 6;
-            pix[3] = ((base_u16[1] & 0xC000) >> 14 | (base_u16[2] & 0x00FF) << 2) << 6;
-            pix[4] = ((base_u16[2] & 0xFF00) >> 8  | (base_u16[3] & 0x0003) << 8) << 6;
-            pix[5] = ((base_u16[3] & 0x0FFC) >> 2) << 6;
-            pix[6] = ((base_u16[3] & 0xF000) >> 12 | (base_u16[4] & 0x003F) << 4) << 6;
-            pix[7] = ((base_u16[4] & 0xFFC0) >> 6) << 6;
+    dumpFrameInfo(srcInfo, "src");
+    dumpFrameInfo(dstInfo, "dst");
+
+    if (cacheSync && srcInfo.fd > 0) {
+        dma_sync_device_to_cpu(srcInfo.fd);
+    }
+
+    for (i = 0; i < srcInfo.height; i++, srcY += srcInfo.hstride, dstY += dstInfo.hstride) {
+        for (k = 0; k < (srcInfo.width + 7) / 8; k++) {
+            uint16_t *pix = (uint16_t *)(dstY + k * 16);
+            uint16_t *baseU16 = (uint16_t *)(srcY + k * 10);
+
+            pix[0] =  (baseU16[0] & 0x03FF) << 6;
+            pix[1] = ((baseU16[0] & 0xFC00) >> 10 | (baseU16[1] & 0x000F) << 6) << 6;
+            pix[2] = ((baseU16[1] & 0x3FF0) >> 4) << 6;
+            pix[3] = ((baseU16[1] & 0xC000) >> 14 | (baseU16[2] & 0x00FF) << 2) << 6;
+            pix[4] = ((baseU16[2] & 0xFF00) >> 8  | (baseU16[3] & 0x0003) << 8) << 6;
+            pix[5] = ((baseU16[3] & 0x0FFC) >> 2) << 6;
+            pix[6] = ((baseU16[3] & 0xF000) >> 12 | (baseU16[4] & 0x003F) << 4) << 6;
+            pix[7] = ((baseU16[4] & 0xFFC0) >> 6) << 6;
         }
     }
-    for (i = 0; i < height / 2; i++, base_uv += hstride, dstUV += dstUVStride) {
-        for (k = 0; k < (width + 7) / 8; k++) {
+    for (i = 0; i < srcInfo.height / 2; i++, srcUV += srcInfo.hstride, dstUV += dstInfo.hstride) {
+        for (k = 0; k < (srcInfo.width + 7) / 8; k++) {
             uint16_t *pix = (uint16_t *)(dstUV + k * 16);
-            uint16_t *base_u16 = (uint16_t *)(base_uv + k * 10);
+            uint16_t *baseU16 = (uint16_t *)(srcUV + k * 10);
 
-            pix[0] =  (base_u16[0] & 0x03FF) << 6;
-            pix[1] = ((base_u16[0] & 0xFC00) >> 10 | (base_u16[1] & 0x000F) << 6) << 6;
-            pix[2] = ((base_u16[1] & 0x3FF0) >> 4) << 6;
-            pix[3] = ((base_u16[1] & 0xC000) >> 14 | (base_u16[2] & 0x00FF) << 2) << 6;
-            pix[4] = ((base_u16[2] & 0xFF00) >> 8  | (base_u16[3] & 0x0003) << 8) << 6;
-            pix[5] = ((base_u16[3] & 0x0FFC) >> 2) << 6;
-            pix[6] = ((base_u16[3] & 0xF000) >> 12 | (base_u16[4] & 0x003F) << 4) << 6;
-            pix[7] = ((base_u16[4] & 0xFFC0) >> 6) << 6;
+            pix[0] =  (baseU16[0] & 0x03FF) << 6;
+            pix[1] = ((baseU16[0] & 0xFC00) >> 10 | (baseU16[1] & 0x000F) << 6) << 6;
+            pix[2] = ((baseU16[1] & 0x3FF0) >> 4) << 6;
+            pix[3] = ((baseU16[1] & 0xC000) >> 14 | (baseU16[2] & 0x00FF) << 2) << 6;
+            pix[4] = ((baseU16[2] & 0xFF00) >> 8  | (baseU16[3] & 0x0003) << 8) << 6;
+            pix[5] = ((baseU16[3] & 0x0FFC) >> 2) << 6;
+            pix[6] = ((baseU16[3] & 0xF000) >> 12 | (baseU16[4] & 0x003F) << 4) << 6;
+            pix[7] = ((baseU16[4] & 0xFFC0) >> 6) << 6;
         }
+    }
+
+    if (cacheSync && dstInfo.fd > 0) {
+        // invalid CPU cache
+        dma_sync_cpu_to_device(dstInfo.fd);
     }
 }
 
 void C2RKMediaUtils::convert10BitNV12ToNV12(
-        uint8_t *dstY, uint8_t *dstUV, size_t dstYStride,
-        size_t dstUVStride, uint8_t *src, size_t hstride,
-        size_t vstride, size_t width, size_t height) {
+        C2FrameInfo srcInfo, C2FrameInfo dstInfo, bool cacheSync) {
     uint32_t i, k;
-    uint8_t *base_y = src;
-    uint8_t *base_uv = src + hstride * vstride;
-    for (i = 0; i < height; i++, base_y += hstride, dstY += dstYStride) {
-        for (k = 0; k < (width + 7) / 8; k++) {
-            uint8_t *pix = (uint8_t *)(dstY + k * 8);
-            uint16_t *base_u16 = (uint16_t *)(base_y + k * 10);
+    uint8_t *srcY  = srcInfo.ptr;
+    uint8_t *srcUV = (uint8_t*)(srcInfo.ptr + srcInfo.hstride * srcInfo.vstride);
+    uint8_t *dstY  = dstInfo.ptr;
+    uint8_t *dstUV = (uint8_t*)(dstInfo.ptr + dstInfo.hstride * dstInfo.vstride);
 
-            pix[0] = (uint8_t)((base_u16[0] & 0x03FF) >> 2);
-            pix[1] = (uint8_t)(((base_u16[0] & 0xFC00) >> 10
-                | (base_u16[1] & 0x000F) << 6) >> 2);
-            pix[2] = (uint8_t)(((base_u16[1] & 0x3FF0) >> 4) >> 2);
-            pix[3] = (uint8_t)(((base_u16[1] & 0xC000) >> 14
-                | (base_u16[2] & 0x00FF) << 2) >> 2);
-            pix[4] = (uint8_t)(((base_u16[2] & 0xFF00) >> 8
-                | (base_u16[3] & 0x0003) << 8) >> 2);
-            pix[5] = (uint8_t)(((base_u16[3] & 0x0FFC) >> 2) >> 2);
-            pix[6] = (uint8_t)(((base_u16[3] & 0xF000) >> 12
-                | (base_u16[4] & 0x003F) << 4) >> 2);
-            pix[7] = (uint8_t)(((base_u16[4] & 0xFFC0) >> 6) >> 2);
+    dumpFrameInfo(srcInfo, "src");
+    dumpFrameInfo(dstInfo, "dst");
+
+    if (cacheSync && srcInfo.fd > 0) {
+        dma_sync_device_to_cpu(srcInfo.fd);
+    }
+
+    for (i = 0; i < srcInfo.height; i++, srcY += srcInfo.hstride, dstY += dstInfo.hstride) {
+        for (k = 0; k < (srcInfo.width + 7) / 8; k++) {
+            uint8_t *pix = (uint8_t *)(dstY + k * 8);
+            uint16_t *baseU16 = (uint16_t *)(srcY + k * 10);
+
+            pix[0] = (uint8_t)((baseU16[0] & 0x03FF) >> 2);
+            pix[1] = (uint8_t)(((baseU16[0] & 0xFC00) >> 10
+                | (baseU16[1] & 0x000F) << 6) >> 2);
+            pix[2] = (uint8_t)(((baseU16[1] & 0x3FF0) >> 4) >> 2);
+            pix[3] = (uint8_t)(((baseU16[1] & 0xC000) >> 14
+                | (baseU16[2] & 0x00FF) << 2) >> 2);
+            pix[4] = (uint8_t)(((baseU16[2] & 0xFF00) >> 8
+                | (baseU16[3] & 0x0003) << 8) >> 2);
+            pix[5] = (uint8_t)(((baseU16[3] & 0x0FFC) >> 2) >> 2);
+            pix[6] = (uint8_t)(((baseU16[3] & 0xF000) >> 12
+                | (baseU16[4] & 0x003F) << 4) >> 2);
+            pix[7] = (uint8_t)(((baseU16[4] & 0xFFC0) >> 6) >> 2);
         }
     }
-    for (i = 0; i < height / 2; i++, base_uv += hstride, dstUV += dstUVStride) {
-        for (k = 0; k < (width + 7) / 8; k++) {
+    for (i = 0; i < srcInfo.height / 2; i++, srcUV += srcInfo.hstride, dstUV += dstInfo.hstride) {
+        for (k = 0; k < (srcInfo.width + 7) / 8; k++) {
             uint8_t *pix = (uint8_t *)(dstUV + k * 8);
-            uint16_t *base_u16 = (uint16_t *)(base_uv + k * 10);
+            uint16_t *baseU16 = (uint16_t *)(srcUV + k * 10);
 
-            pix[0] = (uint8_t)((base_u16[0] & 0x03FF) >> 2);
-            pix[1] = (uint8_t)(((base_u16[0] & 0xFC00) >> 10
-                | (base_u16[1] & 0x000F) << 6) >> 2);
-            pix[2] = (uint8_t)(((base_u16[1] & 0x3FF0) >> 4) >> 2);
-            pix[3] = (uint8_t)(((base_u16[1] & 0xC000) >> 14
-                | (base_u16[2] & 0x00FF) << 2) >> 2);
-            pix[4] = (uint8_t)(((base_u16[2] & 0xFF00) >> 8
-                | (base_u16[3] & 0x0003) << 8) >> 2);
-            pix[5] = (uint8_t)(((base_u16[3] & 0x0FFC) >> 2) >> 2);
-            pix[6] = (uint8_t)(((base_u16[3] & 0xF000) >> 12
-                | (base_u16[4] & 0x003F) << 4) >> 2);
-            pix[7] = (uint8_t)(((base_u16[4] & 0xFFC0) >> 6) >> 2);
+            pix[0] = (uint8_t)((baseU16[0] & 0x03FF) >> 2);
+            pix[1] = (uint8_t)(((baseU16[0] & 0xFC00) >> 10
+                | (baseU16[1] & 0x000F) << 6) >> 2);
+            pix[2] = (uint8_t)(((baseU16[1] & 0x3FF0) >> 4) >> 2);
+            pix[3] = (uint8_t)(((baseU16[1] & 0xC000) >> 14
+                | (baseU16[2] & 0x00FF) << 2) >> 2);
+            pix[4] = (uint8_t)(((baseU16[2] & 0xFF00) >> 8
+                | (baseU16[3] & 0x0003) << 8) >> 2);
+            pix[5] = (uint8_t)(((baseU16[3] & 0x0FFC) >> 2) >> 2);
+            pix[6] = (uint8_t)(((baseU16[3] & 0xF000) >> 12
+                | (baseU16[4] & 0x003F) << 4) >> 2);
+            pix[7] = (uint8_t)(((baseU16[4] & 0xFFC0) >> 6) >> 2);
         }
+    }
+
+    if (cacheSync && dstInfo.fd > 0) {
+        // invalid CPU cache
+        dma_sync_cpu_to_device(dstInfo.fd);
+    }
+}
+
+void C2RKMediaUtils::convertNV12ToNV12(
+        C2FrameInfo srcInfo, C2FrameInfo dstInfo, bool cacheSync) {
+    uint8_t *srcUV = (uint8_t*)(srcInfo.ptr + srcInfo.hstride * srcInfo.vstride);
+    uint8_t *dstUV = (uint8_t*)(dstInfo.ptr + dstInfo.hstride * dstInfo.vstride);
+
+    dumpFrameInfo(srcInfo, "src");
+    dumpFrameInfo(dstInfo, "dst");
+
+    if (cacheSync && srcInfo.fd > 0) {
+        dma_sync_device_to_cpu(srcInfo.fd);
+    }
+
+    for (int i = 0; i < srcInfo.height; i++) {
+        memcpy(dstInfo.ptr, srcInfo.ptr, srcInfo.width);
+        srcInfo.ptr += srcInfo.hstride;
+        dstInfo.ptr += dstInfo.hstride;
+    }
+    for (int i = 0; i < srcInfo.height / 2; i++) {
+        memcpy(dstUV, srcUV, srcInfo.width);
+        srcUV += srcInfo.hstride;
+        dstUV += dstInfo.hstride;
+    }
+
+    if (cacheSync && dstInfo.fd > 0) {
+        // invalid CPU cache
+        dma_sync_cpu_to_device(dstInfo.fd);
     }
 }

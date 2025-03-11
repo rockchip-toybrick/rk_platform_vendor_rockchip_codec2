@@ -49,12 +49,12 @@ public:
     C2RKDump();
     ~C2RKDump();
 
-    void initDump(uint32_t width, uint32_t height, bool isEncoder);
+    void initDump(int32_t width, int32_t height, bool isEncoder);
 
     void recordFile(C2DumpRole role, void *data, size_t size);
     void recordFile(
-            C2DumpRole role, void *data,
-            uint32_t w, uint32_t h, MppFrameFormat fmt);
+            C2DumpRole role, void *src,
+            int32_t w, int32_t h, MppFrameFormat fmt);
 
     void recordFrameTime(int64_t frameIndex);
     void showFrameTiming(int64_t frameIndex);

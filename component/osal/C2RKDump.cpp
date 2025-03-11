@@ -86,7 +86,7 @@ C2RKDump::~C2RKDump() {
     }
 }
 
-void C2RKDump::initDump(uint32_t width, uint32_t height, bool isEncoder) {
+void C2RKDump::initDump(int32_t width, int32_t height, bool isEncoder) {
     char fileName[128];
 
     if ((hasDebugFlags(C2_DUMP_RECORD_ENC_IN) && isEncoder) ||
@@ -131,8 +131,8 @@ void C2RKDump::recordFile(C2DumpRole role, void *data, size_t size) {
 }
 
 void C2RKDump::recordFile(
-        C2DumpRole role, void *data,
-        uint32_t w, uint32_t h, MppFrameFormat fmt) {
+        C2DumpRole role, void *src,
+        int32_t w, int32_t h, MppFrameFormat fmt) {
     FILE *file = (role == ROLE_INPUT) ? mInFile : mOutFile;
     if (file) {
         if (MPP_FRAME_FMT_IS_FBC(fmt)) {
@@ -145,27 +145,28 @@ void C2RKDump::recordFile(
         if (MPP_FRAME_FMT_IS_YUV_10BIT(fmt)) {
             // convert platform 10bit into 8bit yuv
             size = w * h * 3 / 2;
-            uint8_t *tempData = (uint8_t *)malloc(size);
-            if (!tempData) {
+            uint8_t *dst = (uint8_t *)malloc(size);
+            if (!dst) {
                 c2_warn("failed to malloc temp 8bit dump buffer");
                 return;
             }
 
             C2RKMediaUtils::convert10BitNV12ToNV12(
-                tempData, tempData + w * h, w, w, (uint8_t*)data, w, h, w, h);
-            fwrite(tempData, 1, size, file);
+                    { (uint8_t*)src, -1, -1, w, h, w, h },
+                    { (uint8_t*)dst, -1, -1, w, h, w, h });
+            fwrite(dst, 1, size, file);
 
-            free(tempData);
-            tempData = nullptr;
+            free(dst);
+            dst = nullptr;
         } else {
             size = MPP_FRAME_FMT_IS_RGB(fmt) ? (w * h * 4) : (w * h * 3 / 2);
-            fwrite(data, 1, size, file);
+            fwrite(src, 1, size, file);
         }
 
         fflush(file);
 
         c2_info("dump_%s_%s: data 0x%08x w:h [%d:%d]",
-                toStr_DumpRole(role), toStr_RawType(fmt), data, w, h);
+                toStr_DumpRole(role), toStr_RawType(fmt), src, w, h);
     }
 }
 

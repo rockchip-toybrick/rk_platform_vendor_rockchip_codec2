@@ -171,6 +171,15 @@ private:
        2. SurfaceMode: with surface
     */
     bool mBufferMode;
+    bool mUseRgaBlit;
+
+    struct AllocParams {
+        int32_t needUpdate;
+        int32_t width;
+        int32_t height;
+        int64_t usage;
+        int32_t format;
+    } mAllocParams;
 
     struct FbcConfig {
         uint32_t mode;
@@ -222,6 +231,7 @@ private:
     void setDefaultCodecColorAspectsIfNeeded(ColorAspects &aspects);
     void getVuiParams(MppFrame frame);
     c2_status_t updateFbcModeIfNeeded();
+    c2_status_t updateAllocParamsIfNeeded(AllocParams *params);
     c2_status_t importBufferToMpp(std::shared_ptr<C2GraphicBlock> block);
     c2_status_t ensureTunneledState();
     c2_status_t ensureDecoderState();
