@@ -38,7 +38,7 @@
 #define  MLVEC_LOW_LATENCY_MODE_ENABLE      1
 
 /* the maximal number of long-term frames supported by the encoder */
-#define  MLVEC_MAX_LTR_FRAMES_COUNT         4
+#define  MLVEC_MAX_LTR_FRAMES_COUNT         16
 
 /* whether down scaling factors supported by the encoder */
 #define  MLVEC_PRE_PROCESS_SCALE_SUPPORT    1
