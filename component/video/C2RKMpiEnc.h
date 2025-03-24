@@ -125,7 +125,7 @@ private:
 
     c2_status_t setupBaseCodec();
     c2_status_t setupInputScalar();
-    c2_status_t setupRotation();
+    c2_status_t setupPreProcess();
     c2_status_t setupSceneMode();
     c2_status_t setupSliceSize();
     c2_status_t setupReencTimes();

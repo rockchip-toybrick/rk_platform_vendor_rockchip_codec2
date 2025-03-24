@@ -37,6 +37,14 @@ const std::vector<C2FieldDescriptor> C2RoiRegionCfgStruct::_FIELD_LIST = {
     { C2FieldDescriptor::INT32, 1, "qp-val", 24, 4 },
 };
 
+const std::vector<C2FieldDescriptor> C2PreProcessStruct::FieldList() {
+    return _FIELD_LIST;
+}
+const std::vector<C2FieldDescriptor> C2PreProcessStruct::_FIELD_LIST = {
+    { C2FieldDescriptor::INT32, 1, "mirror", 0, 4 },
+    { C2FieldDescriptor::INT32, 1, "flip", 4, 4 }
+};
+
 const std::vector<C2FieldDescriptor> C2NumberStruct::FieldList() {
     return _FIELD_LIST;
 }

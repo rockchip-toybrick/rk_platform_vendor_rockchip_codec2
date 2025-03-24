@@ -452,6 +452,16 @@ public:
                 .build());
 
         addParameter(
+                DefineParam(mPreProcess, C2_PARAMKEY_ENC_PRE_PROCESS)
+                .withDefault(new C2StreamEncPreProcess::input())
+                .withFields({
+                    C2F(mPreProcess, mirror).any(),
+                    C2F(mPreProcess, flip).any(),
+                })
+                .withSetter(PreProcessSetter)
+                .build());
+
+        addParameter(
                 DefineParam(mMlvecParams->driverInfo, C2_PARAMKEY_MLVEC_ENC_DRI_VERSION)
                 .withConstValue(new C2DriverVersion::output(MLVEC_DRIVER_VERSION))
                 .build());
@@ -891,6 +901,13 @@ public:
         return C2R::Ok();
     }
 
+    static C2R PreProcessSetter(
+            bool mayBlock, C2P<C2StreamEncPreProcess::input>& me) {
+        (void)mayBlock;
+        (void)me;
+        return C2R::Ok();
+    }
+
     static C2R MProfileLevelSetter(
             bool mayBlock, C2P<C2MProfileLevel::output> &me) {
         (void)mayBlock;
@@ -1067,6 +1084,8 @@ public:
     { return mReencTime; }
     std::shared_ptr<C2StreamEncInputScalar::input> getInputScalar_l() const
     { return mInputScalar; }
+    std::shared_ptr<C2StreamEncPreProcess::input> getPreProcess_l() const
+    { return mPreProcess; }
     std::shared_ptr<MlvecParams> getMlvecParams_l() const
     { return mMlvecParams; }
 
@@ -1100,6 +1119,7 @@ private:
     std::shared_ptr<C2StreamEncRoiRegion2Cfg::input> mRoiRegion2Cfg;
     std::shared_ptr<C2StreamEncRoiRegion3Cfg::input> mRoiRegion3Cfg;
     std::shared_ptr<C2StreamEncRoiRegion4Cfg::input> mRoiRegion4Cfg;
+    std::shared_ptr<C2StreamEncPreProcess::input> mPreProcess;
     std::shared_ptr<MlvecParams> mMlvecParams;
 };
 
@@ -1291,14 +1311,19 @@ c2_status_t C2RKMpiEnc::setupInputScalar() {
     return C2_OK;
 }
 
-c2_status_t C2RKMpiEnc::setupRotation() {
+c2_status_t C2RKMpiEnc::setupPreProcess() {
     IntfImpl::Lock lock = mIntf->lock();
     std::shared_ptr<C2StreamRotationInfo::output> c2Rotation
             = mIntf->getRotation_l();
+    std::shared_ptr<C2StreamEncPreProcess::input> c2PreProcess
+            = mIntf->getPreProcess_l();
+
     int32_t degrees = c2Rotation->value;
+    int32_t mirror = c2PreProcess->mirror;
+    int32_t flip = c2PreProcess->flip;
 
     if (degrees > 0) {
-        c2_info("setupRotation: degrees %d", degrees);
+        c2_info("setupPreProcess: rotation degrees %d", degrees);
 
         switch (degrees) {
         case 90:
@@ -1314,6 +1339,15 @@ c2_status_t C2RKMpiEnc::setupRotation() {
             c2_warn("We only support 0,90,180,270 degree rotation");
             break;
         }
+    }
+
+    if (mirror > 0) {
+        c2_info("setupPreProcess: mirroring");
+        mpp_enc_cfg_set_s32(mEncCfg, "prep:mirroring", 1);
+    }
+    if (flip > 0) {
+        c2_info("setupPreProcess: flip");
+        mpp_enc_cfg_set_s32(mEncCfg, "prep:flip", 1);
     }
 
     return C2_OK;
@@ -2067,8 +2101,8 @@ c2_status_t C2RKMpiEnc::setupEncCfg() {
     /* Video control Ser input scaler */
     setupInputScalar();
 
-    /* Video control Set Rotation */
-    setupRotation();
+    /* Video control PreProcess, rotation\mirror\flip */
+    setupPreProcess();
 
     /* Video control Set Scene Mode */
     setupSceneMode();

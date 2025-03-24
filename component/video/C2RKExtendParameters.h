@@ -66,6 +66,7 @@ enum ExtendedC2ParamIndexKind : C2Param::type_index_t {
     kParamIndexEncRoiRegion2Cfg,
     kParamIndexEncRoiRegion3Cfg,
     kParamIndexEncRoiRegion4Cfg,
+    kParamIndexEncPreProcess,
 };
 
 typedef C2PortParam<C2Info, C2Int32Value, kParamIndexDecDisableDpbCheck> C2StreamDecDisableDpbCheck;
@@ -143,6 +144,22 @@ constexpr char C2_PARAMKEY_ENC_ROI_REGION3_CFG[] = "c2-enc-roi-region3-config";
 
 typedef C2PortParam<C2Info, C2RoiRegionCfgStruct, kParamIndexEncRoiRegion4Cfg> C2StreamEncRoiRegion4Cfg;
 constexpr char C2_PARAMKEY_ENC_ROI_REGION4_CFG[] = "c2-enc-roi-region4-config";
+
+struct C2PreProcessStruct {
+    int32_t mirror;
+    int32_t flip;
+
+    C2PreProcessStruct() :
+        mirror(0), flip(0) {}
+    C2PreProcessStruct(int32_t _mirror, int32_t _flip) :
+        mirror(_mirror), flip(_flip) {}
+
+    const static std::vector<C2FieldDescriptor> _FIELD_LIST;
+    static const std::vector<C2FieldDescriptor> FieldList();
+};
+
+typedef C2PortParam<C2Info, C2PreProcessStruct, kParamIndexEncPreProcess> C2StreamEncPreProcess;
+constexpr char C2_PARAMKEY_ENC_PRE_PROCESS[] = "c2-enc-preprocess";
 
 /*
  * 1. MLVEC hardware driver version
