@@ -240,6 +240,8 @@ private:
 
     c2_status_t configFrameScaleMeta(MppFrame frame, std::shared_ptr<C2GraphicBlock> block);
     c2_status_t configFrameHdrMeta(MppFrame frame, std::shared_ptr<C2GraphicBlock> block);
+    c2_status_t checkUseScaleMeta(buffer_handle_t handle);
+    c2_status_t checkUseScaleDown(buffer_handle_t handle);
 
     bool isDropFrame(uint64_t pts) {
         Vector<uint64_t>::iterator it;

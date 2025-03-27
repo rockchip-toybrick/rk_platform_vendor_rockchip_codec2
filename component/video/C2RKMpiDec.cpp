@@ -1100,14 +1100,38 @@ c2_status_t C2RKMpiDec::updateSurfaceConfig(const std::shared_ptr<C2BlockPool> &
         goto cleanUp;
     }
 
-    // enable scale dec only in 8k
-    if (mWidth <= 4096 && mHeight <= 4096) {
-        goto cleanUp;
+    switch (scaleMode) {
+        case C2_SCALE_MODE_META:
+            checkUseScaleMeta(handle);
+        break;
+        case C2_SCALE_MODE_DOWN_SCALE:
+            checkUseScaleDown(handle);
+        break;
+        default:
+        break;
     }
 
-    if (scaleMode == C2_SCALE_MODE_META
-            && C2RKVdecExtendFeature::checkNeedScale(handle) != 1) {
-        goto cleanUp;
+cleanUp:
+    freeGraphicBuffer(handle);
+
+    return err;
+}
+
+c2_status_t C2RKMpiDec::checkUseScaleMeta(buffer_handle_t handle) {
+    MPP_RET ret = MPP_OK;
+    MppDecCfg cfg = nullptr;
+    int needScale = 0;
+    uint32_t scaleMode = C2_SCALE_MODE_META;
+
+    needScale = C2RKVdecExtendFeature::checkNeedScale(handle);
+    if (needScale < 0) {
+        return C2_OK;
+    } else if (needScale == 0) {
+        scaleMode = C2_SCALE_MODE_NONE;
+    }
+
+    if (mScaleMode == scaleMode) {
+        return C2_OK;
     }
 
     mpp_dec_cfg_init(&cfg);
@@ -1120,47 +1144,73 @@ c2_status_t C2RKMpiDec::updateSurfaceConfig(const std::shared_ptr<C2BlockPool> &
         goto cleanUp;
     }
 
-    c2_info("enable scale dec, mode %d", scaleMode);
-
-    // In down-scaling mode, it is necessary to update surface info using
-    // down-scaling config, so request thumbnail info from decoder first.
-    if (scaleMode == C2_SCALE_MODE_DOWN_SCALE) {
-        MppFrame frame  = nullptr;
-
-        mpp_frame_init(&frame);
-        mpp_frame_set_width(frame, mWidth);
-        mpp_frame_set_height(frame, mHeight);
-        mpp_frame_set_hor_stride(frame, mHorStride);
-        mpp_frame_set_ver_stride(frame, mVerStride);
-        mpp_frame_set_fmt(frame, mColorFormat);
-
-        ret = mMppMpi->control(
-                mMppCtx, MPP_DEC_GET_THUMBNAIL_FRAME_INFO, (MppParam)frame);
-        if (ret == MPP_OK) {
-            mScaleInfo.width   = mpp_frame_get_width(frame);
-            mScaleInfo.height  = mpp_frame_get_height(frame);
-            mScaleInfo.hstride = mpp_frame_get_hor_stride(frame);
-            mScaleInfo.vstride = mpp_frame_get_ver_stride(frame);
-            mScaleInfo.format  = mpp_frame_get_fmt(frame);
-            mFbcCfg.mode = MPP_FRAME_FMT_IS_FBC(mScaleInfo.format);
-            mScaleMode = scaleMode;
-            c2_info("update down-scaling config: w %d h %d hor %d ver %d fmt %x",
-                    mScaleInfo.width, mScaleInfo.height, mScaleInfo.hstride,
-                    mScaleInfo.vstride, mScaleInfo.format);
-        } else {
-            c2_err("failed to get down-scaling thumnail info, err %d", ret);
-        }
-        mpp_frame_deinit(&frame);
-    } else {
-        mScaleMode = scaleMode;
-    }
+    c2_info("enable scale meta dec");
+    mScaleMode = scaleMode;
 
 cleanUp:
     if (cfg != nullptr) {
         mpp_dec_cfg_deinit(cfg);
     }
 
-    freeGraphicBuffer(handle);
+    return C2_OK;
+}
+
+c2_status_t C2RKMpiDec::checkUseScaleDown(buffer_handle_t handle) {
+    c2_status_t err = C2_OK;
+    MPP_RET ret = MPP_OK;
+    MppDecCfg cfg = nullptr;
+    MppFrame frame  = nullptr;
+
+    // enable scale dec only in 8k
+    if (mWidth <= 4096 && mHeight <= 4096) {
+        goto cleanUp;
+    }
+
+    mpp_dec_cfg_init(&cfg);
+
+    mMppMpi->control(mMppCtx, MPP_DEC_GET_CFG, cfg);
+    mpp_dec_cfg_set_u32(cfg, "base:enable_thumbnail", C2_SCALE_MODE_DOWN_SCALE);
+    ret = mMppMpi->control(mMppCtx, MPP_DEC_SET_CFG, cfg);
+    if (ret != MPP_OK) {
+        c2_warn("failed to set scale down mode");
+        goto cleanUp;
+    }
+
+    c2_info("enable scale down mode");
+
+    // In down-scaling mode, it is necessary to update surface info using
+    // down-scaling config, so request thumbnail info from decoder first.
+    mpp_frame_init(&frame);
+    mpp_frame_set_width(frame, mWidth);
+    mpp_frame_set_height(frame, mHeight);
+    mpp_frame_set_hor_stride(frame, mHorStride);
+    mpp_frame_set_ver_stride(frame, mVerStride);
+    mpp_frame_set_fmt(frame, mColorFormat);
+
+    ret = mMppMpi->control(mMppCtx, MPP_DEC_GET_THUMBNAIL_FRAME_INFO, (MppParam)frame);
+    if (ret != MPP_OK) {
+        c2_err("failed to get down-scaling thumnail info, err %d", ret);
+        goto cleanUp;
+    }
+
+    mScaleInfo.width   = mpp_frame_get_width(frame);
+    mScaleInfo.height  = mpp_frame_get_height(frame);
+    mScaleInfo.hstride = mpp_frame_get_hor_stride(frame);
+    mScaleInfo.vstride = mpp_frame_get_ver_stride(frame);
+    mScaleInfo.format  = mpp_frame_get_fmt(frame);
+    mFbcCfg.mode = MPP_FRAME_FMT_IS_FBC(mScaleInfo.format);
+    mScaleMode = C2_SCALE_MODE_DOWN_SCALE;
+    c2_info("update down-scaling config: w %d h %d hor %d ver %d fmt %x",
+            mScaleInfo.width, mScaleInfo.height, mScaleInfo.hstride,
+            mScaleInfo.vstride, mScaleInfo.format);
+
+cleanUp:
+    if (frame != nullptr) {
+        mpp_frame_deinit(&frame);
+    }
+    if (cfg != nullptr) {
+        mpp_dec_cfg_deinit(cfg);
+    }
 
     return err;
 }
@@ -2008,11 +2058,9 @@ c2_status_t C2RKMpiDec::updateAllocParamsIfNeeded(AllocParams *params) {
     }
 #endif
 
-#ifdef GRALLOC_USAGE_RKVDEC_SCALING
     if (mScaleMode == C2_SCALE_MODE_META) {
         allocUsage |= GRALLOC_USAGE_RKVDEC_SCALING;
     }
-#endif
 
     params->width  = allocW;
     params->height = allocH;
@@ -2036,6 +2084,10 @@ c2_status_t C2RKMpiDec::importBufferToMpp(std::shared_ptr<C2GraphicBlock> block)
 
     err = importGraphicBuffer(c2Handle, &handle);
     if (err != C2_OK) return err;
+
+    /* check use scale meta when chip feature support it */
+    if (C2RKChipCapDef::get()->getScaleMode() == C2_SCALE_MODE_META)
+        checkUseScaleMeta(handle);
 
     uint32_t bufferId = C2RKGrallocOps::get()->getBufferId(handle);
 
@@ -2521,7 +2573,6 @@ cleanUp:
 
 c2_status_t C2RKMpiDec::configFrameScaleMeta(
         MppFrame frame, std::shared_ptr<C2GraphicBlock> block) {
-#ifdef mpp_frame_get_thumbnail_en
     if (block->handle()
             && mpp_frame_has_meta(frame) && mpp_frame_get_thumbnail_en(frame)) {
         MppMeta meta = nullptr;
@@ -2560,10 +2611,6 @@ c2_status_t C2RKMpiDec::configFrameScaleMeta(
 
         native_handle_delete(nHandle);
     }
-#else
-    (void)frame;
-    (void)block;
-#endif
 
     return C2_OK;
 }

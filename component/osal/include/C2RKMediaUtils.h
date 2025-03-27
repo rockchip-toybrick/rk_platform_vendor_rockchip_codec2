@@ -51,6 +51,10 @@ using namespace android;
 #define HAL_PIXEL_FORMAT_NV30   30
 #endif
 
+#ifndef GRALLOC_USAGE_RKVDEC_SCALING
+#define GRALLOC_USAGE_RKVDEC_SCALING    0x1000000
+#endif
+
 #define C2_DEFAULT_REF_FRAME_COUNT  12
 #define C2_MAX_REF_FRAME_COUNT      21
 

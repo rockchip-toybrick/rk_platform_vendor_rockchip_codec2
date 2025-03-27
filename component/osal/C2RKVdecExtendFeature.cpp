@@ -34,11 +34,9 @@ int C2RKVdecExtendFeature::checkNeedScale(buffer_handle_t hnd) {
     int ret = 0;
     int need = 0;
     uint64_t bufId = 0;
-    uint64_t usage = 0;
 
     metadata_for_rkvdec_scaling_t* metadata = NULL;
     bufId = C2RKGrallocOps::get()->getBufferId(hnd);
-    usage = C2RKGrallocOps::get()->getUsage(hnd);
     ret = C2RKGrallocOps::get()->mapScaleMeta(hnd, &metadata);
     if (!ret) {
         /*
@@ -51,11 +49,11 @@ int C2RKVdecExtendFeature::checkNeedScale(buffer_handle_t hnd) {
         switch (metadata->requestMask) {
         case 1:
             need = 1;
-            c2_info("bufId:0x%" PRIx64" hwc need scale", bufId);
+            c2_trace("bufId:0x%" PRIx64" hwc need scale", bufId);
             break;
         case 2:
             need = 0;
-            c2_info("bufId:0x%" PRIx64" hwc no need scale", bufId);
+            c2_trace("bufId:0x%" PRIx64" hwc no need scale", bufId);
             break;
         default:
             need = -1;
