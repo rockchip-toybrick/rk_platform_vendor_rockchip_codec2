@@ -121,6 +121,8 @@ typedef enum MppMetaKey_e {
      */
     KEY_QPMAP0                  = FOURCC_META('e', 'q', 'm', '0'),
 
+    KEY_NPU_OBJ_FLAG            = FOURCC_META('n', 'p', 'u', 'f'),
+
     /* input motion list for smart p rate control */
     KEY_MV_LIST                 = FOURCC_META('m', 'v', 'l', 't'),
 

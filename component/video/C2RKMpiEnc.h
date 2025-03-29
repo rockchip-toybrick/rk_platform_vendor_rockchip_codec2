@@ -26,6 +26,7 @@ namespace android {
 
 class C2RKMlvecLegacy;
 class C2RKDump;
+class C2RKYolov5Session;
 
 struct C2RKMpiEnc : public C2RKComponent {
 public:
@@ -51,6 +52,7 @@ public:
             const std::shared_ptr<C2BlockPool> &pool) override;
 
     c2_status_t onDrainWork(const std::unique_ptr<C2Work> &work = nullptr);
+    c2_status_t onDetectionResultReady(void *srcImage, void *result);
 
 private:
     /* DMA buffer memery */
@@ -58,6 +60,7 @@ private:
         int32_t  fd;
         int32_t  size;
         void    *handler; /* buffer_handle_t */
+        void    *npuMaps;
     } MyDmaBuffer_t;
 
     /* Supported lists for InputFormat */
@@ -70,10 +73,10 @@ private:
     /* Super Encoding Mode */
     typedef enum {
         C2_SUPER_MODE_NONE = 0,
-        C2_SUPER_MODE_QUALITY_FIRST,        // image quality first
-        C2_SUPER_MODE_COMPRESS_FIRST,       // compressibility first
-        C2_SUPER_MODE_IPC_QUALITY_FIRST,
-        C2_SUPER_MODE_IPC_COMPRESS_FIRST,
+        C2_SUPER_MODE_V1_QUALITY_FIRST,        // image quality first
+        C2_SUPER_MODE_V1_COMPRESS_FIRST,       // compressibility first
+        C2_SUPER_MODE_V3_QUALITY_FIRST,
+        C2_SUPER_MODE_V3_COMPRESS_FIRST,
         C2_SUPER_MODE_BUTT,
     } MySuperMode;
 
@@ -140,6 +143,9 @@ private:
     int32_t          mCurLayerCount;
     int32_t          mInputCount;
 
+    // npu object detection
+    C2RKYolov5Session *mRknnSession;
+
     // configurations used by component in process
     // (TODO: keep this in intf but make them internal only)
     uint32_t mProfile;
@@ -178,6 +184,8 @@ private:
     c2_status_t handleRequestSyncFrame();
     c2_status_t handleMlvecDynamicCfg(MppMeta meta);
     c2_status_t handleRoiRegionRequestIfNeeded(MppMeta meta);
+    c2_status_t handleRknnDetectionIfNeeded(
+            const std::unique_ptr<C2Work> &work, MyDmaBuffer_t dbuffer);
 
     bool needRgaConvert(uint32_t width, uint32_t height, MppFrameFormat fmt);
     c2_status_t getInBufferFromWork(

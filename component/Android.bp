@@ -20,6 +20,7 @@ cc_library_shared {
         "libcodec2_rk_osal",
         "libcodec2_rk_base",
         "libcodec2_rk_video",
+        "libcodec2_rk_yolov5_session",
     ],
 
     shared_libs: [

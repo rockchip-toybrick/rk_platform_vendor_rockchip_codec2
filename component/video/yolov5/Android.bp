@@ -1,0 +1,37 @@
+cc_library_static {
+    name: "libcodec2_rk_yolov5_session",
+    vendor: true,
+    defaults: [
+        "libcodec2_rk-defaults",
+        "libcodec2_rk_sanitize_signed-defaults",
+    ],
+
+    srcs: [
+        "C2RKRknnWrapper.cpp",
+        "C2RKPostProcess.cpp",
+        "C2RKYolov5Session.cpp",
+    ],
+
+    include_dirs: [
+        "hardware/rockchip/librga/include",
+        "hardware/rockchip/librga/im2d_api",
+    ],
+
+    header_libs: [
+        "libhardware_rockchip_headers",
+        "libcodec2_rk_osal_headers",
+    ],
+
+    static_libs: [
+        "libcodec2_rk_osal",
+    ],
+
+    shared_libs: [
+        "librga",
+    ],
+
+    export_include_dirs: [
+        ".",
+        "include/rknpu2",
+    ],
+}

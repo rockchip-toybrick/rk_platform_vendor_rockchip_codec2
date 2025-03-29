@@ -38,6 +38,7 @@ cc_library_static {
     static_libs: [
         "libcodec2_rk_osal",
         "libcodec2_rk_base",
+        "libcodec2_rk_yolov5_session",
     ],
 
     export_shared_lib_headers: [

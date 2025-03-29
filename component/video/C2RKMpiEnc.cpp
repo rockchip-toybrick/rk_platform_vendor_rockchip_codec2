@@ -39,6 +39,7 @@
 #include "C2RKMlvecLegacy.h"
 #include "C2RKDump.h"
 #include "C2RKMpiRoiUtils.h"
+#include "C2RKYolov5Session.h"
 #include "C2RKVersion.h"
 
 namespace android {
@@ -1190,6 +1191,23 @@ void C2RKMpiEnc::WorkHandler::onMessageReceived(const sp<AMessage> &msg) {
     }
 }
 
+class C2RKSessionCallbackImpl : public C2RKSessionCallback {
+public:
+    explicit C2RKSessionCallbackImpl(C2RKMpiEnc *thiz) : mThiz(thiz) {}
+    ~C2RKSessionCallbackImpl() override = default;
+
+    void onError(const char *error) override {
+        c2_err("got session error %s", error);
+    }
+
+    void onResultReady(ImageBuffer *srcImage, void *result) override {
+        mThiz->onDetectionResultReady(srcImage, result);
+    }
+
+private:
+    C2RKMpiEnc *mThiz;
+};
+
 C2RKMpiEnc::C2RKMpiEnc(
         const char *name,
         const char *mime,
@@ -1221,6 +1239,7 @@ C2RKMpiEnc::C2RKMpiEnc(
       mVerStride(0),
       mCurLayerCount(0),
       mInputCount(0),
+      mRknnSession(nullptr),
       mProfile(0) {
     c2_info("[%s] version %s", name, C2_COMPONENT_FULL_VERSION);
     mCodingType = (MppCodingType)GetMppCodingFromComponentName(name);
@@ -1304,10 +1323,13 @@ void C2RKMpiEnc::onReset() {
 }
 
 void C2RKMpiEnc::onRelease() {
-    c2_log_func_enter();
-
     if (!mStarted)
         return;
+
+    c2_log_func_enter();
+
+    /* set flushing state to discard all work output */
+    setFlushingState();
 
     if (mMppMpi) {
         mMppMpi->reset(mMppCtx);
@@ -1315,6 +1337,11 @@ void C2RKMpiEnc::onRelease() {
 
     if (mHandler) {
         stopAndReleaseLooper();
+    }
+
+    if (mRknnSession) {
+        delete mRknnSession;
+        mRknnSession = nullptr;
     }
 
     if (mBlockPool) {
@@ -1361,6 +1388,8 @@ void C2RKMpiEnc::onRelease() {
         delete mDump;
         mDump = nullptr;
     }
+
+    stopFlushingState();
 
     mStarted = false;
     mInputScalar = false;
@@ -2023,7 +2052,6 @@ c2_status_t C2RKMpiEnc::setupPrependHeaderSetting() {
     return C2_OK;
 }
 
-
 c2_status_t C2RKMpiEnc::setupSuperModeIfNeeded() {
     IntfImpl::Lock lock = mIntf->lock();
 
@@ -2043,31 +2071,31 @@ c2_status_t C2RKMpiEnc::setupSuperModeIfNeeded() {
         return C2_OK;
     }
 
-    static int32_t sAqThrdI[16] = {
-        0,  0,  0,  0,
-        3,  3,  5,  5,
-        8,  8,  8,  15,
-        15, 20, 25, 25
+    static int32_t aqThdSmart[16] = {
+        0,  0,  0,  0,  3,  3,  5,  5,
+        8,  8,  8, 15, 15, 20, 25, 28
     };
 
-    static int32_t sAqStepIIpc[16] = {
-        -8, -7, -6, -5,
-        -4, -3, -2, -1,
-         0,  1,  2,  3,
-         5,  7,  7,  8,
+    static int32_t aqStepSmart[16] = {
+        -8, -7, -6, -5, -4, -3, -2, -1,
+        0,  1,  2,  3,  4,  6,  8, 10
     };
 
-    static int32_t sAqStepPIpc[16] = {
-        -8, -7, -6, -5,
-        -4, -2, -1, -1,
-         0,  2,  3,  4,
-         6,  8,  9,  10,
-    };
+    bool isV3Mode = (superMode == C2_SUPER_MODE_V3_QUALITY_FIRST ||
+                     superMode == C2_SUPER_MODE_V3_COMPRESS_FIRST);
+    bool compressFirst = (superMode == C2_SUPER_MODE_V1_COMPRESS_FIRST) ||
+                         (superMode == C2_SUPER_MODE_V3_COMPRESS_FIRST);
 
-    bool ipcScene = (superMode == C2_SUPER_MODE_IPC_QUALITY_FIRST) ||
-                    (superMode == C2_SUPER_MODE_IPC_COMPRESS_FIRST);
-    bool compressFirst = (superMode == C2_SUPER_MODE_COMPRESS_FIRST) ||
-                         (superMode == C2_SUPER_MODE_IPC_COMPRESS_FIRST);
+    if (isV3Mode && !mRknnSession) {
+        mRknnSession = new C2RKYolov5Session();
+        bool isHEVC = (mCodingType == MPP_VIDEO_CodingHEVC);
+        if (!mRknnSession->createSession(
+                    std::make_shared<C2RKSessionCallbackImpl>(this), isHEVC)) {
+            c2_err("failed to create rknn session, fallback..");
+            delete mRknnSession;
+            mRknnSession = nullptr;
+        }
+    }
 
     RcApiBrief rcApiBrief;
     MPP_RET err = mMppMpi->control(mMppCtx, MPP_ENC_GET_RC_API_CURRENT, &rcApiBrief);
@@ -2077,23 +2105,22 @@ c2_status_t C2RKMpiEnc::setupSuperModeIfNeeded() {
     }
 
     rcApiBrief.name = "smart";
+    rcApiBrief.type = mCodingType;
     err = mMppMpi->control(mMppCtx, MPP_ENC_SET_RC_API_CURRENT, &rcApiBrief);
     if (err != MPP_OK) {
         c2_warn("setupSuperMode: failed to set rcApi, err %d", err);
         return C2_OK;
     }
 
+    mpp_enc_cfg_set_s32(mEncCfg, "rc:mode", isV3Mode ? 5 : 4);
     mpp_enc_cfg_set_u32(mEncCfg, "rc:max_reenc_times", 0);
     mpp_enc_cfg_set_u32(mEncCfg, "rc:super_mode", 0);
-    mpp_enc_cfg_set_s32(mEncCfg, "rc:mode", 4);
-    mpp_enc_cfg_set_s32(mEncCfg, "tune:qpmap_en", 1);
-    mpp_enc_cfg_set_s32(mEncCfg, "tune:rc_container", 1);
-    mpp_enc_cfg_set_s32(mEncCfg, "tune:scene_mode", 0);
     mpp_enc_cfg_set_s32(mEncCfg, "hw:qbias_i", 200);
     mpp_enc_cfg_set_s32(mEncCfg, "hw:qbias_p", 100);
 
-    mpp_enc_cfg_set_st(mEncCfg,  "hw:aq_thrd_i", sAqThrdI);
-    mpp_enc_cfg_set_st(mEncCfg,  "hw:aq_thrd_p", sAqThrdI);
+    mpp_enc_cfg_set_s32(mEncCfg, "tune:deblur_en",   1);
+    mpp_enc_cfg_set_s32(mEncCfg, "tune:deblur_str",  3);
+    mpp_enc_cfg_set_s32(mEncCfg, "tune:lgt_chg_lvl", 0);
 
     mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_init",   31);
     mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_min",    10);
@@ -2101,23 +2128,30 @@ c2_status_t C2RKMpiEnc::setupSuperModeIfNeeded() {
     mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_min_i",  10);
     mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_max_i",  50);
 
-    mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_min_i", 27);
-    mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_max_i", 49);
-    mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_min_p", 27);
-    mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_max_p", 49);
+    mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_min_i", 10);
+    mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_max_i", 42);
+    mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_min_p", 10);
+    mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_max_p", 42);
 
-    if (ipcScene) {
-        mpp_enc_cfg_set_st(mEncCfg,  "hw:aq_step_i", sAqStepIIpc);
-        mpp_enc_cfg_set_st(mEncCfg,  "hw:aq_step_p", sAqStepPIpc);
-        mpp_enc_cfg_set_s32(mEncCfg, "tune:scene_mode", 1);
-    }
+    mpp_enc_cfg_set_st(mEncCfg,  "hw:aq_thrd_i", aqThdSmart);
+    mpp_enc_cfg_set_st(mEncCfg,  "hw:aq_thrd_p", aqThdSmart);
+    mpp_enc_cfg_set_st(mEncCfg,  "hw:aq_step_i", aqStepSmart);
+    mpp_enc_cfg_set_st(mEncCfg,  "hw:aq_step_p", aqStepSmart);
+    // default ipc mode
+    mpp_enc_cfg_set_s32(mEncCfg, "tune:scene_mode", 1);
 
-    if (compressFirst) {
-        uint32_t bitrate = mIntf->getBitrate_l()->value;
+    if (isV3Mode) {
+        // 0:balance  1:quality_first  2:bitrate_first
+        mpp_enc_cfg_set_s32(mEncCfg, "tune:se_mode", compressFirst ? 2 : 1);
+    }  else {
+        // smart v1 mode
+        if (compressFirst) {
+            uint32_t bitrate = mIntf->getBitrate_l()->value;
 
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_target", bitrate * 13 / 10);
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_max",    bitrate * 13 / 10);
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_min",    bitrate * 13 / 10 / 2);
+            mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_target", bitrate * 13 / 10);
+            mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_max",    bitrate * 13 / 10);
+            mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_min",    bitrate * 13 / 10 / 2);
+        }
     }
 
     c2_info("setupSuperMode: setup super mode %d", superMode);
@@ -2375,7 +2409,7 @@ error:
 void C2RKMpiEnc::fillEmptyWork(const std::unique_ptr<C2Work>& work) {
     uint32_t flags = 0;
 
-    c2_trace("called");
+    c2_trace_func_called();
 
     if (work->input.flags & C2FrameData::FLAG_END_OF_STREAM) {
         flags |= C2FrameData::FLAG_END_OF_STREAM;
@@ -2397,7 +2431,7 @@ void C2RKMpiEnc::finishWork(
     C2MemoryUsage usage = { C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE };
 
     frmIndex = entry.frameIndex;
-    packet = entry.outPacket;
+    packet   = entry.outPacket;
 
     void   *data = mpp_packet_get_data(packet);
     size_t  len  = mpp_packet_get_length(packet);
@@ -2449,7 +2483,7 @@ void C2RKMpiEnc::finishWork(
         // TODO: wait pendding work ready, getpacket return before process over?
         int32_t retry = 0;
         static const int32_t kMaxPendingRetryTime = 20;
-        while (!isPendingWorkExist(frmIndex)) {
+        while (!isPendingFlushing() && !isPendingWorkExist(frmIndex)) {
             usleep(2 * 1000);
             if ((retry++) > kMaxPendingRetryTime) {
                 c2_err("failed to wait work index %lld pendding", frmIndex);
@@ -2603,6 +2637,14 @@ void C2RKMpiEnc::process(
         mSignalledError = true;
         work->result = C2_CORRUPTED;
         work->workletsProcessed = 1u;
+        return;
+    }
+
+    // In smart v3 mode, handle yolov5 rknn object detection.
+    // not set workletsProcessed to indicates that the current work incomplete.
+    // and will finish this work later in sesssion callback.
+    err = handleRknnDetectionIfNeeded(work, inDmaBuf);
+    if (err == C2_OK) {
         return;
     }
 
@@ -2830,6 +2872,75 @@ c2_status_t C2RKMpiEnc::handleRoiRegionRequestIfNeeded(MppMeta meta) {
 
     // send roi info by metadata
     mpp_enc_roi_setup_meta(mRoiCtx, meta);
+
+    return C2_OK;
+}
+
+c2_status_t C2RKMpiEnc::onDetectionResultReady(void *src, void *result) {
+    ImageBuffer *srcImage = (ImageBuffer *)src;
+    if (!srcImage) {
+        c2_trace("ignore empty detection image");
+        return C2_OK;
+    }
+
+    if (isPendingFlushing()) {
+        c2_trace("ignore frame output since pending flush");
+        return C2_OK;
+    }
+
+    MyDmaBuffer_t inDmaBuf;
+    memset(&inDmaBuf, 0, sizeof(MyDmaBuffer_t));
+
+    inDmaBuf.fd      = srcImage->fd;
+    inDmaBuf.size    = srcImage->size;
+    inDmaBuf.npuMaps = result;
+
+    /* send frame to mpp */
+    c2_status_t err = sendframe(inDmaBuf, srcImage->pts, srcImage->flags);
+    if (err != C2_OK) {
+        c2_err("failed to enqueue frame, err %d", err);
+        mSignalledError = true;
+        return C2_CORRUPTED;
+    }
+
+    /* get and drain output work */
+    err = onDrainWork();
+
+    return err;
+}
+
+c2_status_t C2RKMpiEnc::handleRknnDetectionIfNeeded(
+        const std::unique_ptr<C2Work> &work, MyDmaBuffer_t dbuffer) {
+    if (!mRknnSession) return C2_CORRUPTED;
+
+    // ignore empty input buffer
+    if (dbuffer.fd <= 0) return C2_CORRUPTED;
+
+    uint32_t flags = work->input.flags;
+    uint64_t frameIndex = work->input.ordinal.frameIndex.peekull();
+
+    ImageBuffer srcImage;
+    memset(&srcImage, 0, sizeof(ImageBuffer));
+
+    srcImage.width   = mSize->width;
+    srcImage.height  = mSize->height;
+    srcImage.wstride = mHorStride;
+    srcImage.hstride = mVerStride;
+    srcImage.fd      = dbuffer.fd;
+    srcImage.size    = dbuffer.size;
+    srcImage.pts     = frameIndex;
+    srcImage.flags   = flags;
+
+    if (mInputMppFmt == MPP_FMT_RGBA8888) {
+        srcImage.format = IMAGE_FORMAT_RGBA8888;
+    } else {
+        srcImage.format = IMAGE_FORMAT_YUV420SP_NV12;
+    }
+
+    if (!mRknnSession->startDetect(&srcImage)) {
+        c2_err("failed to start detection");
+        return C2_CORRUPTED;
+    }
 
     return C2_OK;
 }
@@ -3102,6 +3213,14 @@ c2_status_t C2RKMpiEnc::sendframe(
 
     /* handle IDR request */
     handleRequestSyncFrame();
+
+    /* set npu detection maps */
+    if (dBuffer.npuMaps) {
+        err = mpp_meta_set_ptr(meta, KEY_NPU_OBJ_FLAG, dBuffer.npuMaps);
+        if (err != MPP_OK) {
+            c2_warn("failed to set rknn object, err %d", err);
+        }
+    }
 
     err = mMppMpi->encode_put_frame(mMppCtx, frame);
     if (err != MPP_OK) {
