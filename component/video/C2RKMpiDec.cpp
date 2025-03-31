@@ -2430,6 +2430,12 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
         do {
             Mutex::Autolock autoLock(mBufferLock);
 
+            if (mOutBlock == nullptr) {
+                c2_err("unexpected null outblock");
+                ret = C2_CORRUPTED;
+                goto cleanUp;
+            }
+
             auto c2Handle = mOutBlock->handle();
             int32_t srcFd = mpp_buffer_get_fd(mppBuffer);
             int32_t dstFd = c2Handle->data[0];
