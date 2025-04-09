@@ -827,6 +827,7 @@ C2RKMpiDec::C2RKMpiDec(
       mHorStride(0),
       mVerStride(0),
       mOutputDelay(0),
+      mReduceFactor(0),
       mGrallocVersion(C2RKChipCapDef::get()->getGrallocVersion()),
       mPixelFormat(0),
       mScaleMode(0),
@@ -1264,7 +1265,7 @@ c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
          * equivalent to occupying 4 buffer blocks of the framework.
          */
         if (lowMemoryMode & LowMemoryMode::MODE_REDUCE_SMOOTH) {
-            reduceFactor = 4;
+            reduceFactor = C2_MIN(refCnt, 4);
         }
 
         C2PortActualDelayTuning::output delayTuning(refCnt - reduceFactor);
@@ -1293,6 +1294,7 @@ c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
         }
 
         mOutputDelay = refCnt;
+        mReduceFactor = reduceFactor;
     }
 
     return err;
@@ -1641,8 +1643,9 @@ void C2RKMpiDec::finishWork(OutWorkEntry entry) {
 
     if (flags & OutWorkEntry::FLAGS_INFO_CHANGE) {
         c2_info("update new size %dx%d config to framework.", mWidth, mHeight);
+
         C2StreamPictureSizeInfo::output size(0u, mWidth, mHeight);
-        C2PortActualDelayTuning::output delay(mOutputDelay);
+        C2PortActualDelayTuning::output delay(mOutputDelay - mReduceFactor);
         work->worklets.front()->output.configUpdate.push_back(C2Param::Copy(size));
         work->worklets.front()->output.configUpdate.push_back(C2Param::Copy(delay));
 

@@ -151,6 +151,8 @@ private:
     int32_t mHorStride;
     int32_t mVerStride;
     int32_t mOutputDelay;
+    // reduce factor for low memory mode
+    int32_t mReduceFactor;
     int32_t mGrallocVersion;
     int32_t mPixelFormat;
     int32_t mScaleMode;
