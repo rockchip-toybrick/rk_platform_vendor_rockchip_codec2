@@ -2264,6 +2264,8 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
 }
 
 void C2RKMpiDec::postFrameReady() {
+    if (isPendingFlushing()) return;
+
     if (mHandler) {
         sp<AMessage> msg = new AMessage(WorkHandler::kWhatFrameReady, mHandler);
         msg->setPointer("thiz", this);
