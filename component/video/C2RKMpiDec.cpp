@@ -1093,8 +1093,6 @@ c2_status_t C2RKMpiDec::updateSurfaceConfig(const std::shared_ptr<C2BlockPool> &
 
     /* check use scale mode */
 
-    MPP_RET ret = MPP_OK;
-    MppDecCfg cfg = nullptr;
     uint32_t scaleMode = C2RKChipCapDef::get()->getScaleMode();
 
     if (!scaleMode || mBufferMode || C2RKPropsDef::getScaleDisable()) {
@@ -1161,6 +1159,7 @@ c2_status_t C2RKMpiDec::checkUseScaleDown(buffer_handle_t handle) {
     MPP_RET ret = MPP_OK;
     MppDecCfg cfg = nullptr;
     MppFrame frame  = nullptr;
+    (void)handle;
 
     // enable scale dec only in 8k
     if (mWidth <= 4096 && mHeight <= 4096) {
@@ -2063,6 +2062,21 @@ c2_status_t C2RKMpiDec::updateAllocParamsIfNeeded(AllocParams *params) {
 
     if (mScaleMode == C2_SCALE_MODE_META) {
         allocUsage |= GRALLOC_USAGE_RKVDEC_SCALING;
+    }
+
+    if (!mBufferMode) {
+        // For 3288 and 3399, Setting buffer with cache can reduce the time
+        // required for SurfaceFlinger_NV12-10bit to 16bit conversion
+        if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_3399 ||
+            C2RKChipCapDef::get()->getChipType() == RK_CHIP_3288) {
+            allocUsage |= GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN;
+        }
+
+        // For rk356x, RGA rotation and scaling maybe used for render, so
+        // allocate output buffer within 4G to avoid rga2 error.
+        if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_356X) {
+            allocUsage |= RK_GRALLOC_USAGE_WITHIN_4G;
+        }
     }
 
     params->width  = allocW;
