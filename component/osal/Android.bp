@@ -10,6 +10,10 @@ cc_library_headers {
 cc_library_static {
     name: "libcodec2_rk_osal",
     vendor: true,
+    defaults: [
+        "libcodec2_rk-defaults",
+        "libcodec2_rk_sanitize_signed-defaults",
+    ],
 
     srcs: [
         "C2RKChipCapDef.cpp",

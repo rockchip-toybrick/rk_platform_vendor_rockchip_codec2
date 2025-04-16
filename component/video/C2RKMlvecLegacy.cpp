@@ -22,6 +22,8 @@
 #include "C2RKMlvecLegacy.h"
 #include "C2RKLog.h"
 
+namespace android {
+
 C2RKMlvecLegacy::C2RKMlvecLegacy(MppCtx ctx, MppApi *mpi, MppEncCfg cfg) :
     mMppCtx(ctx),
     mMppMpi(mpi),
@@ -321,4 +323,6 @@ bool C2RKMlvecLegacy::setupDynamicConfig(MDynamicCfg *cfg, MppMeta meta) {
         mpp_meta_set_s32(meta, KEY_ENC_BASE_LAYER_PID, dst->baseLayerPid);
 
     return true;
+}
+
 }

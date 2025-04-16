@@ -17,6 +17,8 @@
 #ifndef ANDROID_C2_RK_MEDIA_UTILS_H_
 #define ANDROID_C2_RK_MEDIA_UTILS_H_
 
+#include <C2Config.h>
+
 #include "rk_mpi.h"
 #include "hardware/hardware_rockchip.h"
 #include "hardware/gralloc_rockchip.h"
@@ -78,24 +80,35 @@ typedef struct {
 
 class C2RKMediaUtils {
 public:
-    static uint32_t getAndroidColorFmt(uint32_t format, uint32_t fbcMode);
+    // get hal pixer format from mpp format
+    static uint32_t getHalPixerFormat(int32_t format, int32_t fbcMode);
+
+    // get hal stride alignment usage if support
     static uint64_t getStrideUsage(int32_t width, int32_t stride);
     static uint64_t getHStrideUsage(int32_t height, int32_t hstride);
+
+    // calculate video refCount on the basis of max Dpb Mbs and level
     static uint32_t calculateVideoRefCount(
                 MppCodingType type, int32_t width, int32_t height, int32_t level);
+
+    // HAL_PIXEL_FORMAT_YCBCR_P010 requirement was added in T VSR, although
+    // it could have been supported prior to this.
     static bool isP010Allowed();
 
+    // frame converter, software processing
     static void convertBufferToRequestFmt(
             C2FrameInfo srcInfo, C2FrameInfo dstInfo, bool cacheSync = false);
-
     static void convert10BitNV12ToP010(
             C2FrameInfo srcInfo, C2FrameInfo dstInfo, bool cacheSync = false);
-
     static void convert10BitNV12ToNV12(
             C2FrameInfo srcInfo, C2FrameInfo dstInfo, bool cacheSync = false);
-
     static void convertNV12ToNV12(
             C2FrameInfo srcInfo, C2FrameInfo dstInfo, bool cacheSync = false);
+
+    // import c2Handle and get buffer_handle_t, don't forget to free it
+    static c2_status_t importGraphicBuffer(
+            const C2Handle *const c2Handle, buffer_handle_t *outHandle);
+    static void freeGraphicBuffer(buffer_handle_t handle);
 };
 
 #endif  // ANDROID_C2_RK_MEDIA_UTILS_H_

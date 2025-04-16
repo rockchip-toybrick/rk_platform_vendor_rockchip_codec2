@@ -23,7 +23,7 @@
 
 #include "rk_mpi.h"
 
-using namespace android;
+namespace android {
 
 #define C2_DUMP_LOG_TRACE                   (0x00000001)
 #define C2_DUMP_LOG_DETAIL                  (0x00000002)
@@ -78,5 +78,7 @@ private:
     uint32_t mLastFrameCount[ROLE_BUTT];
     nsecs_t  mLastFpsTime[ROLE_BUTT];
 };
+
+}
 
 #endif // ANDROID_C2_RK_DUMP_H__

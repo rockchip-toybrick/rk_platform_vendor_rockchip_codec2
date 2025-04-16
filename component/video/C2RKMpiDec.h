@@ -19,13 +19,13 @@
 
 #include "C2RKComponent.h"
 #include "C2RKInterface.h"
-#include "C2RKDump.h"
 #include "rk_mpi.h"
 
 #include <utils/Vector.h>
 
 namespace android {
 
+class C2RKDump;
 class C2RKTunneledSession;
 struct VTBuffer;
 struct ColorAspects;
@@ -96,9 +96,9 @@ private:
     /*
      * low memory mode config from user
      *
-     * - 0x0: default value, normal device mode
-     * - 0x1: low memory case, reduce smoothFactor count from frameworks only.
-     * - 0x2: low memory case, use protocol delayRef.
+     * 0x0: default value, normal device mode
+     * 0x1: low memory case, reduce smoothFactor count from frameworks only.
+     * 0x2: low memory case, use protocol delayRef.
      */
     enum LowMemoryMode {
         MODE_NONE             = 0x0,
@@ -116,7 +116,7 @@ private:
         WorkHandler() {}
         ~WorkHandler() override = default;
 
-        void waitAllMsgFlushed();
+        void flushAllMessages();
 
     protected:
         void onMessageReceived(const sp<AMessage> &msg) override;
@@ -142,7 +142,7 @@ private:
     MppFrameFormat  mColorFormat;
     MppBufferGroup  mFrmGrp;
     // Indicates that these buffers should be decoded but not rendered.
-    Vector<uint64_t>     mDropFramesPts;
+    Vector<uint64_t>     mDropFrames;
     Vector<OutBuffer*>   mOutBuffers;
     C2RKTunneledSession *mTunneledSession;
 
@@ -170,7 +170,7 @@ private:
 
     /*
        1. BufferMode:  without surcace
-       2. SurfaceMode: with surface
+       2. SurfaceMode: render surface
     */
     bool mBufferMode;
     bool mUseRgaBlit;
@@ -184,10 +184,10 @@ private:
     } mAllocParams;
 
     struct FbcConfig {
-        uint32_t mode;
+        int32_t mode;
         // fbc decode output padding
-        uint32_t paddingX;
-        uint32_t paddingY;
+        int32_t paddingX;
+        int32_t paddingY;
     } mFbcCfg;
 
     struct ScaleThumbInfo {
@@ -245,11 +245,11 @@ private:
     c2_status_t checkUseScaleMeta(buffer_handle_t handle);
     c2_status_t checkUseScaleDown(buffer_handle_t handle);
 
-    bool isDropFrame(uint64_t pts) {
+    inline bool isDropFrame(uint64_t pts) {
         Vector<uint64_t>::iterator it;
-        for (it = mDropFramesPts.begin(); it != mDropFramesPts.end(); it++) {
+        for (it = mDropFrames.begin(); it != mDropFrames.end(); it++) {
             if (*it == pts) {
-                mDropFramesPts.erase(it);
+                mDropFrames.erase(it);
                 return true;
             }
         }

@@ -21,6 +21,8 @@
 #include "C2RKLog.h"
 #include "C2RKDump.h"
 
+using namespace android;
+
 #define MAX_LINE_LEN  256
 
 uint32_t getALogLevel(uint32_t level) {

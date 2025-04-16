@@ -19,14 +19,13 @@
 
 #include "C2RKComponent.h"
 #include "C2RKInterface.h"
-#include "C2RKMlvecLegacy.h"
-#include "C2RKMpiRoiUtils.h"
-#include "C2RKDump.h"
 
 #include "rk_mpi.h"
-#include "mpp_rc_api.h"
 
 namespace android {
+
+class C2RKMlvecLegacy;
+class C2RKDump;
 
 struct C2RKMpiEnc : public C2RKComponent {
 public:
@@ -84,31 +83,33 @@ private:
     const char* mName;
     const char* mMime;
     std::shared_ptr<IntfImpl> mIntf;
-    MyDmaBuffer_t *mDmaMem;
+
+    MyDmaBuffer_t   *mDmaMem;
     C2RKMlvecLegacy *mMlvec;
-    C2RKDump *mDump;
+    C2RKDump        *mDump;
+    void            *mRoiCtx;
 
     /* MPI interface parameters */
-    MppCtx         mMppCtx;
-    MppApi        *mMppMpi;
-    MppBuffer      mMdInfo; /* motion info buffer */
-    MppEncRoiCtx   mRoiCtx;
-    MppBufferGroup mGroup;
-    MppEncCfg      mEncCfg;
-    MppCodingType  mCodingType;
-    MppFrameFormat mInputMppFmt;
-    int32_t        mChipType;
+    MppCtx           mMppCtx;
+    MppApi          *mMppMpi;
+    MppBuffer        mMdInfo; /* motion info buffer */
+    MppBufferGroup   mGroup;
+    MppEncCfg        mEncCfg;
+    MppCodingType    mCodingType;
+    MppFrameFormat   mInputMppFmt;
+    int32_t          mChipType;
 
-    bool           mStarted;
-    bool           mInputScalar;
-    bool           mSpsPpsHeaderReceived;
-    bool           mSawInputEOS;
-    bool           mOutputEOS;
-    bool           mSignalledError;
-    int32_t        mHorStride;
-    int32_t        mVerStride;
-    int32_t        mCurLayerCount;
-    int32_t        mInputCount;
+    bool             mStarted;
+    bool             mInputScalar;
+    bool             mSpsPpsHeaderReceived;
+    bool             mSawInputEOS;
+    bool             mOutputEOS;
+    bool             mSignalledError;
+
+    int32_t          mHorStride;
+    int32_t          mVerStride;
+    int32_t          mCurLayerCount;
+    int32_t          mInputCount;
 
     // configurations used by component in process
     // (TODO: keep this in intf but make them internal only)

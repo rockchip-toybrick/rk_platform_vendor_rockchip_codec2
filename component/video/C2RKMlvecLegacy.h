@@ -19,6 +19,8 @@
 
 #include "rk_mpi.h"
 
+namespace android {
+
 #define  MLVEC_MAGIC                       'M'
 #define  MLVEC_VERSION                     '0'
 
@@ -88,5 +90,7 @@ private:
     MStaticCfg  mStaticCfg;
     MDynamicCfg mDynamicCfg;
 };
+
+}
 
 #endif  // ANDROID_C2_RK_MLVEC_LEGACY_H__

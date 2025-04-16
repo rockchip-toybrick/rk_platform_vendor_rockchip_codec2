@@ -271,19 +271,19 @@ C2ChipType C2RKChipCapDef::getChipType() {
     return mChipCapInfo->chipType;
 }
 
-uint32_t C2RKChipCapDef::getHdrMetaCap() {
+int32_t C2RKChipCapDef::getHdrMetaCap() {
     return mChipCapInfo->hdrMetaCap;
 }
 
-uint32_t C2RKChipCapDef::getScaleMode() {
+int32_t C2RKChipCapDef::getScaleMode() {
     return mChipCapInfo->scaleMode;
 }
 
-uint32_t C2RKChipCapDef::getGrallocVersion() {
+int32_t C2RKChipCapDef::getGrallocVersion() {
     return mChipCapInfo->grallocVersion;
 }
 
-uint32_t C2RKChipCapDef::getFastModeSupport(MppCodingType codecId) {
+int32_t C2RKChipCapDef::getFastModeSupport(MppCodingType codecId) {
     if (codecId == MPP_VIDEO_CodingVP9
             && mChipCapInfo->chipType == RK_CHIP_3588) {
         return false;
@@ -291,7 +291,7 @@ uint32_t C2RKChipCapDef::getFastModeSupport(MppCodingType codecId) {
     return true;
 }
 
-uint32_t C2RKChipCapDef::getFbcOutputMode(MppCodingType codecId) {
+int32_t C2RKChipCapDef::getFbcOutputMode(MppCodingType codecId) {
     uint32_t fbcMode = 0;
 
     for (int i = 0; i < mChipCapInfo->fbcCapNum; i++) {
@@ -311,7 +311,7 @@ uint32_t C2RKChipCapDef::getFbcOutputMode(MppCodingType codecId) {
     return fbcMode;
 }
 
-uint32_t C2RKChipCapDef::getFbcMinStride(uint32_t fbcMode) {
+int32_t C2RKChipCapDef::getFbcMinStride(int32_t fbcMode) {
     uint32_t minStride = property_get_int32("codec2_fbc_min_stride", 0);
     if (minStride == 0) {
         if (fbcMode == C2_COMPRESS_RFBC_64x4) {
@@ -324,8 +324,8 @@ uint32_t C2RKChipCapDef::getFbcMinStride(uint32_t fbcMode) {
     return minStride;
 }
 
-uint32_t C2RKChipCapDef::getFbcOutputOffset(
-        MppCodingType codecId, uint32_t *offsetX, uint32_t *offsetY) {
+int32_t C2RKChipCapDef::getFbcOutputOffset(
+        MppCodingType codecId, int32_t *offsetX, int32_t *offsetY) {
     *offsetX = *offsetY = 0;
 
     for (int i = 0; i < mChipCapInfo->fbcCapNum; i++) {

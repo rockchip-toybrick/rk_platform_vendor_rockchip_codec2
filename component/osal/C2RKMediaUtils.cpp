@@ -18,7 +18,8 @@
 #define ROCKCHIP_LOG_TAG    "C2RKMediaUtils"
 
 #include <string.h>
-#include <C2Config.h>
+#include <C2AllocatorGralloc.h>
+#include <ui/GraphicBufferMapper.h>
 #include <cutils/properties.h>
 
 #include "C2RKMediaUtils.h"
@@ -29,22 +30,22 @@ using namespace android;
 
 typedef struct {
     int32_t      level;
-    uint32_t     maxDpbPixs;     /* Max dpb picture total pixels */
+    int32_t     maxDpbPixs;     /* Max dpb picture total pixels */
     const char  *name;
 } C2LevelInfo;
 
 typedef struct {
-    uint32_t c2Format;
-    uint32_t androidFormat[3];
+    int32_t c2Format;
+    int32_t androidFormat[3];
 } C2FormatMap;
 
 static const C2FormatMap gFormatList[] = {
     {
         MPP_FMT_YUV420SP,
         {
-            HAL_PIXEL_FORMAT_YCrCb_NV12,       // RT_COMPRESS_MODE_NONE
-            HAL_PIXEL_FORMAT_YUV420_8BIT_I,    // RT_COMPRESS_AFBC_16x16
-            HAL_PIXEL_FORMAT_YUV420_8BIT_RFBC  // RT_COMPRESS_RFBC_64x4
+            HAL_PIXEL_FORMAT_YCrCb_NV12,       // COMPRESS_MODE_NONE
+            HAL_PIXEL_FORMAT_YUV420_8BIT_I,    // COMPRESS_AFBC_16x16
+            HAL_PIXEL_FORMAT_YUV420_8BIT_RFBC  // COMPRESS_RFBC_64x4
         }
     },
     {
@@ -159,7 +160,7 @@ void dumpFrameInfo(C2FrameInfo &info, const char *tag) {
               info.width, info.height, info.hstride, info.vstride);
 }
 
-uint32_t C2RKMediaUtils::getAndroidColorFmt(uint32_t format, uint32_t fbcMode) {
+uint32_t C2RKMediaUtils::getHalPixerFormat(int32_t format, int32_t fbcMode) {
     uint32_t androidFormat = HAL_PIXEL_FORMAT_YCrCb_NV12;
 
     int32_t i = 0;
@@ -478,5 +479,33 @@ void C2RKMediaUtils::convertNV12ToNV12(
     if (cacheSync && dstInfo.fd > 0) {
         // invalid CPU cache
         dma_sync_cpu_to_device(dstInfo.fd);
+    }
+}
+
+c2_status_t C2RKMediaUtils::importGraphicBuffer(
+        const C2Handle *const c2Handle, buffer_handle_t *outHandle) {
+    uint32_t bqSlot, width, height, format, stride, generation;
+    uint64_t usage, bqId;
+
+    native_handle_t *gHandle = UnwrapNativeCodec2GrallocHandle(c2Handle);
+
+    android::_UnwrapNativeCodec2GrallocMetadata(
+            c2Handle, &width, &height, &format, &usage,
+            &stride, &generation, &bqId, &bqSlot);
+
+    status_t err = GraphicBufferMapper::get().importBuffer(
+            gHandle, width, height, 1, format, usage,
+            stride, outHandle);
+    if (err != OK) {
+        c2_err("failed to import buffer %p", gHandle);
+    }
+
+    native_handle_delete(gHandle);
+    return (c2_status_t)err;
+}
+
+void C2RKMediaUtils::freeGraphicBuffer(buffer_handle_t handle) {
+    if (handle) {
+        GraphicBufferMapper::get().freeBuffer(handle);
     }
 }

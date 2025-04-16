@@ -27,6 +27,8 @@
 #include "C2RKLog.h"
 #include "C2RKMediaUtils.h"
 
+namespace android {
+
 #define  C2_RECORD_DIR   "/data/video/"
 
 int32_t C2RKDump::mFlag = 0;
@@ -208,3 +210,4 @@ void C2RKDump::showDebugFps(C2DumpRole role) {
     }
 }
 
+}

@@ -23,6 +23,8 @@
 #include <ui/GraphicBufferMapper.h>
 #include <ui/GraphicBufferAllocator.h>
 
+#include "mpp_rc_api.h"
+
 #include "C2RKMpiEnc.h"
 #include "C2RKLog.h"
 #include "C2RKPlatformSupport.h"
@@ -34,6 +36,9 @@
 #include "C2RKGrallocOps.h"
 #include "C2RKMemTrace.h"
 #include "C2RKPropsDef.h"
+#include "C2RKMlvecLegacy.h"
+#include "C2RKDump.h"
+#include "C2RKMpiRoiUtils.h"
 #include "C2RKVersion.h"
 
 namespace android {
@@ -1135,10 +1140,10 @@ C2RKMpiEnc::C2RKMpiEnc(
       mDmaMem(nullptr),
       mMlvec(nullptr),
       mDump(new C2RKDump),
+      mRoiCtx(nullptr),
       mMppCtx(nullptr),
       mMppMpi(nullptr),
       mMdInfo(nullptr),
-      mRoiCtx(nullptr),
       mGroup(nullptr),
       mEncCfg(nullptr),
       mCodingType(MPP_VIDEO_CodingUnused),

@@ -36,6 +36,7 @@
 #include "C2RKExtendParameters.h"
 #include "C2RKGrallocOps.h"
 #include "C2RKMemTrace.h"
+#include "C2RKDump.h"
 #include "C2RKTunneledSession.h"
 #include "C2RKPropsDef.h"
 #include "C2RKVersion.h"
@@ -52,33 +53,6 @@ struct MlvecParams {
     std::shared_ptr<C2DriverVersion::output> driverInfo;
     std::shared_ptr<C2LowLatencyMode::output> lowLatencyMode;
 };
-
-c2_status_t importGraphicBuffer(const C2Handle *const c2Handle, buffer_handle_t *outHandle) {
-    uint32_t bqSlot, width, height, format, stride, generation;
-    uint64_t usage, bqId;
-
-    native_handle_t *gHandle = UnwrapNativeCodec2GrallocHandle(c2Handle);
-
-    android::_UnwrapNativeCodec2GrallocMetadata(
-            c2Handle, &width, &height, &format, &usage,
-            &stride, &generation, &bqId, &bqSlot);
-
-    status_t err = GraphicBufferMapper::get().importBuffer(
-            gHandle, width, height, 1, format, usage,
-            stride, outHandle);
-    if (err != OK) {
-        c2_err("failed to import buffer %p", gHandle);
-    }
-
-    native_handle_delete(gHandle);
-    return (c2_status_t)err;
-}
-
-void freeGraphicBuffer(buffer_handle_t outHandle) {
-    if (outHandle) {
-        GraphicBufferMapper::get().freeBuffer(outHandle);
-    }
-}
 
 class C2RKMpiDec::IntfImpl : public C2RKInterface<void>::BaseParams {
 public:
@@ -762,7 +736,7 @@ static int32_t frameReadyCb(void *ctx, void *mppCtx, int32_t cmd, void *frame) {
     return 0;
 }
 
-void C2RKMpiDec::WorkHandler::waitAllMsgFlushed() {
+void C2RKMpiDec::WorkHandler::flushAllMessages() {
     sp<AMessage> msg = new AMessage(WorkHandler::kWhatFlushMessage, this);
 
     sp<AMessage> response;
@@ -939,13 +913,13 @@ void C2RKMpiDec::onRelease() {
         mDump = nullptr;
     }
 
-    stopFlushingState();
-
     if (mTunneled) {
         mTunneledSession->disconnect();
         delete mTunneledSession;
         mTunneledSession = nullptr;
     }
+
+    stopFlushingState();
 
     setMppPerformance(false);
 
@@ -964,7 +938,7 @@ c2_status_t C2RKMpiDec::onFlush_sm() {
         }
 
         if (mHandler) {
-            mHandler->waitAllMsgFlushed();
+            mHandler->flushAllMessages();
         }
 
         Mutex::Autolock autoLock(mBufferLock);
@@ -1075,17 +1049,16 @@ c2_status_t C2RKMpiDec::updateSurfaceConfig(const std::shared_ptr<C2BlockPool> &
         return err;
     }
 
-    uint64_t usage = 0;
     buffer_handle_t handle = nullptr;
     auto c2Handle = block->handle();
 
-    err = importGraphicBuffer(c2Handle, &handle);
+    err = C2RKMediaUtils::importGraphicBuffer(c2Handle, &handle);
     if (err != C2_OK) {
         c2_err("failed to import graphic buffer");
         return err;
     }
 
-    usage = C2RKGrallocOps::get()->getUsage(handle);
+    uint64_t usage = C2RKGrallocOps::get()->getUsage(handle);
     if (usage & GRALLOC_USAGE_HW_VIDEO_ENCODER) {
         mIsGBSource = true;
         updateFbcModeIfNeeded();
@@ -1111,7 +1084,7 @@ c2_status_t C2RKMpiDec::updateSurfaceConfig(const std::shared_ptr<C2BlockPool> &
     }
 
 cleanUp:
-    freeGraphicBuffer(handle);
+    C2RKMediaUtils::freeGraphicBuffer(handle);
 
     return err;
 }
@@ -1313,7 +1286,7 @@ c2_status_t C2RKMpiDec::configTunneledPlayback(const std::unique_ptr<C2Work> &wo
     params.bottom = mHeight;
     params.width  = mHorStride;
     params.height = mVerStride;
-    params.format = C2RKMediaUtils::getAndroidColorFmt(mColorFormat, mFbcCfg.mode);
+    params.format = C2RKMediaUtils::getHalPixerFormat(mColorFormat, mFbcCfg.mode);
     params.usage  = 0;
     params.dataSpace = 0;
     params.compressMode = mFbcCfg.mode ? 1 : 0;
@@ -1750,11 +1723,6 @@ void C2RKMpiDec::process(
     c2_trace("in buffer attr. size %zu timestamp %lld frameindex %lld, flags %x",
              inSize, timestamp, frameIndex, flags);
 
-    if (!(flags & C2FrameData::FLAG_CODEC_CONFIG)
-            && (flags & C2FrameData::FLAG_DROP_FRAME)) {
-        mDropFramesPts.push_back(timestamp);
-    }
-
     if (mFlushed) {
         mBlockPool = pool;
         err = ensureDecoderState();
@@ -1980,7 +1948,7 @@ c2_status_t C2RKMpiDec::updateAllocParamsIfNeeded(AllocParams *params) {
 
     allocW = frameW;
     allocH = frameH;
-    allocFmt = C2RKMediaUtils::getAndroidColorFmt(mppFormat, mFbcCfg.mode);
+    allocFmt = C2RKMediaUtils::getHalPixerFormat(mppFormat, mFbcCfg.mode);
 
     if (mFbcCfg.mode) {
         // NOTE: FBC case may have offset y on top and vertical stride
@@ -2099,7 +2067,7 @@ c2_status_t C2RKMpiDec::importBufferToMpp(std::shared_ptr<C2GraphicBlock> block)
     uint32_t fd = c2Handle->data[0];
     buffer_handle_t handle = nullptr;
 
-    err = importGraphicBuffer(c2Handle, &handle);
+    err = C2RKMediaUtils::importGraphicBuffer(c2Handle, &handle);
     if (err != C2_OK) return err;
 
     /* check use scale meta when chip feature support it */
@@ -2156,8 +2124,7 @@ c2_status_t C2RKMpiDec::importBufferToMpp(std::shared_ptr<C2GraphicBlock> block)
                  bufferId, info.size, mppBuffer, mOutBuffers.size());
     }
 
-    freeGraphicBuffer(handle);
-
+    C2RKMediaUtils::freeGraphicBuffer(handle);
     return err;
 }
 
@@ -2288,14 +2255,14 @@ void C2RKMpiDec::postFrameReady() {
 }
 
 c2_status_t C2RKMpiDec::onFrameReady() {
-    c2_status_t err = C2_BAD_STATE;
+    if (mSignalledError) return C2_BAD_STATE;
 
-    if (mSignalledError) return err;
-
-outframe:
     OutWorkEntry entry;
 
-    err = getoutframe(&entry);
+outframe:
+    memset(&entry, 0, sizeof(entry));
+
+    c2_status_t err = getoutframe(&entry);
     if (err == C2_OK) {
         finishWork(entry);
         /* Avoid stock frame, continue to search available output */
@@ -2320,7 +2287,7 @@ error:
         mEosCondition.signal();
     }
 
-    return C2_CORRUPTED;
+    return err;
 }
 
 c2_status_t C2RKMpiDec::sendpacket(uint8_t *data, size_t size, uint64_t pts, uint32_t flags) {
@@ -2339,6 +2306,8 @@ c2_status_t C2RKMpiDec::sendpacket(uint8_t *data, size_t size, uint64_t pts, uin
 
     if (flags & C2FrameData::FLAG_CODEC_CONFIG) {
         mpp_packet_set_extra_data(packet);
+    } else if (flags & C2FrameData::FLAG_DROP_FRAME) {
+        mDropFrames.push_back(pts);
     }
 
     /* dump frame time consuming if neccessary */
@@ -2516,9 +2485,9 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
             int32_t dstFmt = mPixelFormat == HAL_PIXEL_FORMAT_YCBCR_P010 ?
                              HAL_PIXEL_FORMAT_YCBCR_P010 : HAL_PIXEL_FORMAT_YCrCb_NV12;
 
-            C2GraphicView wView = mOutBlock->map().get();
-            C2PlanarLayout layout = wView.layout();
-            int32_t dstStride = layout.planes[C2PlanarLayout::PLANE_Y].rowInc;
+            C2GraphicView dstView = mOutBlock->map().get();
+            C2PlanarLayout dstLayout = dstView.layout();
+            int32_t dstStride = dstLayout.planes[C2PlanarLayout::PLANE_Y].rowInc;
 
             if (mUseRgaBlit) {
                 RgaInfo srcInfo, dstInfo;
@@ -2527,21 +2496,21 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
                         &srcInfo, srcFd, srcFmt,width, height, hstride, vstride);
                 C2RKRgaDef::SetRgaInfo(
                         &dstInfo, dstFd, dstFmt, width, height, dstStride, height);
-                if (C2RKRgaDef::DoBlit(srcInfo, dstInfo)) {
+                if (!C2RKRgaDef::DoBlit(srcInfo, dstInfo)) {
+                    mUseRgaBlit = false;
+                    c2_warn("failed RGA blit, fallback software copy");
+                } else {
                     break;
                 }
-
-                mUseRgaBlit = false;
-                c2_info("not support rga blit, fallback cpu copy");
             }
 
             // fallback software copy
-            uint8_t *src = (uint8_t*)mpp_buffer_get_ptr(mppBuffer);
-            uint8_t *dst = const_cast<uint8_t *>(wView.data()[C2PlanarLayout::PLANE_Y]);
+            uint8_t *srcPtr = (uint8_t*)mpp_buffer_get_ptr(mppBuffer);
+            uint8_t *dstPtr = (uint8_t*)(dstView.data()[C2PlanarLayout::PLANE_Y]);
 
             C2RKMediaUtils::convertBufferToRequestFmt(
-                    { src, srcFd, srcFmt, width, height, hstride, vstride },
-                    { dst, dstFd, dstFmt, width, height, dstStride, height },
+                    { srcPtr, srcFd, srcFmt, width, height, hstride, vstride },
+                    { dstPtr, dstFd, dstFmt, width, height, dstStride, height },
                     true /* cache sync */);
         } while (0);
     } else {
@@ -2651,7 +2620,7 @@ c2_status_t C2RKMpiDec::configFrameHdrMeta(
             buffer_handle_t handle = nullptr;
             auto c2Handle = block->handle();
 
-            err = importGraphicBuffer(c2Handle, &handle);
+            err = C2RKMediaUtils::importGraphicBuffer(c2Handle, &handle);
             if (err != C2_OK) {
                 c2_err("failed to import graphic buffer");
                 return err;
@@ -2661,7 +2630,7 @@ c2_status_t C2RKMpiDec::configFrameHdrMeta(
                 c2_trace("failed to config HdrDynamicMeta");
             }
 
-            freeGraphicBuffer(handle);
+            C2RKMediaUtils::freeGraphicBuffer(handle);
         }
     }
 
