@@ -50,6 +50,10 @@ public:
             uint32_t drainMode,
             const std::shared_ptr<C2BlockPool> &pool) override;
 
+    c2_status_t onDrainWork(
+            const std::unique_ptr<C2Work> &work = nullptr,
+            bool drainEOS = false);
+
 private:
     /* DMA buffer memery */
     typedef struct {
@@ -80,9 +84,36 @@ private:
         uint64_t  frameIndex;
     } OutWorkEntry;
 
+    class WorkHandler : public AHandler {
+    public:
+        enum {
+            kWhatDrainWork,
+            kWhatStop,
+        };
+
+        WorkHandler() { mRunning = true; }
+        ~WorkHandler() override = default;
+
+        void setComponent(C2RKMpiEnc *thiz);
+        void startWork();
+        void stopWork();
+        void waitDrainEOS();
+
+    protected:
+        void onMessageReceived(const sp<AMessage> &msg) override;
+
+    private:
+        C2RKMpiEnc *mThiz;
+        bool mRunning;
+    };
+
     const char* mName;
     const char* mMime;
     std::shared_ptr<IntfImpl> mIntf;
+    std::shared_ptr<C2BlockPool> mBlockPool;
+
+    sp<ALooper>      mLooper;
+    sp<WorkHandler>  mHandler;
 
     MyDmaBuffer_t   *mDmaMem;
     C2RKMlvecLegacy *mMlvec;
@@ -121,8 +152,11 @@ private:
     void fillEmptyWork(const std::unique_ptr<C2Work> &work);
     void finishWork(
             const std::unique_ptr<C2Work> &work,
-            const std::shared_ptr<C2BlockPool>& pool,
             OutWorkEntry entry);
+
+    /* packet output looper */
+    c2_status_t setupAndStartLooper();
+    c2_status_t stopAndReleaseLooper();
 
     c2_status_t setupBaseCodec();
     c2_status_t setupInputScalar();

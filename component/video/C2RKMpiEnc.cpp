@@ -1128,6 +1128,73 @@ private:
     std::shared_ptr<MlvecParams> mMlvecParams;
 };
 
+status_t postAndAwaitResponse(const sp<AMessage> &msg) {
+    sp<AMessage> response;
+    status_t err = msg->postAndAwaitResponse(&response);
+    if (err != OK) {
+        return err;
+    }
+    if (!response->findInt32("err", &err)) {
+        err = OK;
+    }
+
+    return err;
+}
+
+void postReplyWithError(const sp<AMessage> &msg, int32_t err) {
+    sp<AReplyToken> replyID;
+    msg->senderAwaitsResponse(&replyID);
+
+    sp<AMessage> response = new AMessage;
+    response->setInt32("err", err);
+    response->postReply(replyID);
+}
+
+void C2RKMpiEnc::WorkHandler::setComponent(C2RKMpiEnc *thiz) {
+    mThiz = thiz;
+}
+
+void C2RKMpiEnc::WorkHandler::startWork() {
+    mRunning = true;
+
+    sp<AMessage> msg = new AMessage(WorkHandler::kWhatDrainWork, this);
+    msg->post();
+}
+
+void C2RKMpiEnc::WorkHandler::stopWork() {
+    mRunning = false;
+
+    sp<AMessage> msg = new AMessage(WorkHandler::kWhatStop, this);
+    postAndAwaitResponse(msg);
+}
+
+void C2RKMpiEnc::WorkHandler::onMessageReceived(const sp<AMessage> &msg) {
+    switch (msg->what()) {
+        case kWhatDrainWork: {
+            if (mRunning && mThiz) {
+                int32_t err = mThiz->onDrainWork();
+                if (err != C2_CORRUPTED) {
+                    int64_t delayUs = (err == C2_OK) ? 0 : 2000;
+                    (new AMessage(kWhatDrainWork, this))->post(delayUs);
+                } else {
+                    c2_err("got error, quit work looper");
+                }
+            } else {
+                c2_trace("Ignore process message as we're not running");
+            }
+        } break;
+        case kWhatStop: {
+            mRunning = false;
+
+            /* post response */
+            postReplyWithError(msg, C2_OK);
+        } break;
+        default: {
+            c2_err("Unrecognized msg: %d", msg->what());
+        } break;
+    }
+}
+
 C2RKMpiEnc::C2RKMpiEnc(
         const char *name,
         const char *mime,
@@ -1174,6 +1241,36 @@ C2RKMpiEnc::~C2RKMpiEnc() {
     C2RKMemTrace::get()->dumpAllNode();
 }
 
+c2_status_t C2RKMpiEnc::setupAndStartLooper() {
+    status_t err = OK;
+    if (mLooper == nullptr) {
+        status_t err = OK;
+        mLooper = new ALooper;
+        mHandler = new WorkHandler;
+        mHandler->setComponent(this);
+
+        mLooper->setName("C2EncLooper");
+        err = mLooper->start();
+        if (err == OK) {
+            mLooper->registerHandler(mHandler);
+        }
+    }
+    return (c2_status_t)err;
+}
+
+c2_status_t C2RKMpiEnc::stopAndReleaseLooper() {
+    if (mLooper != nullptr) {
+        if (mHandler != nullptr) {
+            mHandler->stopWork();
+            mLooper->unregisterHandler(mHandler->id());
+            mHandler.clear();
+        }
+        mLooper->stop();
+        mLooper.clear();
+    }
+    return C2_OK;
+}
+
 c2_status_t C2RKMpiEnc::onInit() {
     c2_log_func_enter();
 
@@ -1189,6 +1286,14 @@ c2_status_t C2RKMpiEnc::onInit() {
     if (!C2RKMemTrace::get()->tryAddVideoNode(node)) {
         C2RKMemTrace::get()->dumpAllNode();
         return C2_NO_MEMORY;
+    }
+
+    if (C2RKPropsDef::getEncAsncOutputMode()) {
+        c2_info("use async output mode");
+        c2_status_t err = setupAndStartLooper();
+        if (err != C2_OK) {
+            c2_err("failed to start looper, fallback sync output");
+        }
     }
 
     return C2_OK;
@@ -1208,6 +1313,14 @@ void C2RKMpiEnc::onRelease() {
 
     if (!mStarted)
         return;
+
+    if (mHandler) {
+        stopAndReleaseLooper();
+    }
+
+    if (mBlockPool) {
+        mBlockPool.reset();
+    }
 
     if (mMdInfo) {
         mpp_buffer_put(mMdInfo);
@@ -2165,7 +2278,6 @@ c2_status_t C2RKMpiEnc::setupEncCfg() {
 
 c2_status_t C2RKMpiEnc::initEncoder() {
     MPP_RET err = MPP_OK;
-    MppPollType timeout = MPP_POLL_BLOCK;
 
     c2_log_func_enter();
 
@@ -2185,8 +2297,7 @@ c2_status_t C2RKMpiEnc::initEncoder() {
     buffer_handle_t bufferHandle;
     uint32_t stride = 0;
 
-    uint64_t usage = (GRALLOC_USAGE_SW_READ_OFTEN |
-                      GRALLOC_USAGE_SW_WRITE_OFTEN);
+    uint64_t usage = (GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN);
 
     //  allocate buffer within 4G to avoid rga2 error.
     if (mChipType == RK_CHIP_3588 || mChipType == RK_CHIP_356X) {
@@ -2216,10 +2327,15 @@ c2_status_t C2RKMpiEnc::initEncoder() {
         goto error;
     }
 
-    err = mMppMpi->control(mMppCtx, MPP_SET_OUTPUT_TIMEOUT, &timeout);
-    if (err != MPP_OK) {
-        c2_err("failed to set output timeout %d, err %d", timeout, err);
-        goto error;
+    {
+        // Update the timeout settings for output.
+        // In async output mode, no need to wait for the result of output.
+        MppPollType timeout = mHandler ?  MPP_POLL_NON_BLOCK : MPP_POLL_BLOCK;
+        err = mMppMpi->control(mMppCtx, MPP_SET_OUTPUT_TIMEOUT, &timeout);
+        if (err != MPP_OK) {
+            c2_err("failed to set output timeout %d, err %d", timeout, err);
+            goto error;
+        }
     }
 
     err = mpp_init(mMppCtx, MPP_CTX_ENC, mCodingType);
@@ -2246,8 +2362,6 @@ c2_status_t C2RKMpiEnc::initEncoder() {
     }
 
     mDump->initDump(mSize->width, mSize->height, true);
-
-    mStarted = true;
 
     return C2_OK;
 
@@ -2277,7 +2391,6 @@ void C2RKMpiEnc::fillEmptyWork(const std::unique_ptr<C2Work>& work) {
 
 void C2RKMpiEnc::finishWork(
         const std::unique_ptr<C2Work> &work,
-        const std::shared_ptr<C2BlockPool>& pool,
         OutWorkEntry entry) {
     c2_status_t ret = C2_OK;
     uint64_t frmIndex = 0;
@@ -2292,11 +2405,9 @@ void C2RKMpiEnc::finishWork(
     size_t  len  = mpp_packet_get_length(packet);
     size_t  size = mpp_packet_get_size(packet);
 
-    ret = pool->fetchLinearBlock(size, usage, &block);
+    ret = mBlockPool->fetchLinearBlock(size, usage, &block);
     if (ret != C2_OK) {
         c2_err("failed to fetch block for output, ret 0x%x", ret);
-        work->result = ret;
-        work->workletsProcessed = 1u;
         mSignalledError = true;
         return;
     }
@@ -2304,8 +2415,6 @@ void C2RKMpiEnc::finishWork(
     C2WriteView wView = block->map().get();
     if (C2_OK != wView.error()) {
         c2_err("write view map failed with status 0x%x", wView.error());
-        work->result = wView.error();
-        work->workletsProcessed = 1u;
         mSignalledError = true;
         return;
     }
@@ -2335,7 +2444,7 @@ void C2RKMpiEnc::finishWork(
 
     if (work && c2_cntr64_t(frmIndex) == work->input.ordinal.frameIndex) {
         fillWork(work);
-        if (mSawInputEOS) {
+        if (mOutputEOS) {
             work->worklets.front()->output.flags = C2FrameData::FLAG_END_OF_STREAM;
         }
     } else {
@@ -2349,6 +2458,39 @@ c2_status_t C2RKMpiEnc::drain(
     (void)drainMode;
     (void)pool;
     return C2_OK;
+}
+
+c2_status_t C2RKMpiEnc::onDrainWork(
+        const std::unique_ptr<C2Work> &work, bool drainEOS) {
+    if (mSignalledError) return C2_BAD_STATE;
+
+    c2_status_t err = C2_OK;
+    static int kMaxDrainEosDelayUs = 3000 *1000;
+    int64_t nowUs = ALooper::GetNowUs();
+
+    OutWorkEntry entry;
+
+outpacket:
+    memset(&entry, 0, sizeof(entry));
+
+    err = getoutpacket(&entry);
+    if (err == C2_OK) {
+        finishWork(work, entry);
+    } else if (err == C2_CORRUPTED) {
+        c2_err("signalling error");
+        mSignalledError = true;
+        return err;
+    }
+
+    if (drainEOS && !mOutputEOS) {
+        if ((ALooper::GetNowUs() - nowUs) < kMaxDrainEosDelayUs) {
+            goto outpacket;
+        } else {
+            c2_warn("faield to drain eos within %d us", kMaxDrainEosDelayUs);
+        }
+    }
+
+    return err;
 }
 
 void C2RKMpiEnc::process(
@@ -2369,6 +2511,12 @@ void C2RKMpiEnc::process(
             c2_info("failed to initialize, signalled Error");
             return;
         }
+        // start output looper
+        if (mHandler) {
+            mHandler->startWork();
+        }
+        mBlockPool = pool;
+        mStarted = true;
     }
 
     if (mSignalledError) {
@@ -2451,10 +2599,7 @@ void C2RKMpiEnc::process(
     handleCommonDynamicCfg();
 
     MyDmaBuffer_t inDmaBuf;
-    OutWorkEntry entry;
-
     memset(&inDmaBuf, 0, sizeof(MyDmaBuffer_t));
-    memset(&entry, 0, sizeof(OutWorkEntry));
 
     err = getInBufferFromWork(work, &inDmaBuf);
     if (err != C2_OK) {
@@ -2474,18 +2619,24 @@ void C2RKMpiEnc::process(
         return;
     }
 
-    /* get packet from mpp */
-    err = getoutpacket(&entry);
-    if (err == C2_OK) {
-        finishWork(work, pool, entry);
+    // In async output mode, not set workletsProcessed to indicates that the
+    // current work is not completed. find this work by frameIndex and finish
+    // it later in output looper.
+    if (mHandler) {
+        if (mSawInputEOS) {
+            // stop looper and waiting for EOS output
+            mHandler->stopWork();
+            onDrainWork(work, true /* drainEOS */);
+        }
     } else {
-        if (work && work->workletsProcessed != 1u) {
+        err = onDrainWork(work);
+        if (err != C2_OK) {
             fillEmptyWork(work);
         }
-    }
 
-    if (!mSawInputEOS && work->input.buffers.empty()) {
-        fillEmptyWork(work);
+        if (!mSawInputEOS && work->input.buffers.empty()) {
+            fillEmptyWork(work);
+        }
     }
 }
 
@@ -2965,7 +3116,6 @@ c2_status_t C2RKMpiEnc::sendframe(
 
     err = mMppMpi->encode_put_frame(mMppCtx, frame);
     if (err != MPP_OK) {
-        c2_err("failed to put_frame, err %d", err);
         ret = C2_NOT_FOUND;
         goto error;
     }
@@ -2988,7 +3138,7 @@ c2_status_t C2RKMpiEnc::getoutpacket(OutWorkEntry *entry) {
     MppPacket packet = nullptr;
 
     err = mMppMpi->encode_get_packet(mMppCtx, &packet);
-    if (err != MPP_OK) {
+    if (err != MPP_OK || packet == nullptr) {
         return C2_NOT_FOUND;
     } else {
         int64_t  pts = mpp_packet_get_pts(packet);
@@ -3086,4 +3236,3 @@ C2ComponentFactory* CreateRKMpiEncFactory(std::string componentName) {
 }
 
 } // namespace android
-
