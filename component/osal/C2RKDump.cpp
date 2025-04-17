@@ -57,7 +57,7 @@ const char *toStr_RawType(uint32_t type) {
 int64_t getCurrentTimeMillis() {
     struct timeval tv;
     gettimeofday(&tv, nullptr);
-    return tv.tv_sec * 1000 + tv.tv_usec / 1000;
+    return (int64_t)tv.tv_sec * 1000 + tv.tv_usec / 1000;
 }
 
 C2RKDump::C2RKDump()
