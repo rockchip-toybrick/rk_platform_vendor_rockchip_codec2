@@ -36,6 +36,8 @@ public:
     /* reduce in/output buffer size on low memory device */
     static int32_t getLowMemoryMode();
     static int32_t getInputBufferSize();
+
+    static int32_t getEncAsncOutputMode();
 };
 
 #endif  // ANDROID_C2_RK_PROPS_DEF_H__

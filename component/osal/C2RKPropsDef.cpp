@@ -24,6 +24,7 @@ static int32_t sScaleDisable = 0;
 static int32_t sEncSuperMode = 0;
 static int32_t sLowMemoryMode= 0;
 static int32_t sInputBufferSize = 0;
+static int32_t sEncAsyncOutputMode = 0;
 static bool sPropInited = propInit();
 
 static bool propInit() {
@@ -38,6 +39,8 @@ static bool propInit() {
     sLowMemoryMode = property_get_int32("codec2_low_memory_mode", 0);
 
     sInputBufferSize = property_get_int32("codec2_input_buffer_size", 0);
+
+    sEncAsyncOutputMode = property_get_int32("codec2_enc_async_output_mode", 0);
 
     return true;
 }
@@ -64,5 +67,9 @@ int32_t C2RKPropsDef::getLowMemoryMode() {
 
 int32_t C2RKPropsDef::getInputBufferSize() {
     return sInputBufferSize;
+}
+
+int32_t C2RKPropsDef::getEncAsncOutputMode() {
+    return sEncAsyncOutputMode;
 }
 
