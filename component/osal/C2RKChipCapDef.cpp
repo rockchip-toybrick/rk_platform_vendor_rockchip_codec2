@@ -271,24 +271,24 @@ C2ChipType C2RKChipCapDef::getChipType() {
     return mChipCapInfo->chipType;
 }
 
-int32_t C2RKChipCapDef::getHdrMetaCap() {
+uint32_t C2RKChipCapDef::getHdrMetaCap() {
     return mChipCapInfo->hdrMetaCap;
 }
 
-int32_t C2RKChipCapDef::getScaleMode() {
+uint32_t C2RKChipCapDef::getScaleMode() {
     return mChipCapInfo->scaleMode;
 }
 
-int32_t C2RKChipCapDef::getGrallocVersion() {
+uint32_t C2RKChipCapDef::getGrallocVersion() {
     return mChipCapInfo->grallocVersion;
 }
 
-int32_t C2RKChipCapDef::getFastModeSupport(MppCodingType codecId) {
+uint32_t C2RKChipCapDef::getFastModeSupport(MppCodingType codecId) {
     if (codecId == MPP_VIDEO_CodingVP9
             && mChipCapInfo->chipType == RK_CHIP_3588) {
-        return false;
+        return 0;
     }
-    return true;
+    return 1;
 }
 
 int32_t C2RKChipCapDef::getFbcOutputMode(MppCodingType codecId) {
