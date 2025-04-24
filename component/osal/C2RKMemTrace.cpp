@@ -73,7 +73,7 @@ bool C2RKMemTrace::tryAddVideoNode(C2NodeInfo &node) {
     load = node.width * node.height * node.frameRate;
 
     if (node.type == C2_TRACE_DECODER) {
-        if (mDisableCheck || ((mCurDecLoad + load < MAX_DEC_SOC_CAP_LOAD)
+        if (mDisableCheck || ((mCurDecLoad + load <= MAX_DEC_SOC_CAP_LOAD)
                 && (mDecNodes.size() < mMaxInstanceNum))) {
             mDecNodes.push(node);
             mCurDecLoad += load;
@@ -82,7 +82,7 @@ bool C2RKMemTrace::tryAddVideoNode(C2NodeInfo &node) {
         c2_err("overload initialize decoder(%dx%d@%.1f), current load %d",
                 node.width, node.height, node.frameRate, mCurDecLoad);
     } else if (node.type == C2_TRACE_ENCODER) {
-        if (mDisableCheck || ((mCurEncLoad + load < MAX_ENC_SOC_CAP_LOAD)
+        if (mDisableCheck || ((mCurEncLoad + load <= MAX_ENC_SOC_CAP_LOAD)
                 && (mEncNodes.size() < mMaxInstanceNum))) {
             mEncNodes.push(node);
             mCurEncLoad += load;
