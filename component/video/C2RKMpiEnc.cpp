@@ -1156,9 +1156,6 @@ void C2RKMpiEnc::WorkHandler::setComponent(C2RKMpiEnc *thiz) {
 
 void C2RKMpiEnc::WorkHandler::startWork() {
     mRunning = true;
-
-    sp<AMessage> msg = new AMessage(WorkHandler::kWhatDrainWork, this);
-    msg->post();
 }
 
 void C2RKMpiEnc::WorkHandler::stopWork() {
@@ -1173,10 +1170,8 @@ void C2RKMpiEnc::WorkHandler::onMessageReceived(const sp<AMessage> &msg) {
         case kWhatDrainWork: {
             if (mRunning && mThiz) {
                 int32_t err = mThiz->onDrainWork();
-                if (err != C2_CORRUPTED) {
-                    int64_t delayUs = (err == C2_OK) ? 0 : 2000;
-                    (new AMessage(kWhatDrainWork, this))->post(delayUs);
-                } else {
+                if (err == C2_CORRUPTED) {
+                    mRunning = false;
                     c2_err("got error, quit work looper");
                 }
             } else {
@@ -1313,6 +1308,10 @@ void C2RKMpiEnc::onRelease() {
 
     if (!mStarted)
         return;
+
+    if (mMppMpi) {
+        mMppMpi->reset(mMppCtx);
+    }
 
     if (mHandler) {
         stopAndReleaseLooper();
@@ -2328,9 +2327,8 @@ c2_status_t C2RKMpiEnc::initEncoder() {
     }
 
     {
-        // Update the timeout settings for output.
-        // In async output mode, no need to wait for the result of output.
-        MppPollType timeout = mHandler ?  MPP_POLL_NON_BLOCK : MPP_POLL_BLOCK;
+        // Update the block timeout settings for output.
+        MppPollType timeout = MPP_POLL_BLOCK;
         err = mMppMpi->control(mMppCtx, MPP_SET_OUTPUT_TIMEOUT, &timeout);
         if (err != MPP_OK) {
             c2_err("failed to set output timeout %d, err %d", timeout, err);
@@ -2448,6 +2446,17 @@ void C2RKMpiEnc::finishWork(
             work->worklets.front()->output.flags = C2FrameData::FLAG_END_OF_STREAM;
         }
     } else {
+        // TODO: wait pendding work ready, getpacket return before process over?
+        int32_t retry = 0;
+        static const int32_t kMaxPendingRetryTime = 20;
+        while (!isPendingWorkExist(frmIndex)) {
+            usleep(2 * 1000);
+            if ((retry++) > kMaxPendingRetryTime) {
+                c2_err("failed to wait work index %lld pendding", frmIndex);
+                mSignalledError = true;
+                break;
+            }
+        }
         finish(frmIndex, fillWork);
     }
 }
@@ -2460,34 +2469,18 @@ c2_status_t C2RKMpiEnc::drain(
     return C2_OK;
 }
 
-c2_status_t C2RKMpiEnc::onDrainWork(
-        const std::unique_ptr<C2Work> &work, bool drainEOS) {
+c2_status_t C2RKMpiEnc::onDrainWork(const std::unique_ptr<C2Work> &work) {
     if (mSignalledError) return C2_BAD_STATE;
 
-    c2_status_t err = C2_OK;
-    static int kMaxDrainEosDelayUs = 3000 *1000;
-    int64_t nowUs = ALooper::GetNowUs();
-
     OutWorkEntry entry;
-
-outpacket:
     memset(&entry, 0, sizeof(entry));
 
-    err = getoutpacket(&entry);
+    c2_status_t err = getoutpacket(&entry);
     if (err == C2_OK) {
         finishWork(work, entry);
     } else if (err == C2_CORRUPTED) {
         c2_err("signalling error");
         mSignalledError = true;
-        return err;
-    }
-
-    if (drainEOS && !mOutputEOS) {
-        if ((ALooper::GetNowUs() - nowUs) < kMaxDrainEosDelayUs) {
-            goto outpacket;
-        } else {
-            c2_warn("faield to drain eos within %d us", kMaxDrainEosDelayUs);
-        }
     }
 
     return err;
@@ -2623,11 +2616,8 @@ void C2RKMpiEnc::process(
     // current work is not completed. find this work by frameIndex and finish
     // it later in output looper.
     if (mHandler) {
-        if (mSawInputEOS) {
-            // stop looper and waiting for EOS output
-            mHandler->stopWork();
-            onDrainWork(work, true /* drainEOS */);
-        }
+        sp<AMessage> msg = new AMessage(WorkHandler::kWhatDrainWork, mHandler);
+        msg->post();
     } else {
         err = onDrainWork(work);
         if (err != C2_OK) {

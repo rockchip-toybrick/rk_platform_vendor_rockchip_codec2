@@ -50,9 +50,7 @@ public:
             uint32_t drainMode,
             const std::shared_ptr<C2BlockPool> &pool) override;
 
-    c2_status_t onDrainWork(
-            const std::unique_ptr<C2Work> &work = nullptr,
-            bool drainEOS = false);
+    c2_status_t onDrainWork(const std::unique_ptr<C2Work> &work = nullptr);
 
 private:
     /* DMA buffer memery */

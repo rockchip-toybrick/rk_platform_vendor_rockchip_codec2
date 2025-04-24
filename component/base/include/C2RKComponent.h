@@ -108,11 +108,17 @@ protected:
             uint32_t drainMode,
             const std::shared_ptr<C2BlockPool> &pool) = 0;
 
+    /**
+     * the ops of flush state, discard work output during process.
+     */
     void setFlushingState();
-
     void stopFlushingState();
-
     bool isPendingFlushing();
+
+    /**
+     * check is peeding work with frameIndex exits
+     */
+    bool isPendingWorkExist(uint64_t frameIndex);
 
     // for derived classes
     /**
@@ -130,8 +136,8 @@ protected:
             std::function<void(const std::unique_ptr<C2Work> &)> fillWork);
 
     void finish(
-        std::unique_ptr<C2Work> &work,
-        std::function<void(const std::unique_ptr<C2Work> &)> fillWork);
+            std::unique_ptr<C2Work> &work,
+            std::function<void(const std::unique_ptr<C2Work> &)> fillWork);
     /**
      * Clone pending or current work and send the work back to client.
      *
