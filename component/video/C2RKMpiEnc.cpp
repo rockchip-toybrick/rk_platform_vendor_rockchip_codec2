@@ -2519,6 +2519,10 @@ void C2RKMpiEnc::process(
         return;
     }
 
+    uint32_t flags = work->input.flags;
+    uint64_t frameIndex = work->input.ordinal.frameIndex.peekull();
+    uint64_t timestamp = work->input.ordinal.timestamp.peekll();
+
     std::shared_ptr<const C2GraphicView> view;
     std::shared_ptr<C2Buffer> inputBuffer = nullptr;
     if (!work->input.buffers.empty()) {
@@ -2532,11 +2536,11 @@ void C2RKMpiEnc::process(
             work->workletsProcessed = 1u;
             return;
         }
+    } else {
+        c2_warn("ignore empty input with frameIndex %lld", frameIndex);
+        fillEmptyWork(work);
+        return;
     }
-
-    uint32_t flags = work->input.flags;
-    uint64_t frameIndex = work->input.ordinal.frameIndex.peekull();
-    uint64_t timestamp = work->input.ordinal.timestamp.peekll();
 
     c2_trace("process one work timestamp %llu frameindex %llu, flags %x",
              timestamp, frameIndex, flags);
@@ -2870,11 +2874,6 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
     c2_status_t ret = C2_OK;
     uint64_t frameIndex = work->input.ordinal.frameIndex.peekull();
     bool configChanged = false;
-
-    if (work->input.buffers.empty()) {
-        c2_warn("ignore empty input with frameIndex %lld", frameIndex);
-        return C2_OK;
-    }
 
     std::shared_ptr<const C2GraphicView> view;
     std::shared_ptr<C2Buffer> inputBuffer = nullptr;
