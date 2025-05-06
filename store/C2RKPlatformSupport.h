@@ -38,6 +38,7 @@ static C2RKComponentEntry sComponentMaps[] = {
     { "c2.rk.m4v.decoder",          MEDIA_MIMETYPE_VIDEO_MPEG4, C2Component::KIND_DECODER },
     { "c2.rk.h263.decoder",         MEDIA_MIMETYPE_VIDEO_H263,  C2Component::KIND_DECODER },
     { "c2.rk.av1.decoder",          MEDIA_MIMETYPE_VIDEO_AV1,   C2Component::KIND_DECODER },
+    { "c2.rk.avs2.decoder",         MEDIA_MIMETYPE_VIDEO_AVS2,  C2Component::KIND_DECODER },
     { "c2.rk.avc.decoder.secure",   MEDIA_MIMETYPE_VIDEO_AVC,   C2Component::KIND_DECODER },
     { "c2.rk.vp9.decoder.secure",   MEDIA_MIMETYPE_VIDEO_VP9,   C2Component::KIND_DECODER },
     { "c2.rk.hevc.decoder.secure",  MEDIA_MIMETYPE_VIDEO_HEVC,  C2Component::KIND_DECODER },
@@ -45,6 +46,7 @@ static C2RKComponentEntry sComponentMaps[] = {
     { "c2.rk.mpeg2.decoder.secure", MEDIA_MIMETYPE_VIDEO_MPEG2, C2Component::KIND_DECODER },
     { "c2.rk.m4v.decoder.secure",   MEDIA_MIMETYPE_VIDEO_MPEG4, C2Component::KIND_DECODER },
     { "c2.rk.av1.decoder.secure",   MEDIA_MIMETYPE_VIDEO_AV1,   C2Component::KIND_DECODER },
+    { "c2.rk.avs2.decoder.secure",  MEDIA_MIMETYPE_VIDEO_AVS2,  C2Component::KIND_DECODER },
     /* Hardware encoder list */
     { "c2.rk.avc.encoder",          MEDIA_MIMETYPE_VIDEO_AVC,   C2Component::KIND_ENCODER },
     { "c2.rk.hevc.encoder",         MEDIA_MIMETYPE_VIDEO_HEVC,  C2Component::KIND_ENCODER },

@@ -33,6 +33,7 @@ int32_t getMppCodingFromMime(C2String mime) {
             { MEDIA_MIMETYPE_VIDEO_MPEG4, MPP_VIDEO_CodingMPEG4 },
             { MEDIA_MIMETYPE_VIDEO_H263,  MPP_VIDEO_CodingH263 },
             { MEDIA_MIMETYPE_VIDEO_AV1,   MPP_VIDEO_CodingAV1 },
+            { MEDIA_MIMETYPE_VIDEO_AVS2,  MPP_VIDEO_CodingAVS2 },
         }
     };
 
