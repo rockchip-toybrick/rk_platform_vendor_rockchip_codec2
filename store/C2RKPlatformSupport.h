@@ -22,6 +22,10 @@
 
 namespace android {
 
+#ifndef MEDIA_MIMETYPE_VIDEO_AVS2
+#define MEDIA_MIMETYPE_VIDEO_AVS2   "video/avs2"
+#endif
+
 struct C2RKComponentEntry {
     C2String              name;
     C2String              mime;
