@@ -156,7 +156,7 @@ public:
                                 C2Config::LEVEL_AVC_3, C2Config::LEVEL_AVC_3_1, C2Config::LEVEL_AVC_3_2,
                                 C2Config::LEVEL_AVC_4, C2Config::LEVEL_AVC_4_1, C2Config::LEVEL_AVC_4_2,
                                 C2Config::LEVEL_AVC_5, C2Config::LEVEL_AVC_5_1, C2Config::LEVEL_AVC_5_2,
-                                C2Config::LEVEL_AVC_6, C2Config::LEVEL_AVC_6_1, C2Config::LEVEL_AVC_6_2})
+                                C2Config::LEVEL_AVC_6})
                     })
                     .withSetter(ProfileLevelSetter, mSize)
                     .build());
@@ -181,8 +181,7 @@ public:
                                C2Config::LEVEL_HEVC_MAIN_6_1, C2Config::LEVEL_HEVC_MAIN_6_2,
                                C2Config::LEVEL_HEVC_HIGH_4, C2Config::LEVEL_HEVC_HIGH_4_1,
                                C2Config::LEVEL_HEVC_HIGH_5, C2Config::LEVEL_HEVC_HIGH_5_1,
-                               C2Config::LEVEL_HEVC_HIGH_5_2, C2Config::LEVEL_HEVC_HIGH_6,
-                               C2Config::LEVEL_HEVC_HIGH_6_1, C2Config::LEVEL_HEVC_HIGH_6_2})
+                               C2Config::LEVEL_HEVC_HIGH_5_2, C2Config::LEVEL_HEVC_HIGH_6})
                     })
                     .withSetter(ProfileLevelSetter, mSize)
                     .build());
@@ -261,9 +260,7 @@ public:
                                 C2Config::LEVEL_VP9_5,
                                 C2Config::LEVEL_VP9_5_1,
                                 C2Config::LEVEL_VP9_5_2,
-                                C2Config::LEVEL_VP9_6,
-                                C2Config::LEVEL_VP9_6_1,
-                                C2Config::LEVEL_VP9_6_2})
+                                C2Config::LEVEL_VP9_6})
                      })
                     .withSetter(ProfileLevelSetter, mSize)
                     .build());
@@ -282,8 +279,7 @@ public:
                                 C2Config::LEVEL_AV1_3_2, C2Config::LEVEL_AV1_3_3, C2Config::LEVEL_AV1_4,
                                 C2Config::LEVEL_AV1_4_1, C2Config::LEVEL_AV1_4_2, C2Config::LEVEL_AV1_4_3,
                                 C2Config::LEVEL_AV1_5, C2Config::LEVEL_AV1_5_1, C2Config::LEVEL_AV1_5_2,
-                                C2Config::LEVEL_AV1_5_3, C2Config::LEVEL_AV1_6, C2Config::LEVEL_AV1_6_1,
-                                C2Config::LEVEL_AV1_6_2, C2Config::LEVEL_AV1_6_3})
+                                C2Config::LEVEL_AV1_5_3, C2Config::LEVEL_AV1_6})
                      })
                     .withSetter(ProfileLevelSetter, mSize)
                     .build());
