@@ -67,11 +67,12 @@ typedef struct {
     uint8_t   *allMaskInOne;
     uint8_t   *croppedSegMask;
     LetterBox *letterbox;
+    bool       resultMask;
     rknn_tensor_attr *nnOutputAttr;
 
     rknn_matmul_ctx     matmulCtx;
-    rknn_matmul_shape   shapes[OBJ_NUMB_MAX_SIZE];
-    rknn_matmul_io_attr ioAttr[OBJ_NUMB_MAX_SIZE];
+    rknn_matmul_shape   shapes[SEG_NUMB_MAX_SIZE];
+    rknn_matmul_io_attr ioAttr[SEG_NUMB_MAX_SIZE];
     rknn_tensor_mem    *tensorA;
     rknn_tensor_mem    *tensorB;
     rknn_tensor_mem    *tensorC;
@@ -594,7 +595,8 @@ static void _get_blk_object(
 }
 
 bool c2_postprocess_init_context(
-        PostProcessContext *ctx, ImageBuffer *originImage, rknn_tensor_attr *outputAttr) {
+        PostProcessContext *ctx, ImageBuffer *originImage,
+        rknn_tensor_attr *outputAttr, bool resultMask) {
     if (originImage == nullptr || outputAttr == nullptr) {
         c2_err("invalid null params");
         return false;
@@ -606,10 +608,10 @@ bool c2_postprocess_init_context(
     impl->letterbox = (LetterBox*)calloc(1, sizeof(LetterBox));
 
     // malloc seg map memory
-    impl->omResultMap = (uint8_t *)malloc(originImage->wstride * originImage->hstride);
+    impl->omResultMap = (uint8_t *)malloc(originImage->hstride * originImage->vstride);
     impl->protoData = (float*)malloc(PROTO_CHANNEL * PROTO_HEIGHT * PROTO_WEIGHT * sizeof(float));
-    impl->segMask = (uint8_t*)malloc(OBJ_NUMB_MAX_SIZE * SEG_MODEL_WIDTH * SEG_MODEL_HEIGHT);
-    impl->matmulOut = (uint8_t*)malloc(OBJ_NUMB_MAX_SIZE * SEG_MODEL_WIDTH * SEG_MODEL_HEIGHT);
+    impl->segMask = (uint8_t*)malloc(SEG_NUMB_MAX_SIZE * SEG_MODEL_WIDTH * SEG_MODEL_HEIGHT);
+    impl->matmulOut = (uint8_t*)malloc(SEG_NUMB_MAX_SIZE * SEG_MODEL_WIDTH * SEG_MODEL_HEIGHT);
     impl->allMaskInOne = (uint8_t*)malloc(SEG_MODEL_WIDTH * SEG_MODEL_HEIGHT);
     impl->croppedSegMask = (uint8_t*)malloc(SEG_MODEL_WIDTH * SEG_MODEL_HEIGHT);
 
@@ -620,27 +622,27 @@ bool c2_postprocess_init_context(
         int err = 0;
         int maxSizeA = 0, maxSizeB = 0, maxSizeC = 0;
 
-        memset(impl->ioAttr, 0, sizeof(rknn_matmul_io_attr) * OBJ_NUMB_MAX_SIZE);
+        memset(impl->ioAttr, 0, sizeof(rknn_matmul_io_attr) * SEG_NUMB_MAX_SIZE);
         memset(&info, 0, sizeof(rknn_matmul_info));
 
         info.type = RKNN_FLOAT16_MM_FLOAT16_TO_FLOAT32;
         info.B_layout = RKNN_MM_LAYOUT_NORM;
         info.AC_layout = RKNN_MM_LAYOUT_NORM;
 
-        for (int i = 0; i < OBJ_NUMB_MAX_SIZE; ++i) {
+        for (int i = 0; i < SEG_NUMB_MAX_SIZE; ++i) {
             impl->shapes[i].M = i + 1;
             impl->shapes[i].K = PROTO_CHANNEL;
             impl->shapes[i].N = PROTO_HEIGHT * PROTO_WEIGHT;
         }
 
         err = C2RKRknnWrapper::get()->rknnMatmulCreateShape(
-                &impl->matmulCtx, &info, OBJ_NUMB_MAX_SIZE, impl->shapes, impl->ioAttr);
+                &impl->matmulCtx, &info, SEG_NUMB_MAX_SIZE, impl->shapes, impl->ioAttr);
         if (err < 0) {
             c2_err("failed to rknn_matmul_create_dynamic_shape, err %d", err);
             return false;
         }
 
-        for (int i = 0; i < OBJ_NUMB_MAX_SIZE; ++i) {
+        for (int i = 0; i < SEG_NUMB_MAX_SIZE; ++i) {
             maxSizeA = _MAX(impl->ioAttr[i].A.size, maxSizeA);
             maxSizeB = _MAX(impl->ioAttr[i].B.size, maxSizeB);
             maxSizeC = _MAX(impl->ioAttr[i].C.size, maxSizeC);
@@ -658,6 +660,7 @@ bool c2_postprocess_init_context(
 
     impl->originWidth  = originImage->width;
     impl->originHeight = originImage->height;
+    impl->resultMask   = resultMask;
     impl->nnOutputAttr = outputAttr;
 
     // output seg mask dump
@@ -755,7 +758,7 @@ int c2_preprocess_convert_image_with_rga(
         goto cleanUp;
     }
     rgaSrc = wrapbuffer_handle(rgaSrcHdl, src->width,
-                    src->height, srcFmt, src->wstride, src->hstride);
+                    src->height, srcFmt, src->hstride, src->vstride);
 
     if (dst->fd > 0) {
         rgaDstHdl = importbuffer_fd(dst->fd, &rgaDstParam);
@@ -768,7 +771,7 @@ int c2_preprocess_convert_image_with_rga(
         goto cleanUp;
     }
     rgaDst = wrapbuffer_handle(rgaDstHdl, dst->width,
-                    dst->height, dstFmt, dst->wstride, dst->hstride);
+                    dst->height, dstFmt, dst->hstride, dst->vstride);
 
     if (drect.width != dst->width || drect.height != dst->height) {
         im_rect dstWholeRect = { 0, 0, dst->width, dst->height };
@@ -970,7 +973,7 @@ bool c2_postprocess_output_model_image(
     int finalBoxNum = 0;
 
     for (int i = 0; i < validCount; ++i) {
-        if (indexArray[i] == -1 || finalBoxNum >= OBJ_NUMB_MAX_SIZE)
+        if (indexArray[i] == -1 || finalBoxNum >= SEG_NUMB_MAX_SIZE)
             continue;
 
         int n = indexArray[i];
@@ -1026,14 +1029,21 @@ bool c2_postprocess_output_model_image(
         odResults->results[i].box.bottom = _box_reverse(
                 odResults->results[i].box.bottom, modelHeight,
                 letterbox->yPad, letterbox->scale);
+
+        if (odResults->results[i].box.right > impl->originWidth)
+            odResults->results[i].box.right = impl->originWidth;
+        if (odResults->results[i].box.bottom > impl->originHeight)
+            odResults->results[i].box.bottom = impl->originHeight;
     }
 
-    // TODO For non_seg encode version, get detection box and return.
-    // return true;
+    // For non_seg encode version, get detection box and return.
+    if (!impl->resultMask) {
+        return true;
+    }
 
     memset(impl->matmulOut, 0, finalBoxNum * PROTO_HEIGHT * PROTO_WEIGHT);
     memset(impl->allMaskInOne, 0, modelWidth * modelHeight * sizeof(uint8_t));
-    memset(impl->segMask, 0, OBJ_NUMB_MAX_SIZE * SEG_MODEL_WIDTH * SEG_MODEL_HEIGHT);
+    memset(impl->segMask, 0, SEG_NUMB_MAX_SIZE * SEG_MODEL_WIDTH * SEG_MODEL_HEIGHT);
     memset(impl->croppedSegMask, 0, SEG_MODEL_WIDTH * SEG_MODEL_HEIGHT);
 
     // compute the mask through matmul
@@ -1081,6 +1091,10 @@ bool c2_postprocess_seg_mask_to_class_map(
     if (!impl) {
         c2_err("invalid null post-process context");
         return false;
+    }
+
+    if (!impl->resultMask) {
+        return true;  // no need
     }
 
     omResults->foundObjects = 0;
@@ -1144,8 +1158,8 @@ bool c2_postprocess_copy_image_buffer(ImageBuffer *srcImage, ImageBuffer *dstIma
     im_handle_param_t srcParam;
     rga_buffer_handle_t srcHandle;
 
-    srcParam.width  = srcImage->wstride;
-    srcParam.height = srcImage->hstride;
+    srcParam.width  = srcImage->hstride;
+    srcParam.height = srcImage->vstride;
     srcParam.format = _toRgaFormat(srcImage->format);
 
     if (srcImage->fd > 0) {
@@ -1161,8 +1175,8 @@ bool c2_postprocess_copy_image_buffer(ImageBuffer *srcImage, ImageBuffer *dstIma
     im_handle_param_t dstParam;
     rga_buffer_handle_t dstHandle;
 
-    dstParam.width  = dstImage->wstride;
-    dstParam.height = dstImage->hstride;
+    dstParam.width  = dstImage->hstride;
+    dstParam.height = dstImage->vstride;
     dstParam.format = _toRgaFormat(dstImage->format);
 
     if (dstImage->fd > 0) {
@@ -1182,10 +1196,10 @@ bool c2_postprocess_copy_image_buffer(ImageBuffer *srcImage, ImageBuffer *dstIma
 
     src = wrapbuffer_handle(
             srcHandle, srcImage->width, srcImage->height,
-            _toRgaFormat(srcImage->format), srcImage->wstride, srcImage->hstride);
+            _toRgaFormat(srcImage->format), srcImage->hstride, srcImage->vstride);
     dst = wrapbuffer_handle(
             dstHandle, dstImage->width, dstImage->height,
-            _toRgaFormat(dstImage->format), dstImage->wstride, dstImage->hstride);
+            _toRgaFormat(dstImage->format), dstImage->hstride, dstImage->vstride);
 
     int err = imcopy(src, dst);
 
@@ -1201,7 +1215,7 @@ bool c2_postprocess_draw_rect_array(
         return true;
     }
 
-    im_rect faceRect[OBJ_NUMB_MAX_SIZE] = {};
+    im_rect faceRect[SEG_NUMB_MAX_SIZE] = {};
 
     for (int i = 0; i < odResults->count; i++) {
         faceRect[i].x = odResults->results[i].box.left & (~0x01);
@@ -1220,8 +1234,8 @@ bool c2_postprocess_draw_rect_array(
     im_handle_param_t param;
     rga_buffer_handle_t handle;
 
-    param.width = srcImage->wstride;
-    param.height = srcImage->hstride;
+    param.width = srcImage->hstride;
+    param.height = srcImage->vstride;
     param.format = _toRgaFormat(srcImage->format);
 
     if (srcImage->fd > 0) {
@@ -1237,7 +1251,7 @@ bool c2_postprocess_draw_rect_array(
 
     src = wrapbuffer_handle(
             handle, srcImage->width, srcImage->height,
-            _toRgaFormat(srcImage->format), srcImage->wstride, srcImage->hstride);
+            _toRgaFormat(srcImage->format), srcImage->hstride, srcImage->vstride);
 
     int err = imrectangleArray(src, faceRect, odResults->count, 0x0000ff, 2);
 

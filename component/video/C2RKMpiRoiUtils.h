@@ -17,23 +17,25 @@
 
 #include "rk_venc_cmd.h"
 
-#define MPP_MAX_ROI_REGION_COUNT    4
+namespace android {
+
+#define MPP_MAX_ROI_REGION_COUNT    8
 
 typedef void* MppEncRoiCtx;
 
 /*
  * NOTE: this structure is changeful. Do NOT expect binary compatible on it.
  */
-typedef struct RRegion_t {
-     int32_t x;              /**< horizontal position of top left corner */
-     int32_t y;              /**< vertical position of top left corner */
-     int32_t w;              /**< width of ROI rectangle */
-     int32_t h;              /**< height of ROI rectangle */
+struct RoiRegionCfg {
+    int32_t x;              /**< horizontal position of top left corner */
+    int32_t y;              /**< vertical position of top left corner */
+    int32_t w;              /**< width of ROI rectangle */
+    int32_t h;              /**< height of ROI rectangle */
 
-     int32_t force_intra;    /**< flag of forced intra macroblock */
-     int32_t qp_mode;        /**< 0 - relative qp 1 - absolute qp */
-     int32_t qp_val;         /**< absolute / relative qp of macroblock */
-} RoiRegionCfg;
+    int32_t force_intra;    /**< flag of forced intra macroblock */
+    int32_t qp_mode;        /**< 0 - relative qp 1 - absolute qp */
+    int32_t qp_val;         /**< absolute / relative qp of macroblock */
+};
 
 MPP_RET mpp_enc_roi_init(MppEncRoiCtx *ctx, int32_t w, int32_t h, MppCodingType type);
 MPP_RET mpp_enc_roi_deinit(MppEncRoiCtx ctx);
@@ -41,3 +43,4 @@ MPP_RET mpp_enc_roi_deinit(MppEncRoiCtx ctx);
 MPP_RET mpp_enc_roi_add_region(MppEncRoiCtx ctx, RoiRegionCfg *region);
 MPP_RET mpp_enc_roi_setup_meta(MppEncRoiCtx ctx, MppMeta meta);
 
+}

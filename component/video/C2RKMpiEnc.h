@@ -22,11 +22,15 @@
 
 #include "rk_mpi.h"
 
+#include <utils/Vector.h>
+
 namespace android {
 
 class C2RKMlvecLegacy;
 class C2RKDump;
 class C2RKYolov5Session;
+struct ImageBuffer;
+struct RoiRegionCfg;
 
 struct C2RKMpiEnc : public C2RKComponent {
 public:
@@ -52,7 +56,7 @@ public:
             const std::shared_ptr<C2BlockPool> &pool) override;
 
     c2_status_t onDrainWork(const std::unique_ptr<C2Work> &work = nullptr);
-    c2_status_t onDetectionResultReady(void *srcImage, void *result);
+    c2_status_t onDetectResultReady(ImageBuffer *srcImage, void *result);
 
 private:
     /* DMA buffer memery */
@@ -183,15 +187,15 @@ private:
     c2_status_t handleCommonDynamicCfg();
     c2_status_t handleRequestSyncFrame();
     c2_status_t handleMlvecDynamicCfg(MppMeta meta);
-    c2_status_t handleRoiRegionRequestIfNeeded(MppMeta meta);
-    c2_status_t handleRknnDetectionIfNeeded(
+    c2_status_t handleRoiRegionRequest(MppMeta meta, Vector<RoiRegionCfg> regions);
+    c2_status_t handleRknnDetection(
             const std::unique_ptr<C2Work> &work, MyDmaBuffer_t dbuffer);
 
     bool needRgaConvert(uint32_t width, uint32_t height, MppFrameFormat fmt);
     c2_status_t getInBufferFromWork(
             const std::unique_ptr<C2Work> &work, MyDmaBuffer_t *outBuffer);
-    c2_status_t sendframe(
-            MyDmaBuffer_t dBuffer, uint64_t pts, uint32_t flags);
+
+    c2_status_t sendframe(MyDmaBuffer_t dBuffer, uint64_t pts, uint32_t flags);
     c2_status_t getoutpacket(OutWorkEntry *entry);
 
     C2_DO_NOT_COPY(C2RKMpiEnc);

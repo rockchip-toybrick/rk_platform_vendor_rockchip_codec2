@@ -35,32 +35,45 @@ namespace android {
 #define SEG_MODEL_WIDTH             (640)
 #define SEG_MODEL_HEIGHT            (640)
 #define SEG_MODEL_CHANNEL           (3)
+#define SEG_NUMB_MAX_SIZE           (8)        /* maximum number of detect regions */
 
 class C2RKRknnWrapper;
 typedef void* PostProcessContext;
 
-typedef enum {
+enum ImageFormat {
     IMAGE_FORMAT_GRAY8,
     IMAGE_FORMAT_RGB888,
     IMAGE_FORMAT_RGBA8888,
     IMAGE_FORMAT_YUV420SP_NV21,
     IMAGE_FORMAT_YUV420SP_NV12,
     IMAGE_FORMAT_YUV420P
-} ImageFormat;
+};
 
-typedef struct {
+struct ImageRect {
+    int left;
+    int top;
+    int right;
+    int bottom;
+};
+
+struct ImageBuffer {
     int32_t  fd;
     uint8_t *virAddr;
     int32_t  width;
     int32_t  height;
-    int32_t  wstride;
     int32_t  hstride;
+    int32_t  vstride;
     int32_t  size;
     int32_t  flags;
     uint64_t pts;
     ImageFormat format;
     void *handle; /* copy buffer handler */
-} ImageBuffer;
+};
+
+struct DetectRegions {
+    int32_t count;
+    ImageRect rects[SEG_NUMB_MAX_SIZE];
+};
 
 class C2RKSessionCallback {
 public:
@@ -108,10 +121,14 @@ public:
 
     bool startDetect(ImageBuffer *srcImage);
 
+    /* yolov5 result: 1. proto mask 2. roi rect array without postprocess */
+    bool isMaskResultType();
+
     bool onPostResult(RknnOutput *nnOutput);
     bool onOutputPostProcess(RknnOutput *nnOutput);
     bool onRknnRunProcess(RknnOutput *nnOutput);
     bool onCopyInputBuffer(RknnOutput *nnOutput);
+
 
 private:
     class BaseProcessHandler : public AHandler {
@@ -207,6 +224,9 @@ private:
 
     /* draw detecton rect */
     bool                   mDrawRect;
+
+    /* yolov5 result: 1. proto mask 2. roi rect array without postprocess */
+    bool                   mResultProtoMask;
 
     std::shared_ptr<C2RKSessionCallback> mCallback;
 

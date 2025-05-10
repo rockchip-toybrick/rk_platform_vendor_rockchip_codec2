@@ -35,12 +35,13 @@
 
 namespace android {
 
-#define DEFAULT_MODEL_PATH          "/data/video/yolov5n_seg_for3576.rknn"
-#define MAX_SUPPORT_SIZE            3840*2160
-#define MAX_RKNN_OUTPUT_SIZE        7
+#define DEFAULT_MODEL_PATH                  "/data/video/yolov5n_seg_for3576.rknn"
+#define MAX_SUPPORT_SIZE                    3840*2160
+#define MAX_RKNN_OUTPUT_SIZE                7
 
-#define PROPERTY_NAME_MODEL_PATH    "codec2_yolov5_model_path"
-#define PROPERTY_NAME_ENABLE_RECT   "codec2_yolov5_enable_draw_rect"
+#define PROPERTY_NAME_MODEL_PATH            "codec2_yolov5_model_path"
+#define PROPERTY_NAME_ENABLE_RECT           "codec2_yolov5_enable_draw_rect"
+#define PROPERTY_NAME_OUTPUT_PROTO_MASK     "codec2_yolov5_output_proto_mask"
 
 const char *toStr_TensorFormat(rknn_tensor_format fmt) {
     switch(fmt) {
@@ -185,7 +186,9 @@ C2RKYolov5Session::C2RKYolov5Session() :
     mPostProcessContext(nullptr),
     mIsHEVC(false),
     mCallback(nullptr) {
-    mDrawRect = (bool) property_get_bool(PROPERTY_NAME_ENABLE_RECT, 0);
+    mDrawRect = (bool)property_get_bool(PROPERTY_NAME_ENABLE_RECT, 0);
+    mResultProtoMask = (bool)property_get_bool(PROPERTY_NAME_OUTPUT_PROTO_MASK, 1);
+    c2_info("set yolov5 result type: %s", mResultProtoMask ? "mask" : "roi rects");
 }
 
 C2RKYolov5Session::~C2RKYolov5Session() {
@@ -484,7 +487,7 @@ bool C2RKYolov5Session::onPostResult(RknnOutput *nnOutput) {
 
     nnOutput->setStatus(RknnOutput::RESULT);
 
-    if (odResults->count > 0) {
+    if (mResultProtoMask && odResults->count > 0) {
         // postprocess od result to class map
         c2_postprocess_seg_mask_to_class_map(
                 mPostProcessContext, mIsHEVC, odResults, &omResults);
@@ -504,7 +507,22 @@ bool C2RKYolov5Session::onPostResult(RknnOutput *nnOutput) {
     timer.startRecord();
 
     if (mCallback) {
-        mCallback->onResultReady(inImage, omResults.foundObjects ? &omResults : nullptr);
+        if (mResultProtoMask) {
+            mCallback->onResultReady(
+                    inImage, omResults.foundObjects ? &omResults : nullptr);
+        } else {
+            DetectRegions regions;
+            memset(&regions, 0, sizeof(regions));
+
+            for (int i = 0; i < odResults->count; i++) {
+                regions.rects[i].left   = odResults->results[i].box.left;
+                regions.rects[i].right  = odResults->results[i].box.right;
+                regions.rects[i].top    = odResults->results[i].box.top;
+                regions.rects[i].bottom = odResults->results[i].box.bottom;
+                regions.count += 1;
+            }
+            mCallback->onResultReady(inImage, regions.count ? &regions : nullptr);
+        }
     }
 
     Mutex::Autolock autoLock(mLock);
@@ -615,7 +633,7 @@ bool C2RKYolov5Session::onCopyInputBuffer(RknnOutput *nnOutput) {
         uint64_t usage  = (GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN);
 
         status_t status = GraphicBufferAllocator::get().allocate(
-                inImage->wstride, inImage->hstride,
+                inImage->hstride, inImage->vstride,
                 halFormat, 1u /* layer count */,
                 usage, &bufferHandle, &stride, "C2RKYolov5Session");
         if (status) {
@@ -630,8 +648,8 @@ bool C2RKYolov5Session::onCopyInputBuffer(RknnOutput *nnOutput) {
     copyImage->format  = inImage->format;
     copyImage->width   = inImage->width;
     copyImage->height  = inImage->height;
-    copyImage->wstride = inImage->wstride;
     copyImage->hstride = inImage->hstride;
+    copyImage->vstride = inImage->vstride;
 
     if (!c2_postprocess_copy_image_buffer(inImage, copyImage)) {
         c2_err("failed to copy input buffer");
@@ -648,7 +666,8 @@ bool C2RKYolov5Session::startDetect(ImageBuffer *srcImage) {
     int err = 0;
 
     if (!mPostProcessContext) {
-        err = c2_postprocess_init_context(&mPostProcessContext, srcImage, mOutputAttrs);
+        err = c2_postprocess_init_context(
+                &mPostProcessContext, srcImage, mOutputAttrs, mResultProtoMask);
         if (!err) {
             c2_err("failed to init post-process context");
             return false;
@@ -678,8 +697,8 @@ bool C2RKYolov5Session::startDetect(ImageBuffer *srcImage) {
 
     modelImage.width   = SEG_MODEL_WIDTH;
     modelImage.height  = SEG_MODEL_HEIGHT;
-    modelImage.wstride = SEG_MODEL_WIDTH;
-    modelImage.hstride = SEG_MODEL_HEIGHT;
+    modelImage.hstride = SEG_MODEL_WIDTH;
+    modelImage.vstride = SEG_MODEL_HEIGHT;
     modelImage.format  = IMAGE_FORMAT_RGB888;
     modelImage.virAddr = (uint8_t *)nnOutput->mInModelPtr;
 
@@ -722,6 +741,10 @@ bool C2RKYolov5Session::startDetect(ImageBuffer *srcImage) {
     }
 
     return true;
+}
+
+bool C2RKYolov5Session::isMaskResultType() {
+    return mResultProtoMask;
 }
 
 }

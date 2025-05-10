@@ -1029,32 +1029,30 @@ public:
         return false;
     }
 
-#define SET_ROI_REGION(inCfg, outCfg, reginCount) \
+#define SET_ROI_REGION(inCfg, regions) \
     if (inCfg && inCfg->width > 0 && inCfg->height > 0) { \
-        outCfg.x = inCfg->left; \
-        outCfg.y = inCfg->right; \
-        outCfg.w = inCfg->width; \
-        outCfg.h = inCfg->height; \
-        outCfg.force_intra = inCfg->forceIntra; \
-        outCfg.qp_mode = inCfg->qpMode; \
-        outCfg.qp_val = inCfg->qpVal; \
+        RoiRegionCfg region; \
+        region.x = inCfg->left; \
+        region.y = inCfg->right; \
+        region.w = inCfg->width; \
+        region.h = inCfg->height; \
+        region.force_intra = inCfg->forceIntra; \
+        region.qp_mode = inCfg->qpMode; \
+        region.qp_val = inCfg->qpVal; \
         inCfg->width = -1; \
         inCfg->height = -1; \
-        reginCount++; \
+        regions.push(region); \
     } \
 
-   int32_t getRoiRegionCfg(RoiRegionCfg *regions) {
-        int32_t mRegionCnt = 0;
-        if (!regions) {
-            return mRegionCnt;
-        }
+   Vector<RoiRegionCfg> getRoiRegionCfg() {
+        Vector<RoiRegionCfg> regions;
 
-        SET_ROI_REGION(mRoiRegionCfg,  regions[mRegionCnt], mRegionCnt)
-        SET_ROI_REGION(mRoiRegion2Cfg, regions[mRegionCnt], mRegionCnt)
-        SET_ROI_REGION(mRoiRegion3Cfg, regions[mRegionCnt], mRegionCnt)
-        SET_ROI_REGION(mRoiRegion4Cfg, regions[mRegionCnt], mRegionCnt)
+        SET_ROI_REGION(mRoiRegionCfg,  regions)
+        SET_ROI_REGION(mRoiRegion2Cfg, regions)
+        SET_ROI_REGION(mRoiRegion3Cfg, regions)
+        SET_ROI_REGION(mRoiRegion4Cfg, regions)
 
-        return mRegionCnt;
+        return regions;
     }
 
     // unsafe getters
@@ -1201,7 +1199,7 @@ public:
     }
 
     void onResultReady(ImageBuffer *srcImage, void *result) override {
-        mThiz->onDetectionResultReady(srcImage, result);
+        mThiz->onDetectResultReady(srcImage, result);
     }
 
 private:
@@ -2643,9 +2641,11 @@ void C2RKMpiEnc::process(
     // In smart v3 mode, handle yolov5 rknn object detection.
     // not set workletsProcessed to indicates that the current work incomplete.
     // and will finish this work later in sesssion callback.
-    err = handleRknnDetectionIfNeeded(work, inDmaBuf);
-    if (err == C2_OK) {
-        return;
+    if (mRknnSession) {
+        err = handleRknnDetection(work, inDmaBuf);
+        if (err == C2_OK) {
+            return;
+        }
     }
 
     /* send frame to mpp */
@@ -2833,35 +2833,28 @@ c2_status_t C2RKMpiEnc::handleMlvecDynamicCfg(MppMeta meta) {
     return C2_OK;
 }
 
-c2_status_t C2RKMpiEnc::handleRoiRegionRequestIfNeeded(MppMeta meta) {
-    RoiRegionCfg regions[MPP_MAX_ROI_REGION_COUNT];
-
-    memset(regions, 0, sizeof(regions));
-
-    IntfImpl::Lock lock = mIntf->lock();
-    int32_t regionCount = mIntf->getRoiRegionCfg(regions);
-
-    if (regionCount == 0) return C2_OK;
+c2_status_t C2RKMpiEnc::handleRoiRegionRequest(
+        MppMeta meta, Vector<RoiRegionCfg> regions) {
+    if (regions.size() == 0) return C2_OK;
 
     if (!mRoiCtx) {
         if (mpp_enc_roi_init(&mRoiCtx, mSize->width, mSize->height, mCodingType)) {
             c2_err("failed to init roi context");
             return C2_CORRUPTED;
         }
-        c2_info("setup roi done, ctx %p regionCount %d", mRoiCtx, regionCount);
+        c2_info("setup roi done, ctx %p", mRoiCtx);
     }
 
-    for (int i = 0; i < regionCount; i++) {
-        RoiRegionCfg *region = &regions[i];
+    for (int i = 0; i < regions.size(); i++) {
+        RoiRegionCfg *region = &regions.editItemAt(i);
         if (region->x > mSize->width || region->y > mSize->height ||
             region->w > mSize->width || region->h > mSize->height ||
             (region->x + region->w) > mSize->width ||
-            (region->y + region->h) > mSize->height ||
-            region->qp_val > 51) {
+            (region->y + region->h) > mSize->height) {
             c2_err("size limit [%d,%d] qpVal in range 1~51", mSize->width, mSize->height);
             c2_err("got invalid roi region, rect [%d,%d,%d,%d] intra %d mode %d qp %d",
-                   region->x, region->y, region->w, region->h,
-                   region->force_intra, region->qp_mode, region->qp_val);
+                    region->x, region->y, region->w, region->h,
+                    region->force_intra, region->qp_mode, region->qp_val);
         } else {
             mpp_enc_roi_add_region(mRoiCtx, region);
             c2_trace("setup roi region[%d] rect [%d,%d,%d,%d] intra %d mode %d qp %d",
@@ -2876,8 +2869,7 @@ c2_status_t C2RKMpiEnc::handleRoiRegionRequestIfNeeded(MppMeta meta) {
     return C2_OK;
 }
 
-c2_status_t C2RKMpiEnc::onDetectionResultReady(void *src, void *result) {
-    ImageBuffer *srcImage = (ImageBuffer *)src;
+c2_status_t C2RKMpiEnc::onDetectResultReady(ImageBuffer *srcImage, void *result) {
     if (!srcImage) {
         c2_trace("ignore empty detection image");
         return C2_OK;
@@ -2891,8 +2883,8 @@ c2_status_t C2RKMpiEnc::onDetectionResultReady(void *src, void *result) {
     MyDmaBuffer_t inDmaBuf;
     memset(&inDmaBuf, 0, sizeof(MyDmaBuffer_t));
 
-    inDmaBuf.fd      = srcImage->fd;
-    inDmaBuf.size    = srcImage->size;
+    inDmaBuf.fd   = srcImage->fd;
+    inDmaBuf.size = srcImage->size;
     inDmaBuf.npuMaps = result;
 
     /* send frame to mpp */
@@ -2909,7 +2901,7 @@ c2_status_t C2RKMpiEnc::onDetectionResultReady(void *src, void *result) {
     return err;
 }
 
-c2_status_t C2RKMpiEnc::handleRknnDetectionIfNeeded(
+c2_status_t C2RKMpiEnc::handleRknnDetection(
         const std::unique_ptr<C2Work> &work, MyDmaBuffer_t dbuffer) {
     if (!mRknnSession) return C2_CORRUPTED;
 
@@ -2924,8 +2916,8 @@ c2_status_t C2RKMpiEnc::handleRknnDetectionIfNeeded(
 
     srcImage.width   = mSize->width;
     srcImage.height  = mSize->height;
-    srcImage.wstride = mHorStride;
-    srcImage.hstride = mVerStride;
+    srcImage.hstride = mHorStride;
+    srcImage.vstride = mVerStride;
     srcImage.fd      = dbuffer.fd;
     srcImage.size    = dbuffer.size;
     srcImage.pts     = frameIndex;
@@ -3208,17 +3200,52 @@ c2_status_t C2RKMpiEnc::sendframe(
         handleMlvecDynamicCfg(meta);
     }
 
-    /* handle ROI region setup from user */
-    handleRoiRegionRequestIfNeeded(meta);
-
     /* handle IDR request */
     handleRequestSyncFrame();
 
+    /* handle ROI region setup from user */
+    {
+        IntfImpl::Lock lock = mIntf->lock();
+        Vector<RoiRegionCfg> regions = mIntf->getRoiRegionCfg();
+        if (regions.size() > 0) {
+            handleRoiRegionRequest(meta, regions);
+        }
+    }
+
     /* set npu detection maps */
     if (dBuffer.npuMaps) {
-        err = mpp_meta_set_ptr(meta, KEY_NPU_OBJ_FLAG, dBuffer.npuMaps);
-        if (err != MPP_OK) {
-            c2_warn("failed to set rknn object, err %d", err);
+        /*
+         * rknn detect session with two types of output:
+         * 1. proto mask, it requires a period of post-processing, but with more
+         *    precise rate control, the sesk mask is process by mpp encoder. 
+         * 2. roi rect arrays, task less time and the quality of ROI regions
+         *    is controlled outside. We enhance quality by reduce relative QP of
+         *    ROI regions. it is a relatively rough control.
+         */
+        if (mRknnSession->isMaskResultType()) {
+            err = mpp_meta_set_ptr(meta, KEY_NPU_OBJ_FLAG, dBuffer.npuMaps);
+            if (err != MPP_OK) {
+                c2_warn("failed to set rknn object, err %d", err);
+            }
+        } else {
+            DetectRegions *dRegions = reinterpret_cast<DetectRegions*>(dBuffer.npuMaps);
+
+            Vector<RoiRegionCfg> regions;
+            int regionCount = std::clamp(dRegions->count, 0, MPP_MAX_ROI_REGION_COUNT);
+
+            for (int i = 0; i < regionCount; i++) {
+                RoiRegionCfg region;
+                region.x = (dRegions->rects[i].left) & (~0x01);
+                region.y = (dRegions->rects[i].top) & (~0x01);
+                region.w = (dRegions->rects[i].right - dRegions->rects[i].left) & (~0x01);
+                region.h = (dRegions->rects[i].bottom - dRegions->rects[i].top) & (~0x01);
+                region.force_intra = 0;
+                region.qp_mode = 0;
+                region.qp_val = -10;
+
+                regions.push(region);
+            }
+            handleRoiRegionRequest(meta, regions);
         }
     }
 

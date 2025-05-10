@@ -23,15 +23,6 @@
 
 namespace android {
 
-#define OBJ_NUMB_MAX_SIZE   16
-
-typedef struct {
-    int left;
-    int top;
-    int right;
-    int bottom;
-} ImageRect;
-
 typedef struct {
     int   xPad;
     int   yPad;
@@ -56,8 +47,8 @@ typedef struct {
 typedef struct {
     int id;
     int count;
-    objectDetectResult results[OBJ_NUMB_MAX_SIZE];
-    objectSegmentResult resultsSeg[OBJ_NUMB_MAX_SIZE];
+    objectDetectResult results[SEG_NUMB_MAX_SIZE];
+    objectSegmentResult resultsSeg[SEG_NUMB_MAX_SIZE];
 } objectDetectResultList;
 
 /**
@@ -65,11 +56,13 @@ typedef struct {
  *
  * @param originImage [in] Source Image
  * @param outputAttr [in] rknn output attrs
+ * @param resultMask [in] proto mask result or roi rect array
  * @param ctx [out] post-process context
  * @return bool
  */
 bool c2_postprocess_init_context(
-        PostProcessContext *ctx, ImageBuffer *originImage, rknn_tensor_attr *outputAttr);
+        PostProcessContext *ctx, ImageBuffer *originImage,
+        rknn_tensor_attr *outputAttr, bool resultMask);
 
 /**
  * @brief deinit post-process context

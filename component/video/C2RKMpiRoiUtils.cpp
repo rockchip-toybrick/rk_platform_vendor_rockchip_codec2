@@ -26,6 +26,8 @@
 #include "C2RKMpiRoiUtils.h"
 #include "C2RKDmaBufSync.h"
 
+namespace android {
+
 #define _ALIGN(x, a)            (((x)+(a)-1)&~((a)-1))
 #define _FREE(ptr)              do { if(ptr) free(ptr); ptr = NULL; } while (0)
 #define _MALLOC(type, count)    (type*) malloc(sizeof(type) * (count));
@@ -884,3 +886,4 @@ MPP_RET mpp_enc_roi_setup_meta(MppEncRoiCtx ctx, MppMeta meta) {
     return MPP_OK;
 }
 
+}
