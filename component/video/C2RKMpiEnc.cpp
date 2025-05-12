@@ -1646,10 +1646,13 @@ c2_status_t C2RKMpiEnc::setupBitRate() {
     c2_info("setupBitRate: mode %s bps %d range [%d:%d:%d]",
             toStr_BitrateMode(bitrateMode), bitrate, bpsMin, bpsTarget, bpsMax);
 
-    mpp_enc_cfg_set_s32(mEncCfg, "rc:mode", bitrateMode);
     mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_target", bpsTarget);
     mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_max", bpsMax);
     mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_min", bpsMin);
+
+    if (!mRknnSession) {
+        mpp_enc_cfg_set_s32(mEncCfg, "rc:mode", bitrateMode);
+    }
 
     return C2_OK;
 }
@@ -2105,6 +2108,10 @@ c2_status_t C2RKMpiEnc::setupSuperModeIfNeeded() {
             c2_err("failed to create rknn session, fallback..");
             delete mRknnSession;
             mRknnSession = nullptr;
+            return C2_NO_INIT;
+        }
+        if (!mRknnSession->isMaskResultType()) {
+            return C2_OK;
         }
     }
 
@@ -2133,17 +2140,6 @@ c2_status_t C2RKMpiEnc::setupSuperModeIfNeeded() {
     mpp_enc_cfg_set_s32(mEncCfg, "tune:deblur_str",  3);
     mpp_enc_cfg_set_s32(mEncCfg, "tune:lgt_chg_lvl", 0);
 
-    mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_init",   31);
-    mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_min",    10);
-    mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_max",    50);
-    mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_min_i",  10);
-    mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_max_i",  50);
-
-    mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_min_i", 10);
-    mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_max_i", 42);
-    mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_min_p", 10);
-    mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_max_p", 42);
-
     mpp_enc_cfg_set_st(mEncCfg,  "hw:aq_thrd_i", aqThdSmart);
     mpp_enc_cfg_set_st(mEncCfg,  "hw:aq_thrd_p", aqThdSmart);
     mpp_enc_cfg_set_st(mEncCfg,  "hw:aq_step_i", aqStepSmart);
@@ -2151,9 +2147,24 @@ c2_status_t C2RKMpiEnc::setupSuperModeIfNeeded() {
     // default ipc mode
     mpp_enc_cfg_set_s32(mEncCfg, "tune:scene_mode", 1);
 
+    mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_min_i", 10);
+    mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_min_p", 10);
+    mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_max_p", 42);
+    mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_max_i", 42);
+
     if (isV3Mode) {
-        // 0:balance  1:quality_first  2:bitrate_first
-        mpp_enc_cfg_set_s32(mEncCfg, "tune:se_mode", compressFirst ? 2 : 1);
+        // 0:balance  1:quality_first  2:bitrate_first 3:external_se_mode
+        mpp_enc_cfg_set_s32(mEncCfg, "tune:se_mode", 3);
+
+        mpp_enc_cfg_set_s32(mEncCfg, "tune:bg_delta_qp_i", -8);
+        mpp_enc_cfg_set_s32(mEncCfg, "tune:bg_delta_qp_p", -8);
+        mpp_enc_cfg_set_s32(mEncCfg, "tune:fg_delta_qp_i",  6);
+        mpp_enc_cfg_set_s32(mEncCfg, "tune:fg_delta_qp_p",  6);
+
+        mpp_enc_cfg_set_s32(mEncCfg, "tune:bmap_qpmin_i",   10);
+        mpp_enc_cfg_set_s32(mEncCfg, "tune:bmap_qpmin_p",   10);
+        mpp_enc_cfg_set_s32(mEncCfg, "tune:bmap_qpmax_i",   42);
+        mpp_enc_cfg_set_s32(mEncCfg, "tune:bmap_qpmax_p",   42);
     }  else {
         // smart v1 mode
         if (compressFirst) {
@@ -2343,7 +2354,7 @@ c2_status_t C2RKMpiEnc::initEncoder() {
 
     uint64_t usage = (GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN);
 
-    //  allocate buffer within 4G to avoid rga2 error.
+    // allocate buffer within 4G to avoid rga2 error.
     if (mChipType == RK_CHIP_3588 || mChipType == RK_CHIP_356X) {
         usage = RK_GRALLOC_USAGE_WITHIN_4G;
     }
@@ -3229,8 +3240,9 @@ c2_status_t C2RKMpiEnc::sendframe(
     if (dBuffer.npuMaps) {
         /*
          * rknn detect session with two types of output:
+         *
          * 1. proto mask, it requires a period of post-processing, but with more
-         *    precise rate control, the sesk mask is process by mpp encoder. 
+         *    precise rate control, the sesk mask is process by mpp encoder.
          * 2. roi rect arrays, task less time and the quality of ROI regions
          *    is controlled outside. We enhance quality by reduce relative QP of
          *    ROI regions. it is a relatively rough control.
@@ -3314,7 +3326,8 @@ c2_status_t C2RKMpiEnc::getoutpacket(OutWorkEntry *entry) {
 
         if (!len) {
             c2_warn("ignore empty output with pts %lld", pts);
-            return C2_CORRUPTED;
+            mpp_packet_deinit(&packet);
+            return C2_NOT_FOUND;
         }
 
         entry->frameIndex = pts;

@@ -24,9 +24,14 @@
 #include <math.h>
 #include <arm_neon.h>
 #include <cutils/properties.h>
+#include <ui/GraphicBufferMapper.h>
+#include <ui/GraphicBufferAllocator.h>
 
 #include "C2RKPostProcess.h"
 #include "C2RKYolov5Session.h"
+#include "C2RKGrallocOps.h"
+#include "C2RKMediaUtils.h"
+#include "C2RKChipCapDef.h"
 #include "C2RKRknnWrapper.h"
 #include "C2RKLog.h"
 
@@ -37,7 +42,6 @@ namespace android {
 
 // post-process output seg mask dump
 #define PROPERTY_NAME_SEG_MASK_DUMP     "codec2_yolov5_seg_mask_dump"
-#define DEFAULT_SEG_MASK_DUMP_PATH      "/data/video/seg_dump.txt"
 
 #define NMS_THRESH          0.45
 #define BOX_THRESH          0.25
@@ -58,16 +62,17 @@ static const int gAnchor[3][6] = {
 };
 
 typedef struct {
-    int32_t    originWidth;
-    int32_t    originHeight;
-    uint8_t   *omResultMap;
-    float     *protoData;
-    uint8_t   *segMask;
-    uint8_t   *matmulOut;
-    uint8_t   *allMaskInOne;
-    uint8_t   *croppedSegMask;
-    LetterBox *letterbox;
-    bool       resultMask;
+    int32_t      originWidth;
+    int32_t      originHeight;
+    float       *protoData;
+    uint8_t     *omResultMap;
+    ImageBuffer *segMask;
+    ImageBuffer *matmulOut;
+    ImageBuffer *allMaskInOne;
+    ImageBuffer *croppedSegMask;
+    ImageBuffer *segMaskReal;
+    LetterBox   *letterbox;
+    bool         resultMask;
     rknn_tensor_attr *nnOutputAttr;
 
     rknn_matmul_ctx     matmulCtx;
@@ -79,7 +84,7 @@ typedef struct {
     uint16_t           *vectorB; /* float32 to float16 */
 
     // output seg mask dump
-    FILE *dumpFp;
+    bool dumpSegMask;
 } PostProcessContextImpl;
 
 static int _toRgaFormat(ImageFormat fmt) {
@@ -137,6 +142,10 @@ void _resize_by_rga_uint8(
                         inputPtr + (b * inputW * inputH), inputW * inputH);
         rgaDstHdl = importbuffer_virtualaddr(
                         outputPtr + (b * outputW * outputH), outputW * outputH);
+        if (!rgaSrcHdl || !rgaDstHdl) {
+            c2_err("failed to import rga buffer");
+            return;
+        }
 
         rgaSrc = wrapbuffer_handle(rgaSrcHdl, inputW, inputH, RK_FORMAT_YCbCr_400);
         rgaDst = wrapbuffer_handle(rgaDstHdl, outputW, outputH, RK_FORMAT_YCbCr_400);
@@ -145,6 +154,9 @@ void _resize_by_rga_uint8(
         if (ret != IM_STATUS_SUCCESS) {
             c2_err("failed imresize");
         }
+
+        releasebuffer_handle(rgaSrcHdl);
+        releasebuffer_handle(rgaDstHdl);
     }
 }
 
@@ -489,6 +501,7 @@ static void _crop_mask_uint8_merge(
         uint8_t *segMask, uint8_t *allMaskInOne, float *boxes,
         int boxesNum, int *clsId, int width, int height) {
     (void)clsId;
+
     for (int b = 0; b < boxesNum; b++) {
         float x1 = boxes[b * 4 + 0];
         float y1 = boxes[b * 4 + 1];
@@ -594,6 +607,46 @@ static void _get_blk_object(
     }
 }
 
+ImageBuffer* _alloc_seg_buffer(int32_t width, int32_t height) {
+    buffer_handle_t bufferHandle;
+    uint32_t stride = 0;
+    uint64_t usage  = (GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN);
+
+    if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_3588) {
+        usage |= RK_GRALLOC_USAGE_WITHIN_4G;
+    }
+
+    GraphicBufferAllocator::get().allocate(
+            width, height, 538982489 /* HAL_PIXEL_FORMAT_Y8 */, 1u,
+            usage, &bufferHandle, &stride, "c2_yolov5_seg_buf");
+
+    ImageBuffer *image = new ImageBuffer;
+
+    image->width   = width;
+    image->height  = height;
+    image->hstride = width;
+    image->vstride = height;
+    image->size    = width * height;
+    image->format  = IMAGE_FORMAT_GRAY8;
+    image->handle  = (void *)bufferHandle;
+    image->fd      = C2RKGrallocOps::get()->getShareFd(bufferHandle);
+    image->virAddr = (uint8_t*)mmap(nullptr, width * height,
+                        PROT_READ | PROT_WRITE, MAP_SHARED, image->fd, 0);
+    return image;
+}
+
+void _free_seg_buffer(ImageBuffer *image) {
+    if (image) {
+        if (image->virAddr) {
+            munmap(image->virAddr, image->size);
+        }
+        if (image->handle) {
+            GraphicBufferAllocator::get().free((buffer_handle_t)image->handle);
+        }
+        C2_SAFE_DELETE(image)
+    }
+}
+
 bool c2_postprocess_init_context(
         PostProcessContext *ctx, ImageBuffer *originImage,
         rknn_tensor_attr *outputAttr, bool resultMask) {
@@ -608,12 +661,14 @@ bool c2_postprocess_init_context(
     impl->letterbox = (LetterBox*)calloc(1, sizeof(LetterBox));
 
     // malloc seg map memory
-    impl->omResultMap = (uint8_t *)malloc(originImage->hstride * originImage->vstride);
     impl->protoData = (float*)malloc(PROTO_CHANNEL * PROTO_HEIGHT * PROTO_WEIGHT * sizeof(float));
-    impl->segMask = (uint8_t*)malloc(SEG_NUMB_MAX_SIZE * SEG_MODEL_WIDTH * SEG_MODEL_HEIGHT);
-    impl->matmulOut = (uint8_t*)malloc(SEG_NUMB_MAX_SIZE * SEG_MODEL_WIDTH * SEG_MODEL_HEIGHT);
-    impl->allMaskInOne = (uint8_t*)malloc(SEG_MODEL_WIDTH * SEG_MODEL_HEIGHT);
-    impl->croppedSegMask = (uint8_t*)malloc(SEG_MODEL_WIDTH * SEG_MODEL_HEIGHT);
+
+    impl->omResultMap = (uint8_t *)malloc(originImage->hstride * originImage->vstride);
+    impl->segMask = _alloc_seg_buffer(SEG_NUMB_MAX_SIZE * SEG_MODEL_WIDTH, SEG_MODEL_HEIGHT);
+    impl->matmulOut = _alloc_seg_buffer(SEG_NUMB_MAX_SIZE * SEG_MODEL_WIDTH, SEG_MODEL_HEIGHT);
+    impl->allMaskInOne = _alloc_seg_buffer(SEG_MODEL_WIDTH, SEG_MODEL_HEIGHT);
+    impl->croppedSegMask = _alloc_seg_buffer(SEG_MODEL_WIDTH, SEG_MODEL_HEIGHT);
+    impl->segMaskReal = _alloc_seg_buffer(originImage->hstride, originImage->vstride);
 
     // init rknn matmul
     {
@@ -664,11 +719,8 @@ bool c2_postprocess_init_context(
     impl->nnOutputAttr = outputAttr;
 
     // output seg mask dump
-    if (property_get_bool(PROPERTY_NAME_SEG_MASK_DUMP, 0) && !impl->dumpFp) {
-        impl->dumpFp = fopen(DEFAULT_SEG_MASK_DUMP_PATH, "w");
-        if (impl->dumpFp) {
-            c2_info("dump seg mask to %s", DEFAULT_SEG_MASK_DUMP_PATH);
-        }
+    if (property_get_bool(PROPERTY_NAME_SEG_MASK_DUMP, 0)) {
+        impl->dumpSegMask = true;
     }
 
     *ctx = impl;
@@ -681,11 +733,13 @@ bool c2_postprocess_deinit_context(PostProcessContext ctx) {
         C2_SAFE_FREE(impl->letterbox);
         C2_SAFE_FREE(impl->omResultMap);
         C2_SAFE_FREE(impl->protoData);
-        C2_SAFE_FREE(impl->segMask);
-        C2_SAFE_FREE(impl->matmulOut);
-        C2_SAFE_FREE(impl->allMaskInOne);
-        C2_SAFE_FREE(impl->croppedSegMask);
         C2_SAFE_FREE(impl->vectorB);
+
+        _free_seg_buffer(impl->segMask);
+        _free_seg_buffer(impl->matmulOut);
+        _free_seg_buffer(impl->allMaskInOne);
+        _free_seg_buffer(impl->croppedSegMask);
+        _free_seg_buffer(impl->segMaskReal);
 
         if (impl->tensorA) {
             C2RKRknnWrapper::get()->rknnDestroyMem(impl->matmulCtx, impl->tensorA);
@@ -698,10 +752,6 @@ bool c2_postprocess_deinit_context(PostProcessContext ctx) {
         }
         if (impl->matmulCtx) {
             C2RKRknnWrapper::get()->rknnMatmulDestroy(impl->matmulCtx);
-        }
-        if (impl->dumpFp) {
-            fclose(impl->dumpFp);
-            impl->dumpFp = nullptr;
         }
         C2_SAFE_DELETE(impl);
     }
@@ -789,10 +839,11 @@ int c2_preprocess_convert_image_with_rga(
     }
 
     c2_trace("===========preprocess rga translte info===============");
-    c2_trace("rga src [%d,%d,%d,%d] fd %d fmt %d", rgaSrc.width, rgaSrc.height,
+    c2_trace("rga src [%04d,%04d,%04d,%04d] fd %d fmt %d", rgaSrc.width, rgaSrc.height,
               rgaSrc.wstride, rgaSrc.hstride, rgaSrc.fd, rgaSrc.format);
-    c2_trace("rga dst [%d,%d,%d,%d] fd %d fmt %d", rgaDst.width, rgaDst.height,
+    c2_trace("rga dst [%04d,%04d,%04d,%04d] fd %d fmt %d", rgaDst.width, rgaDst.height,
               rgaDst.wstride, rgaDst.hstride, rgaDst.fd, rgaDst.format);
+    c2_trace("======================================================");
 
     err = improcess(rgaSrc, rgaDst, rgaPat, srect, drect, prect, 0);
     if (err <= 0) {
@@ -1034,6 +1085,10 @@ bool c2_postprocess_output_model_image(
             odResults->results[i].box.right = impl->originWidth;
         if (odResults->results[i].box.bottom > impl->originHeight)
             odResults->results[i].box.bottom = impl->originHeight;
+
+        c2_trace("detect box[%d] - [%d %d %d %d]", i,
+                 odResults->results[i].box.left, odResults->results[i].box.top,
+                 odResults->results[i].box.right, odResults->results[i].box.bottom);
     }
 
     // For non_seg encode version, get detection box and return.
@@ -1041,16 +1096,17 @@ bool c2_postprocess_output_model_image(
         return true;
     }
 
-    memset(impl->matmulOut, 0, finalBoxNum * PROTO_HEIGHT * PROTO_WEIGHT);
-    memset(impl->allMaskInOne, 0, modelWidth * modelHeight * sizeof(uint8_t));
-    memset(impl->segMask, 0, SEG_NUMB_MAX_SIZE * SEG_MODEL_WIDTH * SEG_MODEL_HEIGHT);
-    memset(impl->croppedSegMask, 0, SEG_MODEL_WIDTH * SEG_MODEL_HEIGHT);
-
     // compute the mask through matmul
-    uint8_t *allMaskInOne   = impl->allMaskInOne;
-    uint8_t *segMask        = impl->segMask;
-    uint8_t *matmulOut      = impl->matmulOut;
-    uint8_t *croppedSegMask = impl->croppedSegMask;
+    uint8_t *allMaskInOne   = impl->allMaskInOne->virAddr;
+    uint8_t *segMask        = impl->segMask->virAddr;
+    uint8_t *matmulOut      = impl->matmulOut->virAddr;
+    uint8_t *croppedSegMask = impl->croppedSegMask->virAddr;
+    uint8_t *segMaskReal    = impl->segMaskReal->virAddr;
+
+    memset(matmulOut, 0, finalBoxNum * PROTO_HEIGHT * PROTO_WEIGHT);
+    memset(allMaskInOne, 0, modelWidth * modelHeight * sizeof(uint8_t));
+    memset(segMask, 0, SEG_NUMB_MAX_SIZE * SEG_MODEL_WIDTH * SEG_MODEL_HEIGHT);
+    memset(croppedSegMask, 0, SEG_MODEL_WIDTH * SEG_MODEL_HEIGHT);
 
     int rowsA = finalBoxNum;
     int colsA = PROTO_CHANNEL;
@@ -1075,9 +1131,11 @@ bool c2_postprocess_output_model_image(
 
     _seg_reverse(
             allMaskInOne, croppedSegMask,
-            odResults->resultsSeg[0].segMask, /* output segMaskReal */
+            segMaskReal, /* output segMaskReal */
             modelHeight, modelWidth, croppedH, croppedW,
             oriInH, oriInW, yPad, xPad);
+
+    memcpy(odResults->resultsSeg[0].segMask, segMaskReal, oriInW * oriInH);
 
     C2_SAFE_FREE(filterBoxesByNms)
 
@@ -1093,7 +1151,7 @@ bool c2_postprocess_seg_mask_to_class_map(
         return false;
     }
 
-    if (!impl->resultMask) {
+    if (!impl->resultMask || odResults->count == 0) {
         return true;  // no need
     }
 
@@ -1101,53 +1159,56 @@ bool c2_postprocess_seg_mask_to_class_map(
 
     int blockNum = 0;
     int blkPosX, blkPosY;
-    int ctuSize = isHevc ? 32 : 16;
+    int ctuSize = 16;
     uint8_t *objectMap = impl->omResultMap;
     uint8_t *segMask = odResults->resultsSeg[0].segMask;
+    bool classMapValid = false;
+
+    if (isHevc) {
+        ctuSize = C2RKChipCapDef::get()->getChipType() == RK_CHIP_3588 ? 64 : 32;
+    }
 
     // output seg mask dump
     static std::string dumpResult;
     static char dumpBuffer[10];
 
     // if more than one object, convert the object map
-    if (odResults->count >= 1) {
-        omResults->foundObjects = 1;
+    omResults->foundObjects = 1;
 
-        for (int h = 0; h < impl->originHeight; h += ctuSize) {
-            for (int w = 0; w < impl->originWidth; w += ctuSize) {
-                for (int i = 0; i < ctuSize / 16; i++) {
-                    for (int j = 0; j < ctuSize / 16; j++) {
-                        blkPosX = w + j * 16;
-                        blkPosY = h + i * 16;
-                        // calculate the number of pixels (in a 16x16 block) in each category
-                        _get_blk_object(
-                                blkPosX, blkPosY, impl->originWidth,
-                                impl->originHeight, segMask, objectMap, blockNum);
-                        // dump output seg mask line after line
-                        if (impl->dumpFp) {
-                            if (objectMap[blockNum] == 0) {
-                                dumpResult.append("  ");
-                            } else {
-                                sprintf(dumpBuffer, "%d ", objectMap[blockNum]);
-                                dumpResult.append(dumpBuffer);
-                            }
-                        }
-                        blockNum++;
+    for (int h = 0; h < impl->originHeight; h += ctuSize) {
+        for (int w = 0; w < impl->originWidth; w += ctuSize) {
+            for (int i = 0; i < ctuSize / 16; i++) {
+                for (int j = 0; j < ctuSize / 16; j++) {
+                    blkPosX = w + j * 16;
+                    blkPosY = h + i * 16;
+                    // calculate the number of pixels (in a 16x16 block) in each category
+                    _get_blk_object(
+                            blkPosX, blkPosY, impl->originWidth,
+                            impl->originHeight, segMask, objectMap, blockNum);
+                    if (objectMap[blockNum] != 0) {
+                        classMapValid = true;
                     }
+                    // dump output seg mask line after line
+                    if (impl->dumpSegMask) {
+                        if (objectMap[blockNum] == 0) {
+                            dumpResult.append("  ");
+                        } else {
+                            sprintf(dumpBuffer, "%d ", objectMap[blockNum]);
+                            dumpResult.append(dumpBuffer);
+                        }
+                    }
+                    blockNum++;
                 }
             }
-            if (impl->dumpFp) {
-                dumpResult.append("\n");
-            }
+        }
+        if (impl->dumpSegMask) {
+            c2_info("%s", dumpResult.c_str());
+            dumpResult.clear();
         }
     }
 
-    if (impl->dumpFp) {
-        dumpResult.append("\n");
-        fwrite(dumpResult.c_str(), 1, dumpResult.size(), impl->dumpFp);
-        fflush(impl->dumpFp);
-        // dump only once
-        fclose(impl->dumpFp);
+    if (!classMapValid) {
+        c2_warn("not get valid roi map, maybe some error occurs");
     }
 
     omResults->objectSegMap = impl->omResultMap;

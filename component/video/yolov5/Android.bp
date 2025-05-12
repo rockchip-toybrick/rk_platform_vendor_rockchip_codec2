@@ -1,3 +1,17 @@
+prebuilt_etc {
+    name: "yolov5n_seg_for3576.rknn",
+    src: "model/yolov5n_seg_for3576.rknn",
+    sub_dir: "rknn",
+    vendor: true,
+}
+
+prebuilt_etc {
+    name: "yolov5n_seg_for3588.rknn",
+    src: "model/yolov5n_seg_for3588.rknn",
+    sub_dir: "rknn",
+    vendor: true,
+}
+
 cc_library_static {
     name: "libcodec2_rk_yolov5_session",
     vendor: true,
@@ -33,5 +47,10 @@ cc_library_static {
     export_include_dirs: [
         ".",
         "include/rknpu2",
+    ],
+
+    required: [
+        "yolov5n_seg_for3576.rknn",
+        "yolov5n_seg_for3588.rknn",
     ],
 }

@@ -35,6 +35,7 @@ namespace android {
 #define SEG_MODEL_WIDTH             (640)
 #define SEG_MODEL_HEIGHT            (640)
 #define SEG_MODEL_CHANNEL           (3)
+#define SEG_MODEL_BUF_SIZE          (640*640*3)
 #define SEG_NUMB_MAX_SIZE           (8)        /* maximum number of detect regions */
 
 class C2RKRknnWrapper;
@@ -105,7 +106,7 @@ public:
         /* rknn copy input image */
         ImageBuffer *mCopyImage;
         /* yolov5 required model size 640x640, RGB888  */
-        void        *mInModelPtr;
+        ImageBuffer *mModelImage;
         /* object detect results, alloc segMask memory, so don't memset it */
         void        *mOdResults;
 

@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <dlfcn.h>
 #include <cutils/properties.h>
 #include <ui/GraphicBufferMapper.h>
 #include <ui/GraphicBufferAllocator.h>
@@ -29,17 +30,19 @@
 #include "C2RKYolov5Session.h"
 #include "C2RKPostProcess.h"
 #include "C2RKGrallocOps.h"
+#include "C2RKMediaUtils.h"
+#include "C2RKChipCapDef.h"
 #include "C2RKRknnWrapper.h"
 #include "C2RKEasyTimer.h"
 #include "C2RKLog.h"
 
 namespace android {
 
-#define DEFAULT_MODEL_PATH                  "/data/video/yolov5n_seg_for3576.rknn"
+#define DEFAULT_RK3576_MODEL_PATH           "/vendor/etc/rknn/yolov5n_seg_for3576.rknn"
+#define DEFAULT_RK3588_MODEL_PATH           "/vendor/etc/rknn/yolov5n_seg_for3588.rknn"
 #define MAX_SUPPORT_SIZE                    3840*2160
 #define MAX_RKNN_OUTPUT_SIZE                7
 
-#define PROPERTY_NAME_MODEL_PATH            "codec2_yolov5_model_path"
 #define PROPERTY_NAME_ENABLE_RECT           "codec2_yolov5_enable_draw_rect"
 #define PROPERTY_NAME_OUTPUT_PROTO_MASK     "codec2_yolov5_output_proto_mask"
 
@@ -92,15 +95,16 @@ void* loadModelFile(int32_t *size) {
     FILE *fp = nullptr;
     char path[PROPERTY_VALUE_MAX];
 
-    if (property_get(PROPERTY_NAME_MODEL_PATH, path, "") <= 0) {
-        // use default yolov5 model path
-        memcpy(path, DEFAULT_MODEL_PATH, sizeof(DEFAULT_MODEL_PATH));
+    if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_3588) {
+        memcpy(path, DEFAULT_RK3588_MODEL_PATH, sizeof(DEFAULT_RK3588_MODEL_PATH));
+    } else {
+        memcpy(path, DEFAULT_RK3576_MODEL_PATH, sizeof(DEFAULT_RK3576_MODEL_PATH));
     }
 
     // open file
-    fp = fopen(path, "rb");
+    fp = fopen(path, "r");
     if (fp == nullptr) {
-        c2_err("failed to open file %s, err %s", path, strerror(errno));
+        c2_err("failed to open file %s, err: %s", path, strerror(errno));
         return nullptr;
     }
 
@@ -128,6 +132,68 @@ void* loadModelFile(int32_t *size) {
 
     c2_info("rknn load model(%s)", path);
     return model;
+}
+
+ImageBuffer* allocImageBuffer(int32_t width, int32_t height, ImageFormat format) {
+    buffer_handle_t bufferHandle;
+    uint32_t stride = 0;
+    int32_t halFormat = 0;
+    int32_t size = 0;
+    uint64_t usage = (GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN);
+
+    ImageBuffer *image = new ImageBuffer;
+
+    switch (format) {
+    case IMAGE_FORMAT_GRAY8:
+        halFormat = 538982489;  /* HAL_PIXEL_FORMAT_Y8 */
+        size = width * height;
+        break;
+    case IMAGE_FORMAT_RGB888:
+        halFormat = 3;          /* HAK_PIXEL_FORMAT_RGB888 */
+        size = width * height * 3;
+        break;
+    case IMAGE_FORMAT_RGBA8888:
+        halFormat = 1;          /* HAK_PIXEL_FORMAT_RGBA8888 */
+        size = width * height * 4;
+        break;
+    default:
+        halFormat = 0x15;       /* NV12 */
+        size = width * height * 3 / 2;
+        break;
+    }
+
+    // allocate buffer within 4G to avoid rga2 error
+    if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_3588) {
+        usage |= RK_GRALLOC_USAGE_WITHIN_4G;
+    }
+
+    GraphicBufferAllocator::get().allocate(
+            width, height, halFormat, 1u /* layer count */,
+            usage, &bufferHandle, &stride, "c2_yolov5_model_buf");
+
+    image->width   = width;
+    image->height  = height;
+    image->hstride = width;
+    image->vstride = height;
+    image->size    = size;
+    image->format  = format;
+    image->handle  = (void *)bufferHandle;
+    image->fd      = C2RKGrallocOps::get()->getShareFd(bufferHandle);
+    image->virAddr = (uint8_t*)mmap(nullptr, size,
+                        PROT_READ | PROT_WRITE, MAP_SHARED, image->fd, 0);
+    return image;
+}
+
+void freeImageBuffer(ImageBuffer *image) {
+    if (image) {
+        if (image->virAddr) {
+            munmap(image->virAddr, image->size);
+        }
+        if (image->handle) {
+            GraphicBufferAllocator::get().free((buffer_handle_t)image->handle);
+        }
+        C2_SAFE_DELETE(image);
+    }
 }
 
 bool C2RKYolov5Session::RknnOutput::isIdle() {
@@ -188,7 +254,7 @@ C2RKYolov5Session::C2RKYolov5Session() :
     mCallback(nullptr) {
     mDrawRect = (bool)property_get_bool(PROPERTY_NAME_ENABLE_RECT, 0);
     mResultProtoMask = (bool)property_get_bool(PROPERTY_NAME_OUTPUT_PROTO_MASK, 1);
-    c2_info("set yolov5 result type: %s", mResultProtoMask ? "mask" : "roi rects");
+    c2_info("set yolov5 result type: %s", mResultProtoMask ? "mask" : "roi_rects");
 }
 
 C2RKYolov5Session::~C2RKYolov5Session() {
@@ -196,6 +262,7 @@ C2RKYolov5Session::~C2RKYolov5Session() {
 }
 
 bool C2RKYolov5Session::disconnect() {
+    c2_trace_func_enter();
     stopPostProcessLooper();
 
     releaseRknnOutputs();
@@ -316,14 +383,12 @@ void C2RKYolov5Session::initRknnOutputs() {
         nnOutput->mStatus     = RknnOutput::IDLE;
         nnOutput->mOutput     = output;
         nnOutput->mInImage    = new ImageBuffer;
-        nnOutput->mCopyImage  = new ImageBuffer;
+        nnOutput->mCopyImage  = nullptr;
         nnOutput->mOdResults  = (void *)odResults;
-
-        // init required model size 640x640, RGB888
-        nnOutput->mInModelPtr = malloc(SEG_MODEL_WIDTH * SEG_MODEL_HEIGHT * 3);
+        nnOutput->mModelImage = allocImageBuffer(
+                SEG_MODEL_WIDTH, SEG_MODEL_HEIGHT, IMAGE_FORMAT_RGB888);
 
         memset(nnOutput->mInImage, 0, sizeof(ImageBuffer));
-        memset(nnOutput->mCopyImage, 0, sizeof(ImageBuffer));
 
         mRknnOutputs.push(nnOutput);
     }
@@ -339,12 +404,13 @@ void C2RKYolov5Session::releaseRknnOutputs() {
             for (int i = 0; i < mNumIO.n_output; i++) {
                 C2_SAFE_FREE(output[i].buf);
             }
-            if (nnOutput->mCopyImage && nnOutput->mCopyImage->handle) {
-                GraphicBufferAllocator::get().free(
-                        (buffer_handle_t)nnOutput->mCopyImage->handle);
+            if (nnOutput->mCopyImage) {
+                freeImageBuffer(nnOutput->mCopyImage);
+            }
+            if (nnOutput->mModelImage) {
+                freeImageBuffer(nnOutput->mModelImage);
             }
             C2_SAFE_DELETE(nnOutput->mInImage);
-            C2_SAFE_DELETE(nnOutput->mCopyImage);
 
             if (nnOutput->mOdResults) {
                 objectDetectResultList *odResults =
@@ -352,7 +418,6 @@ void C2RKYolov5Session::releaseRknnOutputs() {
                 C2_SAFE_FREE(odResults->resultsSeg[0].segMask);
                 delete odResults;
             }
-            C2_SAFE_FREE(nnOutput->mInModelPtr);
             C2_SAFE_FREE(nnOutput->mOutput);
             C2_SAFE_DELETE(nnOutput)
         }
@@ -375,6 +440,12 @@ bool C2RKYolov5Session::createSession(
     int32_t err = 0;
     int32_t modelSize = 0;
     void *modelData = nullptr;
+
+    if (C2RKChipCapDef::get()->getChipType() != RK_CHIP_3588 &&
+        C2RKChipCapDef::get()->getChipType() != RK_CHIP_3576) {
+        c2_err("only rk3576/rk3588 support rknn yolov5");
+        return false;
+    }
 
     // rknn api ops wrapper
     if (!mOps->initCheck()) {
@@ -478,7 +549,7 @@ bool C2RKYolov5Session::onPostResult(RknnOutput *nnOutput) {
     objectMapResultList omResults;
 
     ImageBuffer *inImage = nnOutput->mInImage;
-    objectDetectResultList *odResults = (objectDetectResultList *)nnOutput->mOdResults;
+    objectDetectResultList *odResults = (objectDetectResultList*)nnOutput->mOdResults;
 
     memset(&omResults, 0, sizeof(omResults));
 
@@ -493,7 +564,7 @@ bool C2RKYolov5Session::onPostResult(RknnOutput *nnOutput) {
                 mPostProcessContext, mIsHEVC, odResults, &omResults);
     }
 
-    timer.stopRecord("segMaskTo Class map");
+    timer.stopRecord("seg_mask_to_class_map");
 
     timer.startRecord();
 
@@ -502,7 +573,7 @@ bool C2RKYolov5Session::onPostResult(RknnOutput *nnOutput) {
         c2_postprocess_draw_rect_array(inImage, odResults);
     }
 
-    timer.stopRecord("draw rect");
+    timer.stopRecord("draw_rect");
 
     timer.startRecord();
 
@@ -529,7 +600,7 @@ bool C2RKYolov5Session::onPostResult(RknnOutput *nnOutput) {
     nnOutput->setStatus(RknnOutput::IDLE);
     mCondition.signal();
 
-    timer.stopRecord("result callback");
+    timer.stopRecord("result_callback");
 
     return true;
 }
@@ -582,8 +653,8 @@ bool C2RKYolov5Session::onRknnRunProcess(RknnOutput *nnOutput) {
     mInput->index = 0;
     mInput->type  = RKNN_TENSOR_UINT8;
     mInput->fmt   = RKNN_TENSOR_NHWC;
-    mInput->size  = SEG_MODEL_WIDTH * SEG_MODEL_HEIGHT * 3;
-    mInput->buf   = nnOutput->mInModelPtr;
+    mInput->size  = SEG_MODEL_BUF_SIZE;
+    mInput->buf   = nnOutput->mModelImage->virAddr;
 
     int err = mOps->rknnSetInputs(mRknnCtx, mNumIO.n_input, mInput);
     if (err < 0) {
@@ -622,48 +693,36 @@ bool C2RKYolov5Session::onCopyInputBuffer(RknnOutput *nnOutput) {
     }
 
     ImageBuffer *inImage = nnOutput->mInImage;
-    ImageBuffer *copyImage = nnOutput->mCopyImage;
 
-    int32_t halFormat = (inImage->format == IMAGE_FORMAT_RGBA8888) ? 0x1 : 0x15;
-
-    if (!copyImage->handle) {
-        buffer_handle_t bufferHandle;
-
-        uint32_t stride = 0;
-        uint64_t usage  = (GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN);
-
-        status_t status = GraphicBufferAllocator::get().allocate(
-                inImage->hstride, inImage->vstride,
-                halFormat, 1u /* layer count */,
-                usage, &bufferHandle, &stride, "C2RKYolov5Session");
-        if (status) {
-            c2_err("failed transaction: allocate");
-            return false;
-        }
-
-        copyImage->fd = C2RKGrallocOps::get()->getShareFd(bufferHandle);
-        copyImage->handle = (void *)bufferHandle;
+    if (!nnOutput->mCopyImage) {
+        nnOutput->mCopyImage = allocImageBuffer(
+                inImage->hstride, inImage->vstride, inImage->format);
     }
 
-    copyImage->format  = inImage->format;
-    copyImage->width   = inImage->width;
-    copyImage->height  = inImage->height;
-    copyImage->hstride = inImage->hstride;
-    copyImage->vstride = inImage->vstride;
+    nnOutput->mCopyImage->format  = inImage->format;
+    nnOutput->mCopyImage->width   = inImage->width;
+    nnOutput->mCopyImage->height  = inImage->height;
+    nnOutput->mCopyImage->hstride = inImage->hstride;
+    nnOutput->mCopyImage->vstride = inImage->vstride;
 
-    if (!c2_postprocess_copy_image_buffer(inImage, copyImage)) {
+    if (!c2_postprocess_copy_image_buffer(inImage, nnOutput->mCopyImage)) {
         c2_err("failed to copy input buffer");
         return false;
     }
 
     // update use copy buffer
-    inImage->fd = copyImage->fd;
+    inImage->fd = nnOutput->mCopyImage->fd;
 
     return true;
 }
 
 bool C2RKYolov5Session::startDetect(ImageBuffer *srcImage) {
     int err = 0;
+
+    if ((srcImage->hstride * srcImage->vstride) > MAX_SUPPORT_SIZE) {
+        c2_err("max support 4K size");
+        return false;
+    }
 
     if (!mPostProcessContext) {
         err = c2_postprocess_init_context(
@@ -692,20 +751,10 @@ bool C2RKYolov5Session::startDetect(ImageBuffer *srcImage) {
         }
     }
 
-    ImageBuffer modelImage;
-    memset(&modelImage, 0, sizeof(ImageBuffer));
-
-    modelImage.width   = SEG_MODEL_WIDTH;
-    modelImage.height  = SEG_MODEL_HEIGHT;
-    modelImage.hstride = SEG_MODEL_WIDTH;
-    modelImage.vstride = SEG_MODEL_HEIGHT;
-    modelImage.format  = IMAGE_FORMAT_RGB888;
-    modelImage.virAddr = (uint8_t *)nnOutput->mInModelPtr;
-
-    memcpy(nnOutput->mInImage, srcImage, sizeof(ImageBuffer));
+    ImageBuffer *modelImage = nnOutput->mModelImage;
 
     // convert to dst model image with rga
-    err = c2_preprocess_convert_model_image(mPostProcessContext, srcImage, &modelImage);
+    err = c2_preprocess_convert_model_image(mPostProcessContext, srcImage, modelImage);
     if (!err) {
         if (mCallback) {
             mCallback->onError("preprocess");
@@ -713,7 +762,9 @@ bool C2RKYolov5Session::startDetect(ImageBuffer *srcImage) {
         return false;
     }
 
-    timer.stopRecord("pre convert model image");
+    timer.stopRecord("pre_convert_model_image");
+
+    memcpy(nnOutput->mInImage, srcImage, sizeof(ImageBuffer));
 
     if (mCallback) {
         timer.startRecord();
@@ -725,7 +776,7 @@ bool C2RKYolov5Session::startDetect(ImageBuffer *srcImage) {
          */
         onCopyInputBuffer(nnOutput);
 
-        timer.stopRecord("copy input buffer");
+        timer.stopRecord("copy_input_buffer");
 
         // rknn run looper process, do rknn_run & rknn_outputs_get.
         mRknnRunHandler->pendingProcess(nnOutput);
