@@ -2253,10 +2253,10 @@ void C2RKMpiDec::postFrameReady() {
 c2_status_t C2RKMpiDec::onFrameReady() {
     if (mSignalledError) return C2_BAD_STATE;
 
+outframe:
     OutWorkEntry entry;
     memset(&entry, 0, sizeof(entry));
 
-outframe:
     c2_status_t err = getoutframe(&entry);
     if (err == C2_OK) {
         finishWork(entry);
