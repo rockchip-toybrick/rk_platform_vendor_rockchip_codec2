@@ -39,7 +39,7 @@ static constexpr char kExtSeccompPolicyPath[] =
 
 int main(int /* argc */, char** /* argv */) {
     using namespace ::android;
-    LOG(DEBUG) << "android.hardware.media.c2@1.1-service starting...";
+    LOG(INFO) << "android.hardware.media.c2@1.1-service starting...";
 
     // Set up minijail to limit system calls.
     signal(SIGPIPE, SIG_IGN);
@@ -57,7 +57,7 @@ int main(int /* argc */, char** /* argv */) {
         using namespace ::android::hardware::media::c2::V1_1;
         sp<IComponentStore> store;
 
-        LOG(DEBUG) << "Instantiating Codec2's IComponentStore service...";
+        LOG(INFO) << "Instantiating Codec2's IComponentStore service...";
         store = new utils::ComponentStore(
                 android::GetCodec2RKComponentStore());
 
@@ -70,7 +70,7 @@ int main(int /* argc */, char** /* argv */) {
                               " with instance name << \""
                            << serviceName << "\".";
             } else {
-                LOG(DEBUG) << "Codec2's IComponentStore service registered. "
+                LOG(INFO) << "Codec2's IComponentStore service registered. "
                               "Instance name: \"" << serviceName << "\".";
             }
         }
