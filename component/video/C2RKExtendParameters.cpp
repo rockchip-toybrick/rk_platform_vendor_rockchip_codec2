@@ -45,6 +45,16 @@ const std::vector<C2FieldDescriptor> C2PreProcessStruct::_FIELD_LIST = {
     { C2FieldDescriptor::INT32, 1, "flip", 4, 4 }
 };
 
+const std::vector<C2FieldDescriptor> C2SuperProcessStruct::FieldList() {
+    return _FIELD_LIST;
+}
+const std::vector<C2FieldDescriptor> C2SuperProcessStruct::_FIELD_LIST = {
+    { C2FieldDescriptor::INT32, 1, "mode", 0, 4 },
+    { C2FieldDescriptor::INT32, 1, "super-i-thd", 4, 4 },
+    { C2FieldDescriptor::INT32, 1, "super-p-thd", 8, 4 },
+    { C2FieldDescriptor::INT32, 1, "max-reenc-times", 12, 4 }
+};
+
 const std::vector<C2FieldDescriptor> C2NumberStruct::FieldList() {
     return _FIELD_LIST;
 }

@@ -58,7 +58,6 @@ enum ExtendedC2ParamIndexKind : C2Param::type_index_t {
     /* 3. Codec Encoder Extension */
 
     kParamIndexEncSliceSize,
-    kParamIndexEncReencSetup,
     kParamIndexEncInputScaler,
     kParamIndexEncSuperEncodingMode,
     kParamIndexEncDisableSEI,
@@ -67,6 +66,7 @@ enum ExtendedC2ParamIndexKind : C2Param::type_index_t {
     kParamIndexEncRoiRegion3Cfg,
     kParamIndexEncRoiRegion4Cfg,
     kParamIndexEncPreProcess,
+    kParamIndexEncSuperProcess,
 };
 
 typedef C2PortParam<C2Info, C2Int32Value, kParamIndexDecDisableDpbCheck> C2StreamDecDisableDpbCheck;
@@ -89,9 +89,6 @@ constexpr char C2_PARAMKEY_ENC_SCENE_MODE[] = "c2-enc-scene-mode";
 
 typedef C2PortParam<C2Info, C2Int32Value, kParamIndexEncSliceSize> C2StreamEncSliceSizeInfo;
 constexpr char C2_PARAMKEY_ENC_SLICE_SIZE[] = "c2-enc-slice-size";
-
-typedef C2PortParam<C2Info, C2Int32Value, kParamIndexEncReencSetup> C2StreamEncReencInfo;
-constexpr char C2_PARAMKEY_ENC_REENC_TIMES[] = "c2-enc-reenc-times";
 
 struct C2InputScalarStruct {
     int32_t width;
@@ -160,6 +157,34 @@ struct C2PreProcessStruct {
 
 typedef C2PortParam<C2Info, C2PreProcessStruct, kParamIndexEncPreProcess> C2StreamEncPreProcess;
 constexpr char C2_PARAMKEY_ENC_PRE_PROCESS[] = "c2-enc-preprocess";
+
+/*
+ * Large frame process of encoder
+ *
+ * Mode: 0 - close default
+ *       1 - drop large frame
+ *       2 - reenc large frame
+ * iThd: threshold of large frame of I frame, unit of measurement is kbps.
+ * pThd: threshold of large frame of P frame, unit of measurement is kbps.
+ * maxReencTime: valid when mode is 2, the maximum times of reenc
+ */
+struct C2SuperProcessStruct {
+    int32_t mode;
+    int32_t iThd;
+    int32_t pThd;
+    int32_t reencTimes;
+
+    C2SuperProcessStruct() :
+        mode(0), iThd(0), pThd(0), reencTimes(0) {}
+    C2SuperProcessStruct(int32_t _mode, int32_t _iThd, int32_t _pThd, int32_t _reencTimes) :
+        mode(_mode), iThd(_iThd), pThd(_pThd), reencTimes(_reencTimes) {}
+
+    const static std::vector<C2FieldDescriptor> _FIELD_LIST;
+    static const std::vector<C2FieldDescriptor> FieldList();
+};
+
+typedef C2PortParam<C2Info, C2SuperProcessStruct, kParamIndexEncSuperProcess> C2StreamEncSuperProcess;
+constexpr char C2_PARAMKEY_ENC_SUPER_PROCESS[] = "c2-enc-super-process";
 
 /*
  * 1. MLVEC hardware driver version

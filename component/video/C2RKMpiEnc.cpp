@@ -380,13 +380,6 @@ public:
                 .build());
 
         addParameter(
-                DefineParam(mReencTime, C2_PARAMKEY_ENC_REENC_TIMES)
-                .withDefault(new C2StreamEncReencInfo::input(0))
-                .withFields({C2F(mReencTime, value).any()})
-                .withSetter(Setter<decltype(mReencTime)::element_type>::StrictValueWithNoDeps)
-                .build());
-
-        addParameter(
                 DefineParam(mInputScalar, C2_PARAMKEY_ENC_INPUT_SCALAR)
                 .withDefault(new C2StreamEncInputScalar::input(0, 0))
                 .withFields({
@@ -478,6 +471,18 @@ public:
                     C2F(mPreProcess, flip).any(),
                 })
                 .withSetter(PreProcessSetter)
+                .build());
+
+        addParameter(
+                DefineParam(mSuperProcess, C2_PARAMKEY_ENC_SUPER_PROCESS)
+                .withDefault(new C2StreamEncSuperProcess::input())
+                .withFields({
+                    C2F(mSuperProcess, mode).inRange(0, 2),
+                    C2F(mSuperProcess, iThd).any(),
+                    C2F(mSuperProcess, pThd).any(),
+                    C2F(mSuperProcess, reencTimes).any(),
+                })
+                .withSetter(SuperProcessSetter)
                 .build());
 
         addParameter(
@@ -927,6 +932,13 @@ public:
         return C2R::Ok();
     }
 
+    static C2R SuperProcessSetter(
+            bool mayBlock, C2P<C2StreamEncSuperProcess::input>& me) {
+        (void)mayBlock;
+        (void)me;
+        return C2R::Ok();
+    }
+
     static C2R MProfileLevelSetter(
             bool mayBlock, C2P<C2MProfileLevel::output> &me) {
         (void)mayBlock;
@@ -1097,12 +1109,12 @@ public:
     { return mSceneMode; }
     std::shared_ptr<C2StreamEncSliceSizeInfo::input> getSliceSize_l() const
     { return mSliceSize; }
-    std::shared_ptr<C2StreamEncReencInfo::input> getReencTime_l() const
-    { return mReencTime; }
     std::shared_ptr<C2StreamEncInputScalar::input> getInputScalar_l() const
     { return mInputScalar; }
     std::shared_ptr<C2StreamEncPreProcess::input> getPreProcess_l() const
     { return mPreProcess; }
+    std::shared_ptr<C2StreamEncSuperProcess::input> getSuperProcess_l() const
+    { return mSuperProcess; }
     std::shared_ptr<MlvecParams> getMlvecParams_l() const
     { return mMlvecParams; }
 
@@ -1128,7 +1140,6 @@ private:
     /* extend parameter definition */
     std::shared_ptr<C2StreamEncSceneModeInfo::input> mSceneMode;
     std::shared_ptr<C2StreamEncSliceSizeInfo::input> mSliceSize;
-    std::shared_ptr<C2StreamEncReencInfo::input> mReencTime;
     std::shared_ptr<C2StreamEncInputScalar::input> mInputScalar;
     std::shared_ptr<C2StreamEncSuperModeInfo::input> mSuperMode;
     std::shared_ptr<C2StreamEncDisableSEI::input> mDisableSEI;
@@ -1137,6 +1148,7 @@ private:
     std::shared_ptr<C2StreamEncRoiRegion3Cfg::input> mRoiRegion3Cfg;
     std::shared_ptr<C2StreamEncRoiRegion4Cfg::input> mRoiRegion4Cfg;
     std::shared_ptr<C2StreamEncPreProcess::input> mPreProcess;
+    std::shared_ptr<C2StreamEncSuperProcess::input> mSuperProcess;
     std::shared_ptr<MlvecParams> mMlvecParams;
 };
 
@@ -1510,6 +1522,42 @@ c2_status_t C2RKMpiEnc::setupPreProcess() {
     return C2_OK;
 }
 
+c2_status_t C2RKMpiEnc::setupSuperProcess() {
+    IntfImpl::Lock lock = mIntf->lock();
+    std::shared_ptr<C2StreamEncSuperProcess::input> c2SuperProcess
+            = mIntf->getSuperProcess_l();
+
+    /*
+     * Large frame process of encoder
+     *
+     * Mode: 0 - close default
+     *       1 - drop large frame
+     *       2 - reenc large frame
+     * iThd: threshold of large frame of I frame, unit kbps.
+     * pThd: threshold of large frame of P frame, unit kbps.
+     * maxReencTime: valid when mode is 2, the maximum times of reenc.
+     */
+    int32_t mode = c2SuperProcess->mode;
+    int32_t iThd = c2SuperProcess->iThd;
+    int32_t pThd = c2SuperProcess->pThd;
+    int32_t reencTimes = c2SuperProcess->reencTimes;
+
+    if (mode > 0 && iThd > 0 && pThd > 0) {
+        mpp_enc_cfg_set_s32(mEncCfg, "rc:super_mode",  mode);
+        mpp_enc_cfg_set_s32(mEncCfg, "rc:super_i_thd", iThd);
+        mpp_enc_cfg_set_s32(mEncCfg, "rc:super_p_thd", pThd);
+
+        if (reencTimes > 0) {
+            mpp_enc_cfg_set_s32(mEncCfg, "rc:max_reenc_times", reencTimes);
+        }
+
+        c2_info("setupSuperProcess, mode %d iThd %d pThd %d reencTimes %d",
+                mode, iThd, pThd, reencTimes);
+    }
+
+    return C2_OK;
+}
+
 c2_status_t C2RKMpiEnc::setupSceneMode() {
     IntfImpl::Lock lock = mIntf->lock();
 
@@ -1536,19 +1584,6 @@ c2_status_t C2RKMpiEnc::setupSliceSize() {
         c2_info("setupSliceSize: slice-size %d", c2Size->value);
         mpp_enc_cfg_set_s32(mEncCfg, "split:mode", MPP_ENC_SPLIT_BY_BYTE);
         mpp_enc_cfg_set_s32(mEncCfg, "split:arg", c2Size->value);
-    }
-
-    return C2_OK;
-}
-
-c2_status_t C2RKMpiEnc::setupReencTimes() {
-    IntfImpl::Lock lock = mIntf->lock();
-
-    std::shared_ptr<C2StreamEncReencInfo::input> reencTime = mIntf->getReencTime_l();
-
-    if (reencTime->value > 0) {
-        c2_info("setupReencTimes: reenc-times %d", reencTime->value);
-        mpp_enc_cfg_set_s32(mEncCfg, "prep:max_reenc_times", reencTime->value);
     }
 
     return C2_OK;
@@ -2277,14 +2312,14 @@ c2_status_t C2RKMpiEnc::setupEncCfg() {
     /* Video control PreProcess, rotation\mirror\flip */
     setupPreProcess();
 
+    /* Video Large Frame Process, drop or reenc */
+    setupSuperProcess();
+
     /* Video control Set Scene Mode */
     setupSceneMode();
 
     /* Video control Set Slice Size */
     setupSliceSize();
-
-    /* Video control Set reenc Times */
-    setupReencTimes();
 
     /* Video control Set FrameRates and gop */
     setupFrameRate();
