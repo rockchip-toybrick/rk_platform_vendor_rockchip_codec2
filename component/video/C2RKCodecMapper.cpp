@@ -20,7 +20,7 @@
 #include "C2RKCodecMapper.h"
 #include "C2RKLog.h"
 #include "mpp/rk_mpi.h"
-
+#include <string>
 #include <media/stagefright/MediaCodecConstants.h>
 #include <C2Config.h>
 
