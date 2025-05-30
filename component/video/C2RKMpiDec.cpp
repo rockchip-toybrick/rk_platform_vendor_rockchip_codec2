@@ -1569,8 +1569,6 @@ void C2RKMpiDec::finishWork(OutWorkEntry entry) {
         c2Buffer = createGraphicBuffer(
                 std::move(outblock), C2Rect(mWidth, mHeight).at(left, top));
 
-        mOutBlock = nullptr;
-
         if (mCodingType == MPP_VIDEO_CodingAVC ||
             mCodingType == MPP_VIDEO_CodingHEVC ||
             mCodingType == MPP_VIDEO_CodingAV1 ||
@@ -2368,7 +2366,7 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
     int32_t error   = mpp_frame_get_errinfo(frame);
     int32_t discard = mpp_frame_get_discard(frame);
     int32_t eos     = mpp_frame_get_eos(frame);
-    uint64_t pts     = mpp_frame_get_pts(frame);
+    uint64_t pts    = mpp_frame_get_pts(frame);
     int32_t flags   = 0;
 
     MppFrameFormat format = mpp_frame_get_fmt(frame);
@@ -2542,6 +2540,10 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
 
     entry->outblock = mBufferMode ? mOutBlock : outBuffer->mBlock;
     entry->timestamp = pts;
+
+    /* unuse the block when frame is ready to output */
+    outBuffer->mBlock = nullptr;
+    mOutBlock = nullptr;
 
 cleanUp:
     entry->flags = flags;
