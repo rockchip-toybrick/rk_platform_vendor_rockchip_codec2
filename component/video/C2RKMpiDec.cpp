@@ -516,7 +516,7 @@ public:
     static C2R MaxInputSizeSetter(bool mayBlock, C2P<C2StreamMaxBufferSizeInfo::input> &me,
                                 const C2P<C2StreamMaxPictureSizeTuning::output> &maxSize) {
         (void)mayBlock;
-        if (C2RKPropsDef::getLowMemoryMode()) {
+        if (C2RKPropsDef::getInputBufferSize() > 0) {
             me.set().value = C2RKPropsDef::getInputBufferSize();
         } else {
             // assume compression ratio of 2
