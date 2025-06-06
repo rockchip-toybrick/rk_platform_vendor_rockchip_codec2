@@ -67,7 +67,7 @@ public:
 
         addParameter(
                 DefineParam(mActualOutputDelay, C2_PARAMKEY_OUTPUT_DELAY)
-                .withDefault(new C2PortActualDelayTuning::output(C2_MAX_REF_FRAME_COUNT))
+                .withDefault(new C2PortActualDelayTuning::output(0))
                 .withFields({C2F(mActualOutputDelay, value).inRange(0, C2_MAX_REF_FRAME_COUNT)})
                 .withSetter(Setter<decltype(*mActualOutputDelay)>::StrictValueWithNoDeps)
                 .build());
@@ -844,12 +844,7 @@ c2_status_t C2RKMpiDec::onInit() {
         return C2_NO_MEMORY;
     }
 
-    c2_status_t err = configOutputDelay();
-    if (err != C2_OK) {
-        c2_err("failed to config output delay");
-    }
-
-    err = setupAndStartLooper();
+    c2_status_t err = setupAndStartLooper();
     if (err != C2_OK) {
         c2_err("failed to start looper therad");
     }
@@ -1187,6 +1182,7 @@ cleanUp:
 c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
     c2_status_t err = C2_OK;
     uint32_t width = 0, height = 0, level = 0;
+    uint32_t protocolRefCnt = 0;
     uint32_t refCnt = 0;
 
     int32_t lowMemoryMode = 0;
@@ -1208,7 +1204,7 @@ c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
         C2ReadView rView = mDummyReadView;
         if (!work->input.buffers.empty()) {
             rView = work->input.buffers[0]->data().linearBlocks().front().map().get();
-            uint32_t protocolRefCnt = C2RKNaluParser::detectMaxRefCount(
+            protocolRefCnt = C2RKNaluParser::detectMaxRefCount(
                     const_cast<uint8_t *>(rView.data()), rView.capacity(), mCodingType);
             if ((lowMemoryMode & LowMemoryMode::MODE_USE_PROTOCOL_REF)
                     && protocolRefCnt > 0 && protocolRefCnt < refCnt) {
@@ -1219,13 +1215,14 @@ c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
         }
     }
 
+    c2_info("Codec(%s %dx%d) get %d reference frames from %s",
+            toStr_Coding(mCodingType), width, height, refCnt,
+            (protocolRefCnt) ? "protocol" : "levelInfo");
+
+    // TODO: Codec2 sfplugin only accepts growing output slots
     if (refCnt != mOutputDelay) {
         uint32_t reduceFactor = 0;
         std::vector<std::unique_ptr<C2SettingResult>> failures;
-
-        c2_info("Codec(%s %dx%d) get %d reference frames from %s",
-                toStr_Coding(mCodingType), width, height, refCnt,
-                (work) ? "protocol" : "levelInfo");
 
         /*
          * The kSmoothnessFactor on the framework is 4, and the ccodec_rendering-deep is 3.
