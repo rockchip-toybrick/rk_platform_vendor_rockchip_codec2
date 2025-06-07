@@ -136,16 +136,16 @@ void _resize_by_rga_uint8(
     im_handle_param_t rgaSrcParam;
     im_handle_param_t rgaDstParam;
 
-    rgaSrcParam.width  = inputW;
-    rgaSrcParam.height = inputH;
-    rgaSrcParam.format = RK_FORMAT_YCbCr_400;
-    rgaDstParam.width  = outputW;
-    rgaDstParam.width  = outputH;
-    rgaDstParam.format = RK_FORMAT_YCbCr_400;
-
     for (int b = 0; b < boxesNum; b++) {
         memset(&rgaSrc, 0, sizeof(rgaSrc));
         memset(&rgaDst, 0, sizeof(rgaDst));
+
+        rgaSrcParam.width  = inputW;
+        rgaSrcParam.height = inputH;
+        rgaSrcParam.format = RK_FORMAT_YCbCr_400;
+        rgaDstParam.width  = outputW;
+        rgaDstParam.width  = outputH;
+        rgaDstParam.format = RK_FORMAT_YCbCr_400;
 
         rgaSrcHdl = importbuffer_virtualaddr(
                         inputPtr + (b * inputW * inputH), &rgaSrcParam);

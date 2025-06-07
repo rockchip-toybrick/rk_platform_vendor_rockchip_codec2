@@ -847,6 +847,12 @@ c2_status_t C2RKMpiDec::onInit() {
     c2_status_t err = setupAndStartLooper();
     if (err != C2_OK) {
         c2_err("failed to start looper therad");
+        return err;
+    }
+
+    err = configOutputDelay();
+    if (err != C2_OK) {
+        c2_err("failed to config output delay");
     }
 
     return err;
@@ -1215,14 +1221,14 @@ c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
         }
     }
 
-    c2_info("Codec(%s %dx%d) get %d reference frames from %s",
-            toStr_Coding(mCodingType), width, height, refCnt,
-            (protocolRefCnt) ? "protocol" : "levelInfo");
-
     // TODO: Codec2 sfplugin only accepts growing output slots
     if (refCnt != mOutputDelay) {
         uint32_t reduceFactor = 0;
         std::vector<std::unique_ptr<C2SettingResult>> failures;
+
+        c2_info("Codec(%s %dx%d) get %d reference frames from %s",
+                toStr_Coding(mCodingType), width, height, refCnt,
+                (protocolRefCnt) ? "protocol" : "levelInfo");
 
         /*
          * The kSmoothnessFactor on the framework is 4, and the ccodec_rendering-deep is 3.
@@ -1237,7 +1243,7 @@ c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
         err = mIntf->config({&delayTuning}, C2_MAY_BLOCK, &failures);
         if (err != C2_OK) {
             c2_err("failed to config delay tuning, err %d", err);
-        } else if (work != nullptr) {
+        } else {
             // update outputDelay config to framework if work not null
             std::unique_ptr<C2Work> configWork(new C2Work);
             configWork->worklets.clear();
@@ -1675,7 +1681,7 @@ void C2RKMpiDec::process(
 
         err = configOutputDelay(work);
         if (err != C2_OK) {
-            c2_err("failed to config protocol output delay");
+            c2_err("failed to config output delay");
             work->result = C2_BAD_VALUE;
             return;
         }
