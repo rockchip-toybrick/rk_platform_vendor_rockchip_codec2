@@ -32,4 +32,8 @@ cc_library_shared {
         "android.hardware.graphics.mapper@4.0",
         "libmpp",
     ],
+
+    export_shared_lib_headers: [
+        "libmpp"
+    ],
 }
