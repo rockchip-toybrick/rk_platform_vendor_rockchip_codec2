@@ -19,22 +19,32 @@
 
 #include <stdio.h>
 
+typedef enum {
+    RGA_COLOR_SPACE_DEFAULT = 0,
+    RGA_YUV_TO_RGB_BT601_LIMIT,
+    RGA_YUV_TO_RGB_BT601_FULL,
+    RGA_YUV_TO_RGB_BT709_LIMIT,
+    RGA_RGB_TO_YUV_BT601_LIMIT,
+    RGA_RGB_TO_YUV_BT601_FULL,
+    RGA_RGB_TO_YUV_BT709_LIMIT,
+} RgaColorSpaceMode;
+
 typedef struct {
     int32_t fd;
     int32_t format;
     int32_t width;
     int32_t height;
-    int32_t wstride;
     int32_t hstride;
+    int32_t vstride;
 } RgaInfo;
 
 class C2RKRgaDef {
 public:
     static void SetRgaInfo(
             RgaInfo *param, int32_t fd, int32_t format,
-            int32_t width, int32_t height, int32_t wstride = 0, int32_t hstride = 0);
+            int32_t width, int32_t height, int32_t hstride = 0, int32_t vstride = 0);
 
-    static bool DoBlit(RgaInfo srcInfo, RgaInfo dstInfo);
+    static bool DoBlit(RgaInfo srcInfo, RgaInfo dstInfo, int colorSpaceMode = 0);
 };
 
 #endif  // ANDROID_C2_RK_RGA_DEF_H__

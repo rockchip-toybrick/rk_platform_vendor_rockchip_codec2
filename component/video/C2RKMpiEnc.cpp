@@ -3031,6 +3031,46 @@ cleanUp:
     return needsRga;
 }
 
+int32_t C2RKMpiEnc::getRgaColorSpaceMode() {
+    int32_t mode = RGA_COLOR_SPACE_DEFAULT;
+    int32_t setRange = 0, setStandard = 0, setTransfer = 0;
+
+    IntfImpl::Lock lock = mIntf->lock();
+
+    ColorAspects sfAspects;
+    std::shared_ptr<C2StreamColorAspectsInfo::output> colorAspects
+            = mIntf->getCodedColorAspects_l();
+
+    if (!C2Mapper::map(colorAspects->primaries, &sfAspects.mPrimaries)) {
+        sfAspects.mPrimaries = android::ColorAspects::PrimariesUnspecified;
+    }
+    if (!C2Mapper::map(colorAspects->range, &sfAspects.mRange)) {
+        sfAspects.mRange = android::ColorAspects::RangeUnspecified;
+    }
+    if (!C2Mapper::map(colorAspects->matrix, &sfAspects.mMatrixCoeffs)) {
+        sfAspects.mMatrixCoeffs = android::ColorAspects::MatrixUnspecified;
+    }
+    if (!C2Mapper::map(colorAspects->transfer, &sfAspects.mTransfer)) {
+        sfAspects.mTransfer = android::ColorAspects::TransferUnspecified;
+    }
+
+    // aspects are normally communicated in ColorAspects
+    ColorUtils::convertCodecColorAspectsToPlatformAspects(
+            sfAspects, &setRange, &setStandard, &setTransfer);
+
+    if (setStandard == ColorUtils::kColorStandardBT709) {
+        mode = RGA_RGB_TO_YUV_BT709_LIMIT;
+    } else if (setStandard == ColorUtils::kColorStandardBT601_625 ||
+               setStandard == ColorUtils::kColorStandardBT601_525) {
+        if (setRange == ColorUtils::kColorRangeFull)
+            mode = RGA_RGB_TO_YUV_BT601_FULL;
+        else
+            mode = RGA_RGB_TO_YUV_BT601_LIMIT;
+    }
+
+    return mode;
+}
+
 c2_status_t C2RKMpiEnc::getInBufferFromWork(
         const std::unique_ptr<C2Work> &work, MyDmaBuffer_t *outBuffer) {
     c2_status_t ret = C2_OK;
@@ -3111,6 +3151,8 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
             outBuffer->size = mHorStride * mVerStride * 4;
         } else {
             RgaInfo srcInfo, dstInfo;
+            // get RGA color space mode for rgba->yuv conversion
+            int32_t colorSpaceMode = getRgaColorSpaceMode();
 
             C2RKRgaDef::SetRgaInfo(
                     &srcInfo, fd, HAL_PIXEL_FORMAT_RGBA_8888,
@@ -3118,7 +3160,7 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
             C2RKRgaDef::SetRgaInfo(
                     &dstInfo, mDmaMem->fd, HAL_PIXEL_FORMAT_YCrCb_NV12,
                     mSize->width, mSize->height, mHorStride, mVerStride);
-            if (!C2RKRgaDef::DoBlit(srcInfo, dstInfo)) {
+            if (!C2RKRgaDef::DoBlit(srcInfo, dstInfo, colorSpaceMode)) {
                 c2_err("failed to RgaConver(RGBA->NV12)");
                 ret = C2_CORRUPTED;
             }

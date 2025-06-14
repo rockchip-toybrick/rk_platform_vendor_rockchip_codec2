@@ -193,9 +193,11 @@ private:
             const std::unique_ptr<C2Work> &work, MyDmaBuffer_t dbuffer);
 
     bool needRgaConvert(uint32_t width, uint32_t height, MppFrameFormat fmt);
+    // get RGA color space mode for rgba->yuv conversion
+    int32_t getRgaColorSpaceMode();
+
     c2_status_t getInBufferFromWork(
             const std::unique_ptr<C2Work> &work, MyDmaBuffer_t *outBuffer);
-
     c2_status_t sendframe(MyDmaBuffer_t dBuffer, uint64_t pts, uint32_t flags);
     c2_status_t getoutpacket(OutWorkEntry *entry);
 

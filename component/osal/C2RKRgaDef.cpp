@@ -27,13 +27,66 @@
 
 using namespace android;
 
+struct RgaFormtMap {
+    int halFmt;
+    int rgaFmt;
+    const char *name;
+};
+
+static const RgaFormtMap kRgaFormatMaps[] = {
+    { HAL_PIXEL_FORMAT_RGB_565,         RK_FORMAT_RGB_565,          "rgb565" },
+    { HAL_PIXEL_FORMAT_RGB_888,         RK_FORMAT_RGB_888,          "rgb888" },
+    { HAL_PIXEL_FORMAT_RGBA_8888,       RK_FORMAT_RGBA_8888,        "rgba8888" },
+    { HAL_PIXEL_FORMAT_BGRA_8888,       RK_FORMAT_BGRA_8888,        "bgra8888" },
+    { HAL_PIXEL_FORMAT_YCrCb_NV12,      RK_FORMAT_YCbCr_420_SP,     "nv12" },
+    { HAL_PIXEL_FORMAT_YCrCb_NV12_10,   RK_FORMAT_YCbCr_420_SP_10B, "nv12_10" },
+};
+
+static const size_t kNumRgaFormatType = sizeof(kRgaFormatMaps) / sizeof(kRgaFormatMaps[0]);
+
+
+static int getRgaFormat(int halFmt) {
+    for (int i = 0; i < kNumRgaFormatType; i++) {
+        if (kRgaFormatMaps[i].halFmt == halFmt) {
+            return kRgaFormatMaps[i].rgaFmt;
+        }
+    }
+    return RK_FORMAT_UNKNOWN;
+}
+
+static int toRgaColorSpaceMode(int colorSpaceMode) {
+    if (colorSpaceMode > 0) {
+        switch (colorSpaceMode) {
+            case RGA_YUV_TO_RGB_BT601_LIMIT:    return IM_YUV_TO_RGB_BT601_LIMIT;
+            case RGA_YUV_TO_RGB_BT601_FULL:     return IM_YUV_TO_RGB_BT601_FULL;
+            case RGA_YUV_TO_RGB_BT709_LIMIT:    return IM_YUV_TO_RGB_BT709_LIMIT;
+            case RGA_RGB_TO_YUV_BT601_LIMIT:    return IM_RGB_TO_YUV_BT601_LIMIT;
+            case RGA_RGB_TO_YUV_BT601_FULL:     return IM_RGB_TO_YUV_BT601_FULL;
+            case RGA_RGB_TO_YUV_BT709_LIMIT:    return IM_RGB_TO_YUV_BT709_LIMIT;
+            default: {
+                c2_warn("unsupport color space mode %d, set default", colorSpaceMode);
+            }
+        }
+    }
+    return IM_COLOR_SPACE_DEFAULT;
+}
+
+static const char* toStr_format(int halFmt) {
+    for (int i = 0; i < kNumRgaFormatType; i++) {
+        if (kRgaFormatMaps[i].halFmt == halFmt) {
+            return kRgaFormatMaps[i].name;
+        }
+    }
+    return "unknown";
+}
+
 rga_buffer_handle_t importRgaBuffer(RgaInfo *info, int32_t format) {
     im_handle_param_t imParam;
 
     memset(&imParam, 0, sizeof(im_handle_param_t));
 
-    imParam.width  = info->wstride;
-    imParam.height = info->hstride;
+    imParam.width  = info->hstride;
+    imParam.height = info->vstride;
     imParam.format = format;
 
     return importbuffer_fd(info->fd, &imParam);
@@ -45,62 +98,71 @@ void freeRgaBuffer(rga_buffer_handle_t handle) {
 
 void C2RKRgaDef::SetRgaInfo(
         RgaInfo *info, int32_t fd, int32_t format,
-        int32_t width, int32_t height, int32_t wstride, int32_t hstride) {
+        int32_t width, int32_t height, int32_t hstride, int32_t vstride) {
     memset(info, 0, sizeof(RgaInfo));
 
     info->fd = fd;
     info->format = format;
     info->width = width;
     info->height = height;
-    info->wstride = (wstride > 0) ? wstride : width;
-    info->hstride = (hstride > 0) ? hstride : height;
+    info->hstride = (hstride > 0) ? hstride : width;
+    info->vstride = (vstride > 0) ? vstride : height;
 }
 
-bool C2RKRgaDef::DoBlit(RgaInfo srcInfo, RgaInfo dstInfo) {
-    bool ret = true;
+bool C2RKRgaDef::DoBlit(RgaInfo srcInfo, RgaInfo dstInfo, int colorSpaceMode) {
+    int err = 0;
+    rga_buffer_t src, dst;
+    rga_buffer_handle_t srcHdl, dstHdl;
 
-    rga_info_t src;
-    rga_info_t dst;
-    rga_buffer_handle_t srcHdl;
-    rga_buffer_handle_t dstHdl;
+    int32_t srcRgaFmt = getRgaFormat(srcInfo.format);
+    int32_t dstRgaFmt = getRgaFormat(dstInfo.format);
 
-    RockchipRga& rkRga(RockchipRga::get());
-
-    c2_trace("src fd %d rect[%d, %d, %d, %d] fmt 0x%x",
-              srcInfo.fd, srcInfo.width, srcInfo.height,
-              srcInfo.wstride, srcInfo.hstride, srcInfo.format);
-    c2_trace("dst fd %d rect[%d, %d, %d, %d] fmt 0x%x",
-              dstInfo.fd, dstInfo.width, dstInfo.height,
-              dstInfo.wstride, dstInfo.hstride, dstInfo.format);
-
-    if ((srcInfo.wstride % 4) != 0) {
-        c2_warn("err yuv not align to 4");
-        return true;
-    }
-
-    memset((void*)&src, 0, sizeof(rga_info_t));
-    memset((void*)&dst, 0, sizeof(rga_info_t));
-
-    srcHdl = importRgaBuffer(&srcInfo, srcInfo.format);
-    dstHdl = importRgaBuffer(&dstInfo, dstInfo.format);
-    if (!srcHdl || !dstHdl) {
-        c2_err("failed to import rga buffer");
+    if (srcRgaFmt == RK_FORMAT_UNKNOWN || dstRgaFmt == RK_FORMAT_UNKNOWN) {
+        c2_err("[RgaBlit]: unsupport fmt, src %d dst %d", srcInfo.format, dstInfo.format);
         return false;
     }
 
-    src.handle = srcHdl;
-    dst.handle = dstHdl;
-    rga_set_rect(&src.rect, 0, 0, srcInfo.width, srcInfo.height,
-                 srcInfo.wstride, srcInfo.hstride, srcInfo.format);
-    rga_set_rect(&dst.rect, 0, 0, dstInfo.width, dstInfo.height,
-                 dstInfo.wstride, dstInfo.hstride, dstInfo.format);
+    c2_trace("[RgaBlit]: src fd %d rect[%d, %d, %d, %d] fmt %s",
+              srcInfo.fd, srcInfo.width, srcInfo.height,
+              srcInfo.hstride, srcInfo.vstride, toStr_format(srcInfo.format));
+    c2_trace("[RgaBlit]: dst fd %d rect[%d, %d, %d, %d] fmt %s",
+              dstInfo.fd, dstInfo.width, dstInfo.height,
+              dstInfo.hstride, dstInfo.vstride, toStr_format(dstInfo.format));
+    c2_trace("[RgaBlit]: color space mode: %d", colorSpaceMode);
 
-    if (rkRga.RkRgaBlit(&src, &dst, NULL)) {
-        ret = false;
+    memset((void*)&src, 0, sizeof(rga_buffer_t));
+    memset((void*)&dst, 0, sizeof(rga_buffer_t));
+
+    srcHdl = importRgaBuffer(&srcInfo, srcRgaFmt);
+    dstHdl = importRgaBuffer(&dstInfo, dstRgaFmt);
+    if (!srcHdl || !dstHdl) {
+        c2_err("[RgaBlit]: failed to import rga buffer");
+        return false;
+    }
+
+    src = wrapbuffer_handle(
+            srcHdl, srcInfo.width, srcInfo.height,
+            srcRgaFmt, srcInfo.hstride, srcInfo.vstride);
+    dst = wrapbuffer_handle(
+            dstHdl, dstInfo.width, dstInfo.height,
+            dstRgaFmt, dstInfo.hstride, dstInfo.vstride);
+
+    // set color space mode
+    dst.color_space_mode = toRgaColorSpaceMode(colorSpaceMode);
+
+    err = improcess(src, dst, {}, {}, {}, {}, IM_SYNC);
+    if (err <= 0) {
+        c2_err("[RgaBlit]: error %d", err);
+        c2_err("[RgaBlit]: src fd %d rect[%d, %d, %d, %d] fmt %s",
+                srcInfo.fd, srcInfo.width, srcInfo.height,
+                srcInfo.hstride, srcInfo.vstride, toStr_format(srcInfo.format));
+        c2_err("[RgaBlit]: dst fd %d rect[%d, %d, %d, %d] fmt %s",
+                dstInfo.fd, dstInfo.width, dstInfo.height,
+                dstInfo.hstride, dstInfo.vstride, toStr_format(dstInfo.format));
     }
 
     freeRgaBuffer(srcHdl);
     freeRgaBuffer(dstHdl);
 
-    return ret;
+    return (err > 0);
 }
