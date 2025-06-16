@@ -133,15 +133,24 @@ void _resize_by_rga_uint8(
     IM_STATUS ret = IM_STATUS_SUCCESS;
     rga_buffer_t rgaSrc, rgaDst;
     rga_buffer_handle_t rgaSrcHdl, rgaDstHdl;
+    im_handle_param_t rgaSrcParam;
+    im_handle_param_t rgaDstParam;
+
+    rgaSrcParam.width  = inputW;
+    rgaSrcParam.height = inputH;
+    rgaSrcParam.format = RK_FORMAT_YCbCr_400;
+    rgaDstParam.width  = outputW;
+    rgaDstParam.width  = outputH;
+    rgaDstParam.format = RK_FORMAT_YCbCr_400;
 
     for (int b = 0; b < boxesNum; b++) {
         memset(&rgaSrc, 0, sizeof(rgaSrc));
         memset(&rgaDst, 0, sizeof(rgaDst));
 
         rgaSrcHdl = importbuffer_virtualaddr(
-                        inputPtr + (b * inputW * inputH), inputW * inputH);
+                        inputPtr + (b * inputW * inputH), &rgaSrcParam);
         rgaDstHdl = importbuffer_virtualaddr(
-                        outputPtr + (b * outputW * outputH), outputW * outputH);
+                        outputPtr + (b * outputW * outputH), &rgaDstParam);
         if (!rgaSrcHdl || !rgaDstHdl) {
             c2_err("failed to import rga buffer");
             return;
