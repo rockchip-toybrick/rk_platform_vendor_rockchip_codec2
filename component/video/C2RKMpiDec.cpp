@@ -82,8 +82,8 @@ public:
                 DefineParam(mSize, C2_PARAMKEY_PICTURE_SIZE)
                 .withDefault(new C2StreamPictureSizeInfo::output(0u, 320, 240))
                 .withFields({
-                    C2F(mSize, width).inRange(2, kMaxVideoWidth, 2),
-                    C2F(mSize, height).inRange(2, kMaxVideoWidth, 2),
+                    C2F(mSize, width).inRange(2, kMaxVideoWidth, 1),
+                    C2F(mSize, height).inRange(2, kMaxVideoWidth, 1),
                 })
                 .withSetter(SizeSetter)
                 .build());
@@ -92,8 +92,8 @@ public:
                 DefineParam(mMaxSize, C2_PARAMKEY_MAX_PICTURE_SIZE)
                 .withDefault(new C2StreamMaxPictureSizeTuning::output(0u, 320, 240))
                 .withFields({
-                    C2F(mSize, width).inRange(2, kMaxVideoWidth, 2),
-                    C2F(mSize, height).inRange(2, kMaxVideoWidth, 2),
+                    C2F(mSize, width).inRange(2, kMaxVideoWidth, 1),
+                    C2F(mSize, height).inRange(2, kMaxVideoWidth, 1),
                 })
                 .withSetter(MaxPictureSizeSetter, mSize)
                 .build());
@@ -2177,7 +2177,8 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
     int32_t format = mAllocParams.format;
 
     if (mBufferMode) {
-        int32_t bWidth = mWidth, bHeight = mHeight;
+        int32_t bWidth  = C2_ALIGN(mWidth, 2);
+        int32_t bHeight = C2_ALIGN(mHeight, 2);
         int32_t bFormat = (MPP_FRAME_FMT_IS_YUV_10BIT(mColorFormat)) ? mPixelFormat : format;
         int64_t bUsage  = (GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN);
 
@@ -2482,8 +2483,14 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
                              HAL_PIXEL_FORMAT_YCBCR_P010 : HAL_PIXEL_FORMAT_YCrCb_NV12;
 
             C2GraphicView dstView = mOutBlock->map().get();
-            C2PlanarLayout dstLayout = dstView.layout();
-            int32_t dstStride = dstLayout.planes[C2PlanarLayout::PLANE_Y].rowInc;
+            if (dstView.error()) {
+                c2_err("unexpected map error %d", dstView.error());
+                ret = C2_CORRUPTED;
+                goto cleanUp;
+            }
+
+            int32_t dstStride = dstView.layout().planes[C2PlanarLayout::PLANE_Y].rowInc;
+            int32_t dstVStride = C2_ALIGN(height, 2);
 
             if (mUseRgaBlit) {
                 RgaInfo srcInfo, dstInfo;
@@ -2491,7 +2498,7 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
                 C2RKRgaDef::SetRgaInfo(
                         &srcInfo, srcFd, srcFmt,width, height, hstride, vstride);
                 C2RKRgaDef::SetRgaInfo(
-                        &dstInfo, dstFd, dstFmt, width, height, dstStride, height);
+                        &dstInfo, dstFd, dstFmt, width, height, dstStride, dstVStride);
                 if (!C2RKRgaDef::DoBlit(srcInfo, dstInfo)) {
                     mUseRgaBlit = false;
                     c2_warn("failed RGA blit, fallback software copy");
@@ -2506,7 +2513,7 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
 
             C2RKMediaUtils::convertBufferToRequestFmt(
                     { srcPtr, srcFd, srcFmt, width, height, hstride, vstride },
-                    { dstPtr, dstFd, dstFmt, width, height, dstStride, height },
+                    { dstPtr, dstFd, dstFmt, width, height, dstStride, dstVStride },
                     true /* cache sync */);
         } while (0);
     } else {
