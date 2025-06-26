@@ -1243,25 +1243,9 @@ c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
         err = mIntf->config({&delayTuning}, C2_MAY_BLOCK, &failures);
         if (err != C2_OK) {
             c2_err("failed to config delay tuning, err %d", err);
-        } else {
-            // update outputDelay config to framework if work not null
-            std::unique_ptr<C2Work> configWork(new C2Work);
-            configWork->worklets.clear();
-            configWork->worklets.emplace_back(new C2Worklet);
-            configWork->worklets.front()->output.configUpdate.push_back(C2Param::Copy(delayTuning));
-
-            auto fillConfigWork = [] (const std::unique_ptr<C2Work> &configWork) {
-                configWork->input.ordinal.frameIndex = OUTPUT_WORK_INDEX;
-                configWork->input.flags = (C2FrameData::flags_t)0;
-
-                // TODO: work flags set to incomplete to ignore frame index check
-                configWork->worklets.front()->output.flags = C2FrameData::FLAG_INCOMPLETE;
-                configWork->worklets.front()->output.buffers.clear();
-                configWork->workletsProcessed = 1u;
-                configWork->result = C2_OK;
-            };
-
-            finish(configWork, fillConfigWork);
+        } else if (work != nullptr) {
+            // update outputDelay config to framework
+            work->worklets.front()->output.configUpdate.push_back(C2Param::Copy(delayTuning));
         }
 
         mOutputDelay = refCnt;

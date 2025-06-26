@@ -477,7 +477,7 @@ void C2RKComponent::finish(
     }
 
     // ensure normal output of work with configUpdate
-    if (isPendingFlushing() && work->worklets.front()->output.configUpdate.empty()) {
+    if (isPendingFlushing()) {
         c2_trace("ignore frame output since pending flush");
         return;
     }
