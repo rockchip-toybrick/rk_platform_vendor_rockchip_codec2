@@ -1746,7 +1746,6 @@ c2_status_t C2RKMpiEnc::setupQp() {
 
     std::shared_ptr<C2StreamPictureQuantizationTuning::output> qp =
             mIntf->getPictureQuantization_l();
-    std::shared_ptr<C2EncodingQualityLevel> minQuality = mIntf->getQualityLevel_l();
 
     if (!qp->flexCount()) {
         int32_t rcMode = mIntf->getBitrateMode_l();
@@ -1754,17 +1753,20 @@ c2_status_t C2RKMpiEnc::setupQp() {
             /* use const qp for p-frame in FIXQP mode */
             c2_info("setupQp: raise qp quality in fixQpMode");
             pMax = pMin = 10;
-        } else if (rcMode == MPP_ENC_RC_MODE_VBR && minQuality->value ==
-                C2PlatformConfig::encoding_quality_level_t::S_HANDHELD) {
+        } else if (rcMode == MPP_ENC_RC_MODE_VBR) {
+            std::shared_ptr<C2EncodingQualityLevel> minQuality = mIntf->getQualityLevel_l();
             // Encoding quality level signaling, indicate that the codec is to apply
             // a minimum quality bar.
             // "S_HANDHELD" corresponds to VMAF=70.
-            c2_info("setupQp: minquality request, force fqp range VMAF=70");
-            iMin = pMin = 1;
-            if (mCodingType == MPP_VIDEO_CodingVP8) {
-                iMax = pMax = 90;
-            } else {
-                iMax = pMax = 35;
+            if (minQuality->value == C2PlatformConfig::encoding_quality_level_t::S_HANDHELD
+                    || mSize->width * mSize->height <= (320 * 240)) {
+                c2_info("setupQp: minquality request, force fqp range VMAF=70");
+                iMin = pMin = 1;
+                if (mCodingType == MPP_VIDEO_CodingVP8) {
+                    iMax = pMax = 90;
+                } else {
+                    iMax = pMax = 35;
+                }
             }
         }
     }

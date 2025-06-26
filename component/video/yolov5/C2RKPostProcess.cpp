@@ -144,7 +144,7 @@ void _resize_by_rga_uint8(
         rgaSrcParam.height = inputH;
         rgaSrcParam.format = RK_FORMAT_YCbCr_400;
         rgaDstParam.width  = outputW;
-        rgaDstParam.width  = outputH;
+        rgaDstParam.height = outputH;
         rgaDstParam.format = RK_FORMAT_YCbCr_400;
 
         rgaSrcHdl = importbuffer_virtualaddr(

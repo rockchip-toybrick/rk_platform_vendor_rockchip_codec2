@@ -2175,10 +2175,6 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
             bUsage |= RK_GRALLOC_USAGE_WITHIN_4G;
         }
 
-        /*
-         * For buffer mode, since we don't konw when the last buffer will use
-         * up by user, so we chose to copy output to another dst block.
-         */
         if (mOutBlock &&
                 (mOutBlock->width() != bWidth || mOutBlock->height() != bHeight)) {
             mOutBlock.reset();
