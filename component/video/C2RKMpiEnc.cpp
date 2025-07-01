@@ -1768,8 +1768,7 @@ c2_status_t C2RKMpiEnc::setupQp() {
             // Encoding quality level signaling, indicate that the codec is to apply
             // a minimum quality bar.
             // "S_HANDHELD" corresponds to VMAF=70.
-            if (minQuality->value == C2PlatformConfig::encoding_quality_level_t::S_HANDHELD
-                    || mSize->width * mSize->height <= (320 * 240)) {
+            if (minQuality->value == C2PlatformConfig::encoding_quality_level_t::S_HANDHELD) {
                 c2_info("setupQp: minquality request, force fqp range VMAF=70");
                 iMin = pMin = 1;
                 if (mCodingType == MPP_VIDEO_CodingVP8) {
@@ -1778,6 +1777,11 @@ c2_status_t C2RKMpiEnc::setupQp() {
                     iMax = pMax = 35;
                 }
             }
+        }
+        // better quality at low resolutions
+        if (mSize->width * mSize->height <= (320 * 240)) {
+            iMin = pMin = 1;
+            iMax = pMax = 40;
         }
     }
 
