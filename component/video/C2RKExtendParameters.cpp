@@ -24,6 +24,17 @@ const std::vector<C2FieldDescriptor> C2InputScalarStruct::_FIELD_LIST = {
     { C2FieldDescriptor::INT32, 1, "height", 4, 4 }
 };
 
+const std::vector<C2FieldDescriptor> C2SEModeSettingStruct::FieldList() {
+    return _FIELD_LIST;
+}
+const std::vector<C2FieldDescriptor> C2SEModeSettingStruct::_FIELD_LIST = {
+    { C2FieldDescriptor::INT32, 1, "mode", 0, 4 },
+    { C2FieldDescriptor::INT32, 1, "bg_delta_qp", 4, 4 },
+    { C2FieldDescriptor::INT32, 1, "fg_delta_qp", 8, 4 },
+    { C2FieldDescriptor::INT32, 1, "map_min_qp", 12, 4 },
+    { C2FieldDescriptor::INT32, 1, "map_max_qp", 16, 4 }
+};
+
 const std::vector<C2FieldDescriptor> C2RoiRegionCfgStruct::FieldList() {
     return _FIELD_LIST;
 }

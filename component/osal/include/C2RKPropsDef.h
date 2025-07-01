@@ -27,9 +27,6 @@ public:
     /* disable scale mode of decoder */
     static int32_t getScaleDisable();
 
-    /* encoder super mode */
-    static int32_t getEncSuperMode();
-
     /* disable codec memory limit */
     static int32_t getLoadingCheckDisable();
 

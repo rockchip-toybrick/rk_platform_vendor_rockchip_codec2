@@ -22,6 +22,7 @@
 #include <C2AllocatorGralloc.h>
 #include <ui/GraphicBufferMapper.h>
 #include <ui/GraphicBufferAllocator.h>
+#include <cutils/properties.h>
 
 #include "mpp_rc_api.h"
 
@@ -389,11 +390,18 @@ public:
                 .withSetter(InputScalarSetter)
                 .build());
 
+        // super encoding mode settings
         addParameter(
-                DefineParam(mSuperMode, C2_PARAMKEY_ENC_SUPER_ENCODING_MODE)
-                .withDefault(new C2StreamEncSuperModeInfo::input(0))
-                .withFields({C2F(mSuperMode, value).any()})
-                .withSetter(Setter<decltype(mSuperMode)::element_type>::StrictValueWithNoDeps)
+                DefineParam(mSESettings, C2_PARAMKEY_ENC_SE_MODE_SETTING)
+                .withDefault(new C2StreamEncSEModeSetting::input(0, 0, 0, 0, 0))
+                .withFields({
+                    C2F(mSESettings, mode).any(),
+                    C2F(mSESettings, bgDeltaQp).any(),
+                    C2F(mSESettings, fgDeltaQp).any(),
+                    C2F(mSESettings, mapMinQp).any(),
+                    C2F(mSESettings, mapMaxQp).any(),
+                })
+                .withSetter(SESettingsSetter)
                 .build());
 
         addParameter(
@@ -897,6 +905,13 @@ public:
         return C2R::Ok();
     }
 
+    static C2R SESettingsSetter(
+            bool mayBlock, C2P<C2StreamEncSEModeSetting::input>& me) {
+        (void)mayBlock;
+        (void)me;
+        return C2R::Ok();
+    }
+
     static C2R RoiRegionCfgSetter(
             bool mayBlock, C2P<C2StreamEncRoiRegionCfg::input>& me) {
         (void)mayBlock;
@@ -1040,13 +1055,6 @@ public:
         }
     }
 
-    int32_t getSuperMode() const {
-        if (!mSuperMode || mSuperMode->value <= 0) {
-            return 0;
-        }
-        return mSuperMode->value;
-    }
-
     bool getIsDisableSEI() const {
         if (mDisableSEI && mDisableSEI->value > 0) {
             return true;
@@ -1115,6 +1123,8 @@ public:
     { return mPreProcess; }
     std::shared_ptr<C2StreamEncSuperProcess::input> getSuperProcess_l() const
     { return mSuperProcess; }
+    std::shared_ptr<C2StreamEncSEModeSetting::input> getSuperEncodingSettings_l() const
+    { return mSESettings; }
     std::shared_ptr<MlvecParams> getMlvecParams_l() const
     { return mMlvecParams; }
 
@@ -1141,7 +1151,7 @@ private:
     std::shared_ptr<C2StreamEncSceneModeInfo::input> mSceneMode;
     std::shared_ptr<C2StreamEncSliceSizeInfo::input> mSliceSize;
     std::shared_ptr<C2StreamEncInputScalar::input> mInputScalar;
-    std::shared_ptr<C2StreamEncSuperModeInfo::input> mSuperMode;
+    std::shared_ptr<C2StreamEncSEModeSetting::input> mSESettings;
     std::shared_ptr<C2StreamEncDisableSEI::input> mDisableSEI;
     std::shared_ptr<C2StreamEncRoiRegionCfg::input> mRoiRegionCfg;
     std::shared_ptr<C2StreamEncRoiRegion2Cfg::input> mRoiRegion2Cfg;
@@ -2105,11 +2115,22 @@ c2_status_t C2RKMpiEnc::setupPrependHeaderSetting() {
 
 c2_status_t C2RKMpiEnc::setupSuperModeIfNeeded() {
     IntfImpl::Lock lock = mIntf->lock();
+    std::shared_ptr<C2StreamEncSEModeSetting::input> settings
+            = mIntf->getSuperEncodingSettings_l();
 
-    int32_t superMode = mIntf->getSuperMode();
+    int32_t superMode = settings->mode;
+    // only valid in super mode v3.0
+    // bgDeltaQp: delta qp of background
+    // fgDeltaQp: delta qp of foreground
+    // mapMinQp:  the min qp of that can be set
+    // mapMaxQp:  the max qp of that can be set
+    int32_t bgDeltaQp = settings->bgDeltaQp;
+    int32_t fgDeltaQp = settings->fgDeltaQp;
+    int32_t mapMinQp  = settings->mapMinQp;
+    int32_t mapMaxQp  = settings->mapMaxQp;
 
     if (superMode <= 0 || superMode >= C2_SUPER_MODE_BUTT) {
-        superMode = C2RKPropsDef::getEncSuperMode();
+        superMode = property_get_int32("codec2_enc_super_mode", 0);
         if (superMode) {
             c2_info("config super mode, property %d", superMode);
         } else {
@@ -2190,18 +2211,40 @@ c2_status_t C2RKMpiEnc::setupSuperModeIfNeeded() {
     mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_max_i", 42);
 
     if (isV3Mode) {
+        if (bgDeltaQp == 0) {
+            bgDeltaQp = property_get_int32("codec2_enc_super_bg_delta_qp", 0);
+        }
+        if (fgDeltaQp == 0) {
+            fgDeltaQp = property_get_int32("codec2_enc_super_fg_delta_qp", 0);
+        }
+        if (mapMinQp == 0) {
+            mapMinQp = property_get_int32("codec2_enc_super_map_min_qp", 0);
+        }
+        if (mapMaxQp == 0) {
+            mapMaxQp = property_get_int32("codec2_enc_super_map_max_qp", 0);
+        }
+
+        // set default config settings
+        if (bgDeltaQp == 0)  bgDeltaQp = -8;
+        if (fgDeltaQp == 0)  fgDeltaQp = 6;
+        if (mapMinQp == 0)   mapMinQp  = 10;
+        if (mapMaxQp == 0)   mapMaxQp  = 42;
+
+        c2_info("setupSuperMode: bgDeltaQp %d fgDeltaQp %d mapMinQp %d mapMaxQp %d",
+                bgDeltaQp, fgDeltaQp, mapMinQp, mapMaxQp);
+
         // 0:balance  1:quality_first  2:bitrate_first 3:external_se_mode
         mpp_enc_cfg_set_s32(mEncCfg, "tune:se_mode", 3);
 
-        mpp_enc_cfg_set_s32(mEncCfg, "tune:bg_delta_qp_i", -8);
-        mpp_enc_cfg_set_s32(mEncCfg, "tune:bg_delta_qp_p", -8);
-        mpp_enc_cfg_set_s32(mEncCfg, "tune:fg_delta_qp_i",  6);
-        mpp_enc_cfg_set_s32(mEncCfg, "tune:fg_delta_qp_p",  6);
+        mpp_enc_cfg_set_s32(mEncCfg, "tune:bg_delta_qp_i",  bgDeltaQp);
+        mpp_enc_cfg_set_s32(mEncCfg, "tune:bg_delta_qp_p",  bgDeltaQp);
+        mpp_enc_cfg_set_s32(mEncCfg, "tune:fg_delta_qp_i",  fgDeltaQp);
+        mpp_enc_cfg_set_s32(mEncCfg, "tune:fg_delta_qp_p",  fgDeltaQp);
 
-        mpp_enc_cfg_set_s32(mEncCfg, "tune:bmap_qpmin_i",   10);
-        mpp_enc_cfg_set_s32(mEncCfg, "tune:bmap_qpmin_p",   10);
-        mpp_enc_cfg_set_s32(mEncCfg, "tune:bmap_qpmax_i",   42);
-        mpp_enc_cfg_set_s32(mEncCfg, "tune:bmap_qpmax_p",   42);
+        mpp_enc_cfg_set_s32(mEncCfg, "tune:bmap_qpmin_i",   mapMinQp);
+        mpp_enc_cfg_set_s32(mEncCfg, "tune:bmap_qpmin_p",   mapMinQp);
+        mpp_enc_cfg_set_s32(mEncCfg, "tune:bmap_qpmax_i",   mapMaxQp);
+        mpp_enc_cfg_set_s32(mEncCfg, "tune:bmap_qpmax_p",   mapMaxQp);
     }  else {
         // smart v1 mode
         if (compressFirst) {

@@ -21,7 +21,6 @@ static bool propInit();
 static int32_t sLoadingCheckDisable = 0;
 static int32_t sHdrDisable = 0;
 static int32_t sScaleDisable = 0;
-static int32_t sEncSuperMode = 0;
 static int32_t sLowMemoryMode= 0;
 static int32_t sInputBufferSize = 0;
 static int32_t sEncAsyncOutputMode = 0;
@@ -31,8 +30,6 @@ static bool propInit() {
     sHdrDisable = property_get_int32("codec2_hdr_meta_disable", 0);
 
     sScaleDisable = property_get_int32("codec2_scale_disable", 0);
-
-    sEncSuperMode = property_get_int32("codec2_enc_super_mode", 0);
 
     sLoadingCheckDisable = property_get_int32("codec2_disable_load_check", 0);
 
@@ -53,10 +50,6 @@ int32_t C2RKPropsDef::getScaleDisable() {
     return sScaleDisable;
 }
 
-int32_t C2RKPropsDef::getEncSuperMode() {
-    return sEncSuperMode;
-}
-
 int32_t C2RKPropsDef::getLoadingCheckDisable() {
     return sLoadingCheckDisable;
 }
@@ -72,4 +65,3 @@ int32_t C2RKPropsDef::getInputBufferSize() {
 int32_t C2RKPropsDef::getEncAsncOutputMode() {
     return sEncAsyncOutputMode;
 }
-

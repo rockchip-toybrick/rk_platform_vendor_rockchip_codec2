@@ -59,7 +59,7 @@ enum ExtendedC2ParamIndexKind : C2Param::type_index_t {
 
     kParamIndexEncSliceSize,
     kParamIndexEncInputScaler,
-    kParamIndexEncSuperEncodingMode,
+    kParamIndexEncSEModeSetting,
     kParamIndexEncDisableSEI,
     kParamIndexEncRoiRegionCfg,
     kParamIndexEncRoiRegion2Cfg,
@@ -103,8 +103,34 @@ struct C2InputScalarStruct {
 typedef C2PortParam<C2Info, C2InputScalarStruct, kParamIndexEncInputScaler> C2StreamEncInputScalar;
 constexpr char C2_PARAMKEY_ENC_INPUT_SCALAR[] = "c2-enc-input-scalar";
 
-typedef C2PortParam<C2Info, C2Int32Value, kParamIndexEncSuperEncodingMode> C2StreamEncSuperModeInfo;
-constexpr char C2_PARAMKEY_ENC_SUPER_ENCODING_MODE[] = "c2-enc-super-encoding-mode";
+/**
+ * Super Encoding Mode Setting
+ *
+ * - mode:      SE Mode, support v1.0/3.0
+ * - bgDeltaQp: delta qp of background
+ * - fgDeltaQp: delta qp of foreground
+ * - mapMinQp:  the min qp of that can be set
+ * - mapMaxQp:  the max qp of that can be set
+ */
+struct C2SEModeSettingStruct {
+    int32_t mode;
+    int32_t bgDeltaQp;
+    int32_t fgDeltaQp;
+    int32_t mapMinQp;
+    int32_t mapMaxQp;
+
+    C2SEModeSettingStruct() : mode(0), bgDeltaQp(0), fgDeltaQp(0), mapMinQp(0), mapMaxQp(0) { }
+    C2SEModeSettingStruct(
+            int32_t _mode, int32_t _bgDeltaQp, int32_t _fgDeltaQp, int32_t _mapMinQp, int32_t _mapMaxQp) :
+            mode(_mode), bgDeltaQp(_bgDeltaQp), fgDeltaQp(_fgDeltaQp),
+            mapMinQp(_mapMinQp), mapMaxQp(_mapMaxQp) {}
+
+    const static std::vector<C2FieldDescriptor> _FIELD_LIST;
+    static const std::vector<C2FieldDescriptor> FieldList();
+};
+
+typedef C2PortParam<C2Info, C2SEModeSettingStruct, kParamIndexEncSEModeSetting> C2StreamEncSEModeSetting;
+constexpr char C2_PARAMKEY_ENC_SE_MODE_SETTING[] = "c2-enc-super-encoding";
 
 typedef C2PortParam<C2Info, C2Int32Value, kParamIndexEncDisableSEI> C2StreamEncDisableSEI;
 constexpr char C2_PARAMKEY_ENC_DISABLE_SEI[] = "c2-enc-disable-sei";
