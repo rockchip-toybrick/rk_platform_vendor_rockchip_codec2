@@ -55,8 +55,8 @@ private:
     virtual ~C2RKMemTrace() {};
 
     int32_t             mDisableCheck;
-    int32_t             mCurDecLoad;
-    int32_t             mCurEncLoad;
+    int64_t             mCurDecLoad;
+    int64_t             mCurEncLoad;
     uint32_t            mMaxInstanceNum;
     Mutex               mLock;
     Vector<C2NodeInfo>  mDecNodes;
