@@ -222,14 +222,16 @@ private:
     c2_status_t setupAndStartLooper();
     void stopAndReleaseLooper();
 
-    uint32_t getFbcOutputMode(const std::unique_ptr<C2Work> &work = nullptr);
+    int32_t getFbcOutputMode(const std::unique_ptr<C2Work> &work = nullptr);
     c2_status_t updateSurfaceConfig(const std::shared_ptr<C2BlockPool> &pool);
     c2_status_t configOutputDelay(const std::unique_ptr<C2Work> &work = nullptr);
     c2_status_t configTunneledPlayback(const std::unique_ptr<C2Work> &work);
     void finishWork(OutWorkEntry entry);
 
     c2_status_t initDecoder(const std::unique_ptr<C2Work> &work);
-    c2_status_t setMppPerformance(bool on);
+    c2_status_t updateDecoderArgs(const std::shared_ptr<C2BlockPool> &pool);
+    c2_status_t updateMppFrameInfo(int32_t fbcMode);
+    void setMppPerformance(bool on);
     void setDefaultCodecColorAspectsIfNeeded(ColorAspects &aspects);
     void getVuiParams(MppFrame frame);
     c2_status_t updateFbcModeIfNeeded();

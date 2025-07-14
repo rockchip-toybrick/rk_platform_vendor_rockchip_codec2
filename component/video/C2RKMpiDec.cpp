@@ -677,7 +677,7 @@ public:
         return false;
     }
 
-    bool getIs10bitVideo() {
+    bool getIs10bit() {
         uint32_t profile = mProfileLevel ? mProfileLevel->profile : 0;
         if (profile == PROFILE_AVC_HIGH_10 ||
             profile == PROFILE_HEVC_MAIN_10 ||
@@ -917,7 +917,6 @@ void C2RKMpiDec::onRelease() {
     }
 
     stopFlushingState();
-
     setMppPerformance(false);
 
     mStarted = false;
@@ -979,7 +978,7 @@ void C2RKMpiDec::stopAndReleaseLooper() {
     }
 }
 
-uint32_t C2RKMpiDec::getFbcOutputMode(const std::unique_ptr<C2Work> &work) {
+int32_t C2RKMpiDec::getFbcOutputMode(const std::unique_ptr<C2Work> &work) {
     uint32_t fbcMode = C2RKChipCapDef::get()->getFbcOutputMode(mCodingType);
 
     if (!fbcMode || mIsGBSource || mBufferMode) {
@@ -1000,11 +999,7 @@ uint32_t C2RKMpiDec::getFbcOutputMode(const std::unique_ptr<C2Work> &work) {
             return fbcMode;
         }
 
-        /*
-         * For 10bit flim source, we agreed that force fbc rendering.
-         * Some apps(Kodi/Photos/Files) does not transmit profile info, so do extra
-         * detection from spspps to search bitInfo in this case.
-         */
+        // do extra detection from spspps to search bitInfo in this case
         if (work != nullptr && work->input.flags & C2FrameData::FLAG_CODEC_CONFIG) {
             if (!work->input.buffers.empty()) {
                 C2ReadView rView = mDummyReadView;
@@ -1309,31 +1304,120 @@ c2_status_t C2RKMpiDec::configTunneledPlayback(const std::unique_ptr<C2Work> &wo
     return err;
 }
 
-c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
-    MPP_RET err = MPP_OK;
-
-    c2_log_func_enter();
+c2_status_t C2RKMpiDec::updateDecoderArgs(const std::shared_ptr<C2BlockPool> &pool) {
+    c2_status_t err  = C2_OK;
+    bool needsUpdate = false;
 
     {
         IntfImpl::Lock lock = mIntf->lock();
-        mWidth = mIntf->getSize_l()->width;
-        mHeight = mIntf->getSize_l()->height;
-        mPixelFormat = mIntf->getPixelFormat_l()->value;
-        mLowLatencyMode = mIntf->getIsLowLatencyMode();
-        mColorFormat = mIntf->getIs10bitVideo() ? MPP_FMT_YUV420SP_10BIT : MPP_FMT_YUV420SP;
-        mTunneled = mIntf->getIsTunnelMode();
+        int32_t width       = mIntf->getSize_l()->width;
+        int32_t height      = mIntf->getSize_l()->height;
+        int32_t pixelFormat = mIntf->getPixelFormat_l()->value;
+        int32_t lowLatency  = mIntf->getIsLowLatencyMode();
+        int32_t colorFormat = mIntf->getIs10bit() ? MPP_FMT_YUV420SP_10BIT : MPP_FMT_YUV420SP;
 
-        // For some surfaceTexture case, it is hopes that the component output
-        // result without stride since they don't want to deal with crop.
+        bool tunneled   = mIntf->getIsTunnelMode();
+        bool bufferMode = (pool->getLocalId() <= C2BlockPool::PLATFORM_START);
+
+        // needs mpp frame update
+        needsUpdate = (mWidth != width) ||
+                      (mHeight != height) ||
+                      ((mColorFormat & MPP_FRAME_FMT_MASK) != colorFormat);
+
+        // av1 support convert to user-set format internally
+        if (mCodingType == MPP_VIDEO_CodingAV1
+                && pixelFormat == HAL_PIXEL_FORMAT_YCBCR_P010) {
+            colorFormat = MPP_FMT_YUV420SP_10BIT;
+        }
+
+        // In surfaceTexture case, it is hopes that the component output result
+        // without stride since they don't want to deal with crop.
         if (mIntf->getOutputCropEnable()) {
             c2_info("got request for output crop");
-            mBufferMode = true;
+            if (!bufferMode)
+                bufferMode = true;
         }
+
+        // p010 is different with decoding output compact 10bit, so reset to
+        // output buffer mode and do one more extry copy to format p010.
+        if (!bufferMode && colorFormat == MPP_FMT_YUV420SP_10BIT) {
+            if (pixelFormat == HAL_PIXEL_FORMAT_YCBCR_P010) {
+                c2_warn("got p010 format request, use output buffer mode.");
+                bufferMode = true;
+            }
+            if (width * height <= 176 * 144) {
+                bufferMode = true;
+            }
+        }
+
+        mBufferMode  = bufferMode;
+        mBlockPool   = pool;
+        mWidth       = width;
+        mHeight      = height;
+        mTunneled    = tunneled;
+        mPixelFormat = pixelFormat;
+        mColorFormat = (MppFrameFormat)colorFormat;
+        mLowLatencyMode = lowLatency;
     }
 
-    c2_info("init: w %d h %d coding %s", mWidth, mHeight, toStr_Coding(mCodingType));
+    int32_t fbcMode = getFbcOutputMode();
+    needsUpdate |= (mFbcCfg.mode != fbcMode);
 
-    err = mpp_create(&mMppCtx, &mMppMpi);
+    if (needsUpdate) {
+        err = updateMppFrameInfo(fbcMode);
+    }
+    return err;
+}
+
+c2_status_t C2RKMpiDec::updateMppFrameInfo(int32_t fbcMode) {
+    if (!mMppCtx) {
+        return C2_OK;
+    }
+
+    MPP_RET err = MPP_OK;
+    MppFrame frame = nullptr;
+    int32_t format = mColorFormat;
+    int32_t paddingX = 0, paddingY = 0;
+
+    if (fbcMode) {
+        format |= MPP_FRAME_FBC_AFBC_V2;
+        /* fbc decode output has padding inside, set crop before display */
+        C2RKChipCapDef::get()->getFbcOutputOffset(mCodingType, &paddingX, &paddingY);
+        c2_info("use mpp fbc output mode, padding offset(%d, %d)", paddingX, paddingY);
+    } else {
+        format &= ~MPP_FRAME_FBC_AFBC_V2;
+    }
+
+    mMppMpi->control(mMppCtx, MPP_DEC_SET_OUTPUT_FORMAT, (MppParam)&format);
+
+    mpp_frame_init(&frame);
+    mpp_frame_set_width(frame, mWidth);
+    mpp_frame_set_height(frame, mHeight);
+    mpp_frame_set_fmt(frame, (MppFrameFormat)format);
+
+    err = mMppMpi->control(mMppCtx, MPP_DEC_SET_FRAME_INFO, (MppParam)frame);
+    if (err != MPP_OK) {
+        c2_err("failed to set frame info, err %d", err);
+        mpp_frame_deinit(&frame);
+        return C2_CORRUPTED;;
+    }
+
+    mHorStride   = mpp_frame_get_hor_stride(frame);
+    mVerStride   = mpp_frame_get_ver_stride(frame);
+    mColorFormat = mpp_frame_get_fmt(frame);
+
+    mFbcCfg.mode = fbcMode;
+    mFbcCfg.paddingX = paddingX;
+    mFbcCfg.paddingY = paddingY;
+
+    mpp_frame_deinit(&frame);
+    return C2_OK;
+}
+
+c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
+    c2_log_func_enter();
+
+    MPP_RET err = mpp_create(&mMppCtx, &mMppMpi);
     if (err != MPP_OK) {
         c2_err("failed to mpp_create, ret %d", err);
         goto error;
@@ -1384,65 +1468,9 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
         goto error;
     }
 
-    {
-        MppFrame frame  = nullptr;
-
-        // av1 support convert to user-set format internally.
-        if (mCodingType == MPP_VIDEO_CodingAV1
-                && mPixelFormat == HAL_PIXEL_FORMAT_YCBCR_P010) {
-            mColorFormat = MPP_FMT_YUV420SP_10BIT;
-        }
-
-        // P010 is different with decoding output compact 10bit, so reset to
-        // output buffer mode and do one more extry copy to format P010.
-        if (mColorFormat == MPP_FMT_YUV420SP_10BIT) {
-            if (mPixelFormat == HAL_PIXEL_FORMAT_YCBCR_P010) {
-                c2_warn("got p010 format request, use output buffer mode.");
-                mBufferMode = true;
-            }
-            if (mWidth * mHeight <= 176 * 144) {
-                mBufferMode = true;
-            }
-        }
-
-        uint32_t mppFmt = mColorFormat;
-        uint32_t fbcMode = getFbcOutputMode(work);
-        if (fbcMode) {
-            mppFmt |= MPP_FRAME_FBC_AFBC_V2;
-            /* fbc decode output has padding inside, set crop before display */
-            C2RKChipCapDef::get()->getFbcOutputOffset(
-                    mCodingType, &mFbcCfg.paddingX, &mFbcCfg.paddingY);
-            c2_info("use mpp fbc output mode, padding offset(%d, %d)",
-                    mFbcCfg.paddingX, mFbcCfg.paddingY);
-        }
-
-        mMppMpi->control(mMppCtx, MPP_DEC_SET_OUTPUT_FORMAT, (MppParam)&mppFmt);
-
-        mpp_frame_init(&frame);
-        mpp_frame_set_width(frame, mWidth);
-        mpp_frame_set_height(frame, mHeight);
-        mpp_frame_set_fmt(frame, (MppFrameFormat)mppFmt);
-
-        err = mMppMpi->control(mMppCtx, MPP_DEC_SET_FRAME_INFO, (MppParam)frame);
-        if (err != MPP_OK) {
-            c2_err("failed to set frame info, err %d", err);
-            mpp_frame_deinit(&frame);
-            goto error;
-        }
-
-        if (mpp_frame_get_width(frame) > 0 && mpp_frame_get_height(frame) > 0) {
-            mWidth  = mpp_frame_get_width(frame);
-            mHeight = mpp_frame_get_height(frame);
-        }
-
-        mHorStride   = mpp_frame_get_hor_stride(frame);
-        mVerStride   = mpp_frame_get_ver_stride(frame);
-        mColorFormat = mpp_frame_get_fmt(frame);
-        mFbcCfg.mode = fbcMode;
-
-        mpp_frame_deinit(&frame);
-
-        c2_info("init: hor %d ver %d color 0x%08x", mHorStride, mVerStride, mColorFormat);
+    /* update frame info to decoder */
+    if (updateMppFrameInfo(getFbcOutputMode(work)) != C2_OK) {
+        goto error;
     }
 
     err = mpp_buffer_group_get_external(&mFrmGrp, MPP_BUFFER_TYPE_ION);
@@ -1465,12 +1493,11 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
         mpp_dec_cfg_set_ptr(cfg, "cb:frm_rdy_ctx", this);
 
         /* check HDR Vivid support */
-        if (!mBufferMode && C2RKChipCapDef::get()->getHdrMetaCap()) {
-            if (!C2RKPropsDef::getHdrDisable()) {
-                c2_info("enable hdr meta");
-                mpp_dec_cfg_set_u32(cfg, "base:enable_hdr_meta", 1);
-                mHdrMetaEnabled = true;
-            }
+        if (!mBufferMode && C2RKChipCapDef::get()->getHdrMetaCap()
+                && !C2RKPropsDef::getHdrDisable()) {
+            c2_info("enable hdr meta");
+            mpp_dec_cfg_set_u32(cfg, "base:enable_hdr_meta", 1);
+            mHdrMetaEnabled = true;
         }
 
         err = mMppMpi->control(mMppCtx, MPP_DEC_SET_CFG, cfg);
@@ -1481,6 +1508,9 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
 
         mpp_dec_cfg_deinit(cfg);
     }
+
+    c2_info("init: w %d h %d coding %s", mWidth, mHeight, toStr_Coding(mCodingType));
+    c2_info("init: hor %d ver %d color 0x%08x", mHorStride, mVerStride, mColorFormat);
 
     mDump->initDump(mHorStride, mVerStride, false);
 
@@ -1495,7 +1525,7 @@ error:
     return C2_CORRUPTED;
 }
 
-c2_status_t C2RKMpiDec::setMppPerformance(bool on) {
+void C2RKMpiDec::setMppPerformance(bool on) {
     int32_t width     = 1920;
     int32_t height    = 1080;
     int32_t byteHevc  = 0;
@@ -1533,8 +1563,6 @@ c2_status_t C2RKMpiDec::setMppPerformance(bool on) {
             mFdPerf = -1;
         }
     }
-
-    return C2_OK;
 }
 
 void C2RKMpiDec::finishWork(OutWorkEntry entry) {
@@ -1642,7 +1670,13 @@ void C2RKMpiDec::process(
 
     // Initialize decoder if not already initialized
     if (!mStarted) {
-        mBufferMode = (pool->getLocalId() <= C2BlockPool::PLATFORM_START);
+        err = updateDecoderArgs(pool);
+        if (err != C2_OK) {
+            work->result = C2_BAD_VALUE;
+            c2_info("failed to update args, signalled Error");
+            return;
+        }
+
         err = initDecoder(work);
         if (err != C2_OK) {
             work->result = C2_BAD_VALUE;
@@ -1705,7 +1739,16 @@ void C2RKMpiDec::process(
              inSize, timestamp, frameIndex, flags);
 
     if (mFlushed) {
-        mBlockPool = pool;
+        if (mBlockPool != pool) {
+            err = updateDecoderArgs(pool);
+            if (err != C2_OK) {
+                mSignalledError = true;
+                work->workletsProcessed = 1u;
+                work->result = C2_CORRUPTED;
+                return;
+            }
+        }
+
         err = ensureDecoderState();
         if (err != C2_OK) {
             mSignalledError = true;
@@ -1852,56 +1895,36 @@ void C2RKMpiDec::getVuiParams(MppFrame frame) {
 }
 
 c2_status_t C2RKMpiDec::updateFbcModeIfNeeded() {
+    c2_status_t err  = C2_OK;
     bool needsUpdate = false;
-    uint32_t format  = mColorFormat;
     uint32_t fbcMode = getFbcOutputMode();
 
-    if (!MPP_FRAME_FMT_IS_FBC(format)) {
+    if (!MPP_FRAME_FMT_IS_FBC(mColorFormat)) {
         if (fbcMode) {
-            format |= MPP_FRAME_FBC_AFBC_V2;
-            /* fbc decode output has padding inside, set crop before display */
-            C2RKChipCapDef::get()->getFbcOutputOffset(
-                    mCodingType, &mFbcCfg.paddingX, &mFbcCfg.paddingY);
             needsUpdate = true;
-            c2_info("change use mpp fbc output mode, padding offset(%d, %d)",
-                    mFbcCfg.paddingX, mFbcCfg.paddingY);
+            c2_info("change use mpp fbc output mode");
         }
     } else {
         if (!fbcMode) {
-            format &= ~MPP_FRAME_FBC_AFBC_V2;
-            memset(&mFbcCfg, 0, sizeof(mFbcCfg));
             needsUpdate = true;
             c2_info("change use mpp non-fbc output mode");
         }
     }
 
     if (needsUpdate) {
-        MPP_RET err = MPP_OK;
-        MppFrame frame = nullptr;
-
-        mMppMpi->control(mMppCtx, MPP_DEC_SET_OUTPUT_FORMAT, (MppParam)&format);
-
-        mpp_frame_init(&frame);
-        mpp_frame_set_width(frame, mWidth);
-        mpp_frame_set_height(frame, mHeight);
-        mpp_frame_set_fmt(frame, (MppFrameFormat)format);
-
-        err = mMppMpi->control(mMppCtx, MPP_DEC_SET_FRAME_INFO, (MppParam)frame);
-        if (err != MPP_OK) {
-            c2_err("failed to set frame info, err %d", err);
-            mpp_frame_deinit(&frame);
-            return C2_CORRUPTED;
-        }
-
-        mHorStride   = mpp_frame_get_hor_stride(frame);
-        mVerStride   = mpp_frame_get_ver_stride(frame);
-        mColorFormat = mpp_frame_get_fmt(frame);
-        mFbcCfg.mode = fbcMode;
-
-        mpp_frame_deinit(&frame);
+        err = updateMppFrameInfo(fbcMode);
     }
 
-    return C2_OK;
+    if (err != C2_OK || !needsUpdate) {
+        mFbcCfg.mode = MPP_FRAME_FMT_IS_FBC(mColorFormat);
+        if (mFbcCfg.mode) {
+            /* fbc decode output has padding inside, set crop before display */
+            C2RKChipCapDef::get()->getFbcOutputOffset(
+                    mCodingType, &mFbcCfg.paddingX, &mFbcCfg.paddingY);
+        }
+    }
+
+    return err;
 }
 
 c2_status_t C2RKMpiDec::updateAllocParamsIfNeeded(AllocParams *params) {
