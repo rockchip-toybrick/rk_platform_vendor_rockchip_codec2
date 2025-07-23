@@ -2401,6 +2401,10 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
         clearOutBuffers();
         mpp_buffer_group_clear(mFrmGrp);
 
+        if (mOutBlock) {
+            mOutBlock.reset();
+        }
+
         mWidth = width;
         mHeight = height;
         mHorStride = hstride;
