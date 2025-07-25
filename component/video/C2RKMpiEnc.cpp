@@ -2098,6 +2098,8 @@ c2_status_t C2RKMpiEnc::setupTemporalLayers() {
 }
 
 c2_status_t C2RKMpiEnc::setupPrependHeaderSetting() {
+    MPP_RET err = MPP_OK;
+    MppEncHeaderMode mode = MPP_ENC_HEADER_MODE_DEFAULT;
     std::shared_ptr<C2PrependHeaderModeSetting> prepend;
 
     IntfImpl::Lock lock = mIntf->lock();
@@ -2106,12 +2108,16 @@ c2_status_t C2RKMpiEnc::setupPrependHeaderSetting() {
 
     if (prepend->value == C2Config::PREPEND_HEADER_TO_ALL_SYNC) {
         c2_info("setupPrependHeaderSetting: prepend sps pps to idr frames.");
-        MppEncHeaderMode mode = MPP_ENC_HEADER_MODE_EACH_IDR;
-        MPP_RET err = mMppMpi->control(mMppCtx, MPP_ENC_SET_HEADER_MODE, &mode);
-        if (err != MPP_OK) {
-            c2_err("setupPrependHeaderSetting: failed to set mode, err %d", err);
-            return C2_CORRUPTED;
-        }
+        mode = MPP_ENC_HEADER_MODE_EACH_IDR;
+    }
+
+    err = mMppMpi->control(mMppCtx, MPP_ENC_SET_HEADER_MODE, &mode);
+    if (err != MPP_OK) {
+        c2_err("setupPrependHeaderSetting: failed to set mode, err %d", err);
+        return C2_CORRUPTED;
+    } else if (mode == MPP_ENC_HEADER_MODE_EACH_IDR) {
+        // disable csd to avoid duplicated sps/pps in stream header
+        mSpsPpsHeaderReceived = true;
     }
 
     return C2_OK;
