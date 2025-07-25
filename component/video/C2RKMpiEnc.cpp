@@ -1454,9 +1454,13 @@ c2_status_t C2RKMpiEnc::setupBaseCodec() {
 
     mpp_enc_cfg_set_s32(mEncCfg, "prep:width", mSize->width);
     mpp_enc_cfg_set_s32(mEncCfg, "prep:height", mSize->height);
-    mpp_enc_cfg_set_s32(mEncCfg, "prep:hor_stride", mHorStride);
+    if (mInputMppFmt == MPP_FMT_RGBA8888) {
+        mpp_enc_cfg_set_s32(mEncCfg, "prep:hor_stride", mHorStride * 4);
+    } else {
+        mpp_enc_cfg_set_s32(mEncCfg, "prep:hor_stride", mHorStride);
+    }
     mpp_enc_cfg_set_s32(mEncCfg, "prep:ver_stride", mVerStride);
-    mpp_enc_cfg_set_s32(mEncCfg, "prep:format", MPP_FMT_YUV420SP);
+    mpp_enc_cfg_set_s32(mEncCfg, "prep:format", mInputMppFmt);
 
     return C2_OK;
 }
@@ -1472,17 +1476,9 @@ c2_status_t C2RKMpiEnc::setupInputScalar() {
                 mSize->width, mSize->height, c2Scalar->width, c2Scalar->height);
         mSize->width  = c2Scalar->width;
         mSize->height = c2Scalar->height;
-        mHorStride = C2_ALIGN(mSize->width, 16);
-        if (mCodingType == MPP_VIDEO_CodingVP8) {
-            mVerStride = C2_ALIGN(mSize->height, 16);
-        } else {
-            mVerStride = C2_ALIGN(mSize->height, 8);
-        }
 
-        mpp_enc_cfg_set_s32(mEncCfg, "prep:width", mSize->width);
-        mpp_enc_cfg_set_s32(mEncCfg, "prep:height", mSize->height);
-        mpp_enc_cfg_set_s32(mEncCfg, "prep:hor_stride", mHorStride);
-        mpp_enc_cfg_set_s32(mEncCfg, "prep:ver_stride", mVerStride);
+        // set encoder to new size config
+        setupBaseCodec();
 
         mInputScalar  = true;
     }
@@ -2336,8 +2332,10 @@ c2_status_t C2RKMpiEnc::setupMlvecIfNeeded() {
             mCurLayerCount = layerCount;
         }
 
-        // mlvec need pic_order_cnt_type equal to 2
-        mpp_enc_cfg_set_s32(mEncCfg, "h264:poc_type", 2);
+        if (mCodingType == MPP_VIDEO_CodingAVC) {
+            // mlvec need pic_order_cnt_type equal to 2
+            mpp_enc_cfg_set_s32(mEncCfg, "h264:poc_type", 2);
+        }
     }
 
     return C2_OK;
