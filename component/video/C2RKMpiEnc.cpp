@@ -2415,6 +2415,10 @@ c2_status_t C2RKMpiEnc::setupEncCfg() {
             c2_info("disable sei info output");
             seiMode = MPP_ENC_SEI_MODE_DISABLE;
         }
+        // FIXME: MLVEC not support HEVC SEI parser currently
+        if (mMlvec && mCodingType == MPP_VIDEO_CodingHEVC) {
+            seiMode = MPP_ENC_SEI_MODE_DISABLE;
+        }
         mMppMpi->control(mMppCtx, MPP_ENC_SET_SEI_CFG, &seiMode);
     }
 
