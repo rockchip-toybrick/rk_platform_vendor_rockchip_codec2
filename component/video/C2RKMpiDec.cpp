@@ -1358,6 +1358,9 @@ c2_status_t C2RKMpiDec::updateDecoderArgs(const std::shared_ptr<C2BlockPool> &po
         mPixelFormat = pixelFormat;
         mColorFormat = (MppFrameFormat)colorFormat;
         mLowLatencyMode = lowLatency;
+
+        mUseRgaBlit = true;
+        mAllocParams.needUpdate = true;
     }
 
     int32_t fbcMode = getFbcOutputMode();
