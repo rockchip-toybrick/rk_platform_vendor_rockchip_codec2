@@ -20,6 +20,7 @@
 #include <stdio.h>
 #include <utils/Timers.h>
 #include <utils/KeyedVector.h>
+#include <utils/Mutex.h>
 
 #include "rk_mpi.h"
 
@@ -67,6 +68,7 @@ private:
     static int32_t mFlag;
     /* <frameIndex, frameStartTime> */
     KeyedVector<int64_t, int64_t> mRecordStartTimes;
+    Mutex    mRecordLock;
 
     bool     mIsEncoder;
 

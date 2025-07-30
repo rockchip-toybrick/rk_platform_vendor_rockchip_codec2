@@ -174,12 +174,14 @@ void C2RKDump::recordFile(
 
 void C2RKDump::recordFrameTime(int64_t frameIndex) {
     if (hasDebugFlags(C2_DUMP_FRAME_TIMING)) {
+        Mutex::Autolock autoLock(mRecordLock);
         mRecordStartTimes.add(frameIndex, getCurrentTimeMillis());
     }
 }
 
 void C2RKDump::showFrameTiming(int64_t frameIndex) {
     if (hasDebugFlags(C2_DUMP_FRAME_TIMING)) {
+        Mutex::Autolock autoLock(mRecordLock);
         ssize_t index = mRecordStartTimes.indexOfKey(frameIndex);
         if (index != NAME_NOT_FOUND) {
             int64_t startTime = mRecordStartTimes.valueAt(index);
