@@ -2482,6 +2482,16 @@ c2_status_t C2RKMpiEnc::initEncoder() {
             c2_err("failed to set output timeout %d, err %d", timeout, err);
             goto error;
         }
+        // Enable non-blocking input mode under asynchronous operation, so as
+        // to activate dual-core encoding.
+        if (mHandler) {
+            timeout = MPP_POLL_NON_BLOCK;
+            err = mMppMpi->control(mMppCtx, MPP_SET_INPUT_TIMEOUT, &timeout);
+            if (err != MPP_OK) {
+                c2_err("failed to set input timeout %d, err %d", timeout, err);
+                goto error;
+            }
+        }
     }
 
     err = mpp_init(mMppCtx, MPP_CTX_ENC, mCodingType);
@@ -2568,14 +2578,23 @@ void C2RKMpiEnc::finishWork(
     // copy mpp output to c2 output
     memcpy(wView.data(), data, len);
 
-    RK_S32 isIntra = 0;
     std::shared_ptr<C2Buffer> buffer = createLinearBuffer(block, 0, len);
     MppMeta meta = mpp_packet_get_meta(packet);
-    mpp_meta_get_s32(meta, KEY_OUTPUT_INTRA, &isIntra);
-    if (isIntra) {
-        c2_info("IDR frame produced");
-        buffer->setInfo(std::make_shared<C2StreamPictureTypeMaskInfo::output>(
-                0u /* stream id */, C2Config::SYNC_FRAME));
+    if (meta != nullptr) {
+        int32_t isIntra = 0;
+        MppFrame frame = nullptr;
+
+        mpp_meta_get_s32(meta, KEY_OUTPUT_INTRA, &isIntra);
+        if (isIntra) {
+            c2_info("IDR frame produced");
+            buffer->setInfo(std::make_shared<C2StreamPictureTypeMaskInfo::output>(
+                    0u /* stream id */, C2Config::SYNC_FRAME));
+        }
+
+        mpp_meta_get_frame(meta, KEY_INPUT_FRAME, &frame);
+        if (frame != nullptr) {
+            mpp_frame_deinit(&frame);
+        }
     }
 
     mpp_packet_deinit(&packet);
@@ -3298,6 +3317,9 @@ c2_status_t C2RKMpiEnc::sendframe(
     MPP_RET err = MPP_OK;
     MppFrame frame = nullptr;
     MppMeta meta = nullptr;
+    uint32_t retry = 0;
+
+    static uint32_t kMaxRetryCnt = 1000;
 
     mpp_frame_init(&frame);
 
@@ -3307,8 +3329,6 @@ c2_status_t C2RKMpiEnc::sendframe(
         c2_info("send input eos");
         mpp_frame_set_eos(frame, 1);
     }
-
-    c2_trace("send frame fd %d size %d pts %lld", dBuffer.fd, dBuffer.size, pts);
 
     if (dBuffer.fd > 0) {
         MppBuffer buffer = nullptr;
@@ -3372,15 +3392,6 @@ c2_status_t C2RKMpiEnc::sendframe(
 
     /* set npu detection maps */
     if (dBuffer.npuMaps) {
-        /*
-         * rknn detect session with two types of output:
-         *
-         * 1. proto mask, it requires a period of post-processing, but with more
-         *    precise rate control, the sesk mask is process by mpp encoder.
-         * 2. roi rect arrays, task less time and the quality of ROI regions
-         *    is controlled outside. We enhance quality by reduce relative QP of
-         *    ROI regions. it is a relatively rough control.
-         */
         if (mRknnSession->isMaskResultType()) {
             err = mpp_meta_set_ptr(meta, KEY_NPU_OBJ_FLAG, dBuffer.npuMaps);
             if (err != MPP_OK) {
@@ -3393,31 +3404,40 @@ c2_status_t C2RKMpiEnc::sendframe(
             int regionCount = std::clamp(dRegions->count, 0, MPP_MAX_ROI_REGION_COUNT);
 
             for (int i = 0; i < regionCount; i++) {
-                RoiRegionCfg region;
-                region.x = (dRegions->rects[i].left) & (~0x01);
-                region.y = (dRegions->rects[i].top) & (~0x01);
-                region.w = (dRegions->rects[i].right - dRegions->rects[i].left) & (~0x01);
-                region.h = (dRegions->rects[i].bottom - dRegions->rects[i].top) & (~0x01);
-                region.force_intra = 0;
-                region.qp_mode = 0;
-                region.qp_val = -10;
-
+                RoiRegionCfg region {
+                    .x = (dRegions->rects[i].left) & (~0x01),
+                    .y = (dRegions->rects[i].top) & (~0x01),
+                    .w = (dRegions->rects[i].right - dRegions->rects[i].left) & (~0x01),
+                    .h = (dRegions->rects[i].bottom - dRegions->rects[i].top) & (~0x01),
+                    .force_intra = 0,
+                    .qp_mode = 0,
+                    .qp_val = -10
+                };
                 regions.push(region);
             }
             handleRoiRegionRequest(meta, regions);
         }
     }
 
-    err = mMppMpi->encode_put_frame(mMppCtx, frame);
-    if (err != MPP_OK) {
-        ret = C2_NOT_FOUND;
-        goto error;
+    while (true) {
+        MPP_RET err = mMppMpi->encode_put_frame(mMppCtx, frame);
+        if (err == MPP_OK) {
+            c2_trace("send frame fd %d size %d pts %lld", dBuffer.fd, dBuffer.size, pts);
+            /* dump show input process fps if neccessary */
+            mDump->showDebugFps(ROLE_INPUT);
+            mInputCount++;
+            break;
+        }
+
+        if (mSignalledError || ((++retry) > kMaxRetryCnt)) {
+            ret = C2_CORRUPTED;
+            goto error;
+        }
+
+        usleep(3 * 1000);
     }
 
-    /* dump show input process fps if neccessary */
-    mDump->showDebugFps(ROLE_INPUT);
-
-    mInputCount++;
+    return C2_OK;
 
 error:
     if (frame) {
