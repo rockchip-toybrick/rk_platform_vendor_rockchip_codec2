@@ -1454,13 +1454,14 @@ c2_status_t C2RKMpiEnc::setupBaseCodec() {
 
     mpp_enc_cfg_set_s32(mEncCfg, "prep:width", mSize->width);
     mpp_enc_cfg_set_s32(mEncCfg, "prep:height", mSize->height);
+    mpp_enc_cfg_set_s32(mEncCfg, "prep:ver_stride", mVerStride);
+    mpp_enc_cfg_set_s32(mEncCfg, "prep:format", mInputMppFmt);
+
     if (mInputMppFmt == MPP_FMT_RGBA8888) {
         mpp_enc_cfg_set_s32(mEncCfg, "prep:hor_stride", mHorStride * 4);
     } else {
         mpp_enc_cfg_set_s32(mEncCfg, "prep:hor_stride", mHorStride);
     }
-    mpp_enc_cfg_set_s32(mEncCfg, "prep:ver_stride", mVerStride);
-    mpp_enc_cfg_set_s32(mEncCfg, "prep:format", mInputMppFmt);
 
     return C2_OK;
 }
@@ -2437,14 +2438,15 @@ c2_status_t C2RKMpiEnc::initEncoder() {
     }
 
     /*
-     * NOTE: We need temporary buffer to store rga nv12 output for some rgba input,
-     * since mpp can't process rgba input properly. in addition to this, alloc buffer
-     * within 4G in view of rga efficiency.
+     * NOTE: A temporary buffer is required to store the RGA NV12 output
+     * when processing specific RGBA input formats, because MPP lacks proper
+     * support for RGBA input handling.
+     * Furthermore, the buffer is allocated within the 4GB address space to
+     * maximize RGA hardware acceleration efficiency and ensure DMA compatibility.
      */
-    buffer_handle_t bufferHandle;
     uint32_t stride = 0;
-
     uint64_t usage = (GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN);
+    buffer_handle_t bufferHandle;
 
     // allocate buffer within 4G to avoid rga2 error.
     if (mChipType == RK_CHIP_3588 || mChipType == RK_CHIP_356X) {
@@ -2972,7 +2974,7 @@ c2_status_t C2RKMpiEnc::handleRoiRegionRequest(
         MppMeta meta, Vector<RoiRegionCfg> regions) {
     if (regions.size() == 0) return C2_OK;
 
-    if (!mRoiCtx) {
+    if (mRoiCtx == nullptr) {
         if (mpp_enc_roi_init(&mRoiCtx, mSize->width, mSize->height, mCodingType)) {
             c2_err("failed to init roi context");
             return C2_CORRUPTED;
@@ -2982,12 +2984,12 @@ c2_status_t C2RKMpiEnc::handleRoiRegionRequest(
 
     for (int i = 0; i < regions.size(); i++) {
         RoiRegionCfg *region = &regions.editItemAt(i);
-        if (region->x > mSize->width || region->y > mSize->height ||
-            region->w > mSize->width || region->h > mSize->height ||
+        if ((region->x > mSize->width) || (region->y > mSize->height) ||
+            (region->w > mSize->width) || (region->h > mSize->height) ||
             (region->x + region->w) > mSize->width ||
             (region->y + region->h) > mSize->height) {
-            c2_err("size limit [%d,%d] qpVal in range 1~51", mSize->width, mSize->height);
-            c2_err("got invalid roi region, rect [%d,%d,%d,%d] intra %d mode %d qp %d",
+            c2_err("please check user roi settings, size [%d,%d]", mSize->width, mSize->height);
+            c2_err("current rect [%d,%d,%d,%d] intra %d mode %d qp %d",
                     region->x, region->y, region->w, region->h,
                     region->force_intra, region->qp_mode, region->qp_val);
         } else {
@@ -3038,31 +3040,29 @@ c2_status_t C2RKMpiEnc::onDetectResultReady(ImageBuffer *srcImage, void *result)
 
 c2_status_t C2RKMpiEnc::handleRknnDetection(
         const std::unique_ptr<C2Work> &work, MyDmaBuffer_t dbuffer) {
-    if (!mRknnSession) return C2_CORRUPTED;
-
-    // ignore empty input buffer
-    if (dbuffer.fd <= 0) return C2_CORRUPTED;
-
-    uint32_t flags = work->input.flags;
-    uint64_t frameIndex = work->input.ordinal.frameIndex.peekull();
-
-    ImageBuffer srcImage;
-    memset(&srcImage, 0, sizeof(ImageBuffer));
-
-    srcImage.width   = mSize->width;
-    srcImage.height  = mSize->height;
-    srcImage.hstride = mHorStride;
-    srcImage.vstride = mVerStride;
-    srcImage.fd      = dbuffer.fd;
-    srcImage.size    = dbuffer.size;
-    srcImage.pts     = frameIndex;
-    srcImage.flags   = flags;
-
-    if (mInputMppFmt == MPP_FMT_RGBA8888) {
-        srcImage.format = IMAGE_FORMAT_RGBA8888;
-    } else {
-        srcImage.format = IMAGE_FORMAT_YUV420SP_NV12;
+    if (!mRknnSession || dbuffer.fd <= 0) {
+        return C2_CORRUPTED;
     }
+
+    int32_t flags = work->input.flags;
+    uint64_t frameIndex = work->input.ordinal.frameIndex.peekull();
+    ImageFormat format = IMAGE_FORMAT_RGBA8888;
+    if (mInputMppFmt != MPP_FMT_RGBA8888) {
+        format = IMAGE_FORMAT_YUV420SP_NV12;
+    }
+
+    ImageBuffer srcImage {
+        .fd      = dbuffer.fd,
+        .size    = dbuffer.size,
+        .virAddr = nullptr,
+        .width   = static_cast<int32_t>(mSize->width),
+        .height  = static_cast<int32_t>(mSize->height),
+        .hstride = mHorStride,
+        .vstride = mVerStride,
+        .flags   = flags,
+        .pts     = frameIndex,
+        .format  = format
+    };
 
     if (!mRknnSession->startDetect(&srcImage)) {
         c2_err("failed to start detection");
@@ -3267,6 +3267,7 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
                 mVerStride = height;
                 configChanged = true;
             }
+
             outBuffer->fd = fd;
             outBuffer->size = mHorStride * mVerStride * 3 / 2;
         } else {
@@ -3337,7 +3338,7 @@ c2_status_t C2RKMpiEnc::sendframe(
         memset(&commit, 0, sizeof(commit));
 
         commit.type = MPP_BUFFER_TYPE_ION;
-        commit.fd = dBuffer.fd;
+        commit.fd   = dBuffer.fd;
         commit.size = dBuffer.size;
 
         err = mpp_buffer_import(&buffer, &commit);

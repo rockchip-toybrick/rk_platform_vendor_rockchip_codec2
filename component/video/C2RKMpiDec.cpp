@@ -44,6 +44,8 @@
 namespace android {
 
 /* max support video resolution */
+constexpr uint64_t kCpuReadWriteUsage = (GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN);
+
 constexpr uint32_t kMaxVideoWidth = 8192;
 constexpr uint32_t kMaxVideoHeight = 4320;
 
@@ -1936,40 +1938,40 @@ c2_status_t C2RKMpiDec::updateAllocParamsIfNeeded(AllocParams *params) {
         return C2_OK;
     }
 
-    int32_t allocW = 0, allocH = 0, allocFmt = 0;
-    int64_t allocUsage = RK_GRALLOC_USAGE_SPECIFY_STRIDE;
+    int32_t allocWidth  = 0, allocHeight = 0, allocFormat = 0;
+    int64_t allocUsage  = RK_GRALLOC_USAGE_SPECIFY_STRIDE;
 
-    int32_t videoW = mWidth;
-    int32_t videoH = mHeight;
-    int32_t frameW = mHorStride;
-    int32_t frameH = mVerStride;
-    int32_t mppFormat = mColorFormat;
+    int32_t videoWidth  = mWidth;
+    int32_t videoHeight = mHeight;
+    int32_t frameWidth  = mHorStride;
+    int32_t frameHeight = mVerStride;
+    int32_t colorFormat = mColorFormat;
 
     if (mScaleMode == C2_SCALE_MODE_DOWN_SCALE) {
         // update scale thumbnail info in down scale mode
-        videoW = mScaleInfo.width;
-        videoH = mScaleInfo.height;
-        frameW = mScaleInfo.hstride;
-        frameH = mScaleInfo.vstride;
-        mppFormat = mScaleInfo.format;
+        videoWidth  = mScaleInfo.width;
+        videoHeight = mScaleInfo.height;
+        frameWidth  = mScaleInfo.hstride;
+        frameHeight = mScaleInfo.vstride;
+        colorFormat = mScaleInfo.format;
     }
 
-    allocW = frameW;
-    allocH = frameH;
-    allocFmt = C2RKMediaUtils::getHalPixerFormat(mppFormat, mFbcCfg.mode);
+    allocWidth  = frameWidth;
+    allocHeight = frameHeight;
+    allocFormat = C2RKMediaUtils::getHalPixerFormat(colorFormat, mFbcCfg.mode);
 
     if (mFbcCfg.mode) {
         // NOTE: FBC case may have offset y on top and vertical stride
         // should aligned to 16.
-        allocH = C2_ALIGN(frameH + mFbcCfg.paddingY, 16);
+        allocHeight = C2_ALIGN(frameHeight + mFbcCfg.paddingY, 16);
 
         // In fbc 10bit mode, surfaceCB treat width as pixel stride.
-        if (allocFmt == HAL_PIXEL_FORMAT_YUV420_10BIT_I ||
-            allocFmt == HAL_PIXEL_FORMAT_Y210 ||
-            allocFmt == HAL_PIXEL_FORMAT_YUV420_10BIT_RFBC ||
-            allocFmt == HAL_PIXEL_FORMAT_YUV422_10BIT_RFBC ||
-            allocFmt == HAL_PIXEL_FORMAT_YUV444_10BIT_RFBC) {
-            allocW = C2_ALIGN(videoW, 64);
+        if (allocFormat == HAL_PIXEL_FORMAT_YUV420_10BIT_I ||
+            allocFormat == HAL_PIXEL_FORMAT_Y210 ||
+            allocFormat == HAL_PIXEL_FORMAT_YUV420_10BIT_RFBC ||
+            allocFormat == HAL_PIXEL_FORMAT_YUV422_10BIT_RFBC ||
+            allocFormat == HAL_PIXEL_FORMAT_YUV444_10BIT_RFBC) {
+            allocWidth = C2_ALIGN(videoWidth, 64);
         }
     } else {
         // NOTE: private gralloc stride usage only support in 4.0.
@@ -1978,22 +1980,22 @@ c2_status_t C2RKMpiDec::updateAllocParamsIfNeeded(AllocParams *params) {
             uint64_t horUsage = 0, verUsage = 0;
 
             // 10bit video calculate stride base on (width * 10 / 8)
-            if (MPP_FRAME_FMT_IS_YUV_10BIT(mppFormat)) {
-                horUsage = C2RKMediaUtils::getStrideUsage(videoW * 10 / 8, frameW);
+            if (MPP_FRAME_FMT_IS_YUV_10BIT(colorFormat)) {
+                horUsage = C2RKMediaUtils::getStrideUsage(videoWidth * 10 / 8, frameWidth);
             } else {
-                horUsage = C2RKMediaUtils::getStrideUsage(videoW, frameW);
+                horUsage = C2RKMediaUtils::getStrideUsage(videoWidth, frameWidth);
             }
-            verUsage = C2RKMediaUtils::getHStrideUsage(videoH, frameH);
+            verUsage = C2RKMediaUtils::getHStrideUsage(videoHeight, frameHeight);
 
             if (horUsage > 0 && verUsage > 0) {
-                allocW = videoW;
-                allocH = videoH;
+                allocWidth = videoWidth;
+                allocHeight = videoHeight;
                 allocUsage &= ~RK_GRALLOC_USAGE_SPECIFY_STRIDE;
                 allocUsage |= (horUsage | verUsage);
                 c2_info("update use stride usage 0x%llx", allocUsage);
             }
         } else if (mCodingType == MPP_VIDEO_CodingVP9 && mGrallocVersion < 4) {
-            allocW = C2_ALIGN_ODD(videoW, 256);
+            allocWidth = C2_ALIGN_ODD(videoWidth, 256);
         }
     }
 
@@ -2045,7 +2047,7 @@ c2_status_t C2RKMpiDec::updateAllocParamsIfNeeded(AllocParams *params) {
         // required for SurfaceFlinger_NV12-10bit to 16bit conversion
         if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_3399 ||
             C2RKChipCapDef::get()->getChipType() == RK_CHIP_3288) {
-            allocUsage |= GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN;
+            allocUsage |= kCpuReadWriteUsage;
         }
 
         // For rk356x, RGA rotation and scaling maybe used for render, so
@@ -2055,10 +2057,10 @@ c2_status_t C2RKMpiDec::updateAllocParamsIfNeeded(AllocParams *params) {
         }
     }
 
-    params->width  = allocW;
-    params->height = allocH;
+    params->width  = allocWidth;
+    params->height = allocHeight;
     params->usage  = allocUsage;
-    params->format = allocFmt;
+    params->format = allocFormat;
     params->needUpdate = false;
 
     return C2_OK;
@@ -2191,10 +2193,10 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
         int32_t bWidth  = C2_ALIGN(mWidth, 2);
         int32_t bHeight = C2_ALIGN(mHeight, 2);
         int32_t bFormat = (MPP_FRAME_FMT_IS_YUV_10BIT(mColorFormat)) ? mPixelFormat : format;
-        int64_t bUsage  = (GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN);
+        int64_t bUsage  = kCpuReadWriteUsage;
 
         // use cachable memory for higher cpu-copy performance
-        usage |= (GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN);
+        usage |= kCpuReadWriteUsage;
 
         // allocate buffer within 4G to avoid rga2 error.
         if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_3588 ||
@@ -2489,9 +2491,11 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
             int32_t dstFd = c2Handle->data[0];
 
             int32_t srcFmt = MPP_FRAME_FMT_IS_YUV_10BIT(format) ?
-                             HAL_PIXEL_FORMAT_YCrCb_NV12_10 : HAL_PIXEL_FORMAT_YCrCb_NV12;
+                             HAL_PIXEL_FORMAT_YCrCb_NV12_10 :
+                             HAL_PIXEL_FORMAT_YCrCb_NV12;
             int32_t dstFmt = mPixelFormat == HAL_PIXEL_FORMAT_YCBCR_P010 ?
-                             HAL_PIXEL_FORMAT_YCBCR_P010 : HAL_PIXEL_FORMAT_YCrCb_NV12;
+                             HAL_PIXEL_FORMAT_YCBCR_P010 :
+                             HAL_PIXEL_FORMAT_YCrCb_NV12;
 
             C2GraphicView dstView = mOutBlock->map().get();
             if (dstView.error()) {
@@ -2507,9 +2511,11 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
                 RgaInfo srcInfo, dstInfo;
 
                 C2RKRgaDef::SetRgaInfo(
-                        &srcInfo, srcFd, srcFmt,width, height, hstride, vstride);
+                        &srcInfo, srcFd, srcFmt,
+                        width, height, hstride, vstride);
                 C2RKRgaDef::SetRgaInfo(
-                        &dstInfo, dstFd, dstFmt, width, height, dstStride, dstVStride);
+                        &dstInfo, dstFd, dstFmt,
+                        width, height, dstStride, dstVStride);
                 if (!C2RKRgaDef::DoBlit(srcInfo, dstInfo)) {
                     mUseRgaBlit = false;
                     c2_warn("failed RGA blit, fallback software copy");
