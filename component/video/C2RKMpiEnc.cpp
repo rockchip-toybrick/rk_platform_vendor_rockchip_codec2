@@ -2596,6 +2596,8 @@ void C2RKMpiEnc::finishWork(
         mpp_meta_get_frame(meta, KEY_INPUT_FRAME, &frame);
         if (frame != nullptr) {
             mpp_frame_deinit(&frame);
+        } else if (mHandler) {
+            ALOGW("unexpected null frame pointer");
         }
     }
 
@@ -3438,10 +3440,8 @@ c2_status_t C2RKMpiEnc::sendframe(
         usleep(3 * 1000);
     }
 
-    return C2_OK;
-
 error:
-    if (frame) {
+    if (!mHandler && frame) {
         mpp_frame_deinit(&frame);
     }
 
