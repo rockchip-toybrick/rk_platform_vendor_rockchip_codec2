@@ -126,7 +126,7 @@ public:
     uint32_t    getGrallocVersion();
     uint32_t    getFastModeSupport(MppCodingType codecId);
 
-    int32_t getFbcOutputMode(MppCodingType codecId);
+    int32_t getFbcOutputMode(MppCodingType codecId = MPP_VIDEO_CodingUnused);
     int32_t getFbcMinStride(int32_t fbcMode);
     int32_t getFbcOutputOffset(MppCodingType codecId, int32_t *offsetX, int32_t *offsetY);
 

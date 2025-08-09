@@ -81,7 +81,7 @@ typedef struct {
 class C2RKMediaUtils {
 public:
     // get hal pixer format from mpp format
-    static uint32_t getHalPixerFormat(int32_t format, int32_t fbcMode);
+    static int32_t  getHalPixerFormat(int32_t format);
 
     // get hal stride alignment usage if support
     static uint64_t getStrideUsage(int32_t width, int32_t stride);

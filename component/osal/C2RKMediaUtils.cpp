@@ -24,13 +24,14 @@
 
 #include "C2RKMediaUtils.h"
 #include "C2RKDmaBufSync.h"
+#include "C2RKChipCapDef.h"
 #include "C2RKLog.h"
 
 using namespace android;
 
 typedef struct {
     int32_t      level;
-    int32_t     maxDpbPixs;     /* Max dpb picture total pixels */
+    int32_t      maxDpbPixs;     /* Max dpb picture total pixels */
     const char  *name;
 } C2LevelInfo;
 
@@ -160,8 +161,13 @@ void dumpFrameInfo(C2FrameInfo &info, const char *tag) {
               info.width, info.height, info.hstride, info.vstride);
 }
 
-uint32_t C2RKMediaUtils::getHalPixerFormat(int32_t format, int32_t fbcMode) {
-    uint32_t androidFormat = HAL_PIXEL_FORMAT_YCrCb_NV12;
+int32_t C2RKMediaUtils::getHalPixerFormat(int32_t format) {
+    int32_t androidFormat = HAL_PIXEL_FORMAT_YCrCb_NV12;
+    int32_t fbcMode = 0;
+
+    if (MPP_FRAME_FMT_IS_FBC(format)) {
+        fbcMode = C2RKChipCapDef::get()->getFbcOutputMode();
+    }
 
     int32_t i = 0;
     for (i = 0; i < gNumFormatList; i++) {

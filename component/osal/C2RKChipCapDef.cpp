@@ -292,12 +292,19 @@ uint32_t C2RKChipCapDef::getFastModeSupport(MppCodingType codecId) {
 }
 
 int32_t C2RKChipCapDef::getFbcOutputMode(MppCodingType codecId) {
-    uint32_t fbcMode = 0;
+    int32_t fbcMode = 0;
 
-    for (int i = 0; i < mChipCapInfo->fbcCapNum; i++) {
-        if (mChipCapInfo->fbcCaps[i].codecId == codecId) {
-            fbcMode = mChipCapInfo->fbcCaps[i].fbcMode;
-            break;
+    if (codecId != MPP_VIDEO_CodingUnused) {
+        for (int i = 0; i < mChipCapInfo->fbcCapNum; i++) {
+            if (mChipCapInfo->fbcCaps[i].codecId == codecId) {
+                fbcMode = mChipCapInfo->fbcCaps[i].fbcMode;
+                break;
+            }
+        }
+    } else {
+        // get chip fbc mode cap if coding not specified
+        if (mChipCapInfo->fbcCaps != nullptr) {
+            fbcMode = mChipCapInfo->fbcCaps[0].fbcMode;
         }
     }
 

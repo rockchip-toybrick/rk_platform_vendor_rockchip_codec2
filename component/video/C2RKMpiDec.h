@@ -150,6 +150,9 @@ private:
     int32_t mHeight;
     int32_t mHorStride;
     int32_t mVerStride;
+    // fbc output has padding inside, set crop before display
+    int32_t mLeftCorner;
+    int32_t mTopCorner;
     int32_t mOutputDelay;
     // reduce factor for low memory mode
     int32_t mReduceFactor;
@@ -163,7 +166,6 @@ private:
     bool mSignalledInputEos;
     bool mOutputEos;
     bool mSignalledError;
-    bool mLowLatencyMode;
     bool mIsGBSource;
     bool mHdrMetaEnabled;
     bool mTunneled;
@@ -182,13 +184,6 @@ private:
         int64_t usage;
         int32_t format;
     } mAllocParams;
-
-    struct FbcConfig {
-        int32_t mode;
-        // fbc decode output padding
-        int32_t paddingX;
-        int32_t paddingY;
-    } mFbcCfg;
 
     struct ScaleThumbInfo {
         int32_t width;
