@@ -24,34 +24,34 @@
 #include "C2RKTunneledSession.h"
 
 
-#define C2_TUNNELED_RESEVED_SIZE    3
+#define C2_TUNNELED_RESERVED_COUNT    3
 
 
 namespace android {
 
-typedef int32_t OpenTunnelFunc();
-typedef int32_t CloseTunnelFunc(int32_t fd);
-typedef int32_t AllocTunnelIdFunc(int32_t fd, int32_t *id);
-typedef int32_t FreeTunnelIdFunc(int32_t fd, int32_t id);
-typedef int32_t ResetTunnelFunc(int32_t fd, int32_t id);
-typedef int32_t ConnectTunnelFunc(int32_t fd, int32_t id, int32_t role);
-typedef int32_t DisconnectTunnelFunc(int32_t fd, int32_t id, int32_t role);
+typedef int OpenTunnelFunc();
+typedef int CloseTunnelFunc(int32_t fd);
+typedef int AllocTunnelIdFunc(int32_t fd, int32_t *id);
+typedef int FreeTunnelIdFunc(int32_t fd, int32_t id);
+typedef int ResetTunnelFunc(int32_t fd, int32_t id);
+typedef int ConnectTunnelFunc(int32_t fd, int32_t id, int32_t role);
+typedef int DisconnectTunnelFunc(int32_t fd, int32_t id, int32_t role);
 
-typedef int32_t DequeueBufferFunc(int32_t fd, int32_t id, int32_t timeout, VTBuffer_t **buffer);
-typedef int32_t QueueBufferFunc(int32_t fd, int32_t id, VTBuffer_t *buffer, int64_t presentTime);
-typedef int32_t CancelBufferFunc(int32_t fd, int32_t id, VTBuffer_t *buffer);
+typedef int DequeueBufferFunc(int32_t fd, int32_t id, int32_t timeout, VTBuffer_t **buffer);
+typedef int QueueBufferFunc(int32_t fd, int32_t id, VTBuffer_t *buffer, int64_t presentTime);
+typedef int CancelBufferFunc(int32_t fd, int32_t id, VTBuffer_t *buffer);
 
-typedef int32_t FreeVtBufferFunc(VTBuffer_t **buffer);
+typedef int FreeVtBufferFunc(VTBuffer_t **buffer);
 typedef VTBuffer_t* MallocVtBufferFunc();
 
-class VTunnelImpl {
+class C2RKTunneledSession::Impl {
 public:
-    VTunnelImpl() {
+    Impl() {
         mDevFd = 0;
         mTunnelId = 0;
     }
 
-    ~VTunnelImpl() {
+    ~Impl() {
         closeConnection();
     }
 
@@ -127,33 +127,29 @@ public:
         mTunnelId = 0;
     }
 
-    void reset() {
-        if (mDevFd > 0) {
-             mResetFunc(mDevFd, mTunnelId);
-        }
+    bool reset() {
+        return (mResetFunc(mDevFd, mTunnelId) == 0);
     }
 
     bool dequeueBuffer(VTBuffer_t **buffer, int timeout) {
-        int32_t err = mDequeueBufferFunc(mDevFd, mTunnelId, timeout, buffer);
-        return (err == 0) ? true : false;
+        return (mDequeueBufferFunc(mDevFd, mTunnelId, timeout, buffer) == 0);
     }
 
     bool queueBuffer(VTBuffer_t *buffer, int64_t presentTime) {
-        int32_t err = mQueueBufferFunc(mDevFd, mTunnelId, buffer, presentTime);
-        return (err == 0) ? true : false;
+        return (mQueueBufferFunc(mDevFd, mTunnelId, buffer, presentTime) == 0);
     }
 
     bool cancelBuffer(VTBuffer_t *buffer) {
-        int32_t err = mCancelBufferFunc(mDevFd, mTunnelId, buffer);
-        return (err == 0) ? true : false;
+        return (mCancelBufferFunc(mDevFd, mTunnelId, buffer) == 0);
     }
 
-    void allocVTBuffer(VTBuffer_t **buffer) {
+    bool allocBuffer(VTBuffer_t **buffer) {
         (*buffer) = mMallocVTBufferFunc();
+        return ((*buffer) != nullptr);
     }
 
-    void freeVTBuffer(VTBuffer_t *buffer) {
-        mFreeVTBufferFunc(&buffer);
+    bool freeBuffer(VTBuffer_t *buffer) {
+        return (mFreeVTBufferFunc(&buffer) == 0);
     }
 
 private:
@@ -178,18 +174,15 @@ private:
 };
 
 C2RKTunneledSession::C2RKTunneledSession() {
-    mImpl = new VTunnelImpl();
+    mImpl = std::make_shared<Impl>();
 
     mTunnelId = 0;
-    mNeedReservedCnt = C2_TUNNELED_RESEVED_SIZE;
+    mNeedDequeueCnt = 0;
+    mNeedReservedCnt = C2_TUNNELED_RESERVED_COUNT;
 }
 
 C2RKTunneledSession::~C2RKTunneledSession() {
-    if (mImpl) {
-        mImpl->closeConnection();
-        delete mImpl;
-        mImpl = nullptr;
-    }
+    this->disconnect();
 }
 
 bool C2RKTunneledSession::configure(TunnelParams_t params) {
@@ -229,6 +222,7 @@ bool C2RKTunneledSession::configure(TunnelParams_t params) {
 }
 
 bool C2RKTunneledSession::disconnect() {
+    c2_trace_func_enter();
     this->reset();
     mImpl->closeConnection();
     return true;
@@ -238,65 +232,98 @@ bool C2RKTunneledSession::reset() {
     c2_trace_func_enter();
     mImpl->reset();
 
-    while (!mVTBuffers.isEmpty()) {
-        VTBuffer_t *buffer = mVTBuffers.editItemAt(0);
-        if (buffer != nullptr) {
-            freeVTBuffer(buffer);
+    auto it = mBuffers.begin();
+    if (it != mBuffers.end()) {
+        if (!freeBuffer(it->first)) {
+            // TODO buffer->handle release ?
+            c2_err("reset: failed to free buffer %d", it->first);
         }
-        mVTBuffers.removeAt(0);
+        it = mBuffers.erase(it);
     }
 
-    mNeedReservedCnt = C2_TUNNELED_RESEVED_SIZE;
+    mNeedDequeueCnt = 0;
+    mNeedReservedCnt = C2_TUNNELED_RESERVED_COUNT;
+
     return true;
 }
 
-bool C2RKTunneledSession::needReservedBuffer() {
-    return (mNeedReservedCnt > 0);
-}
-
-bool C2RKTunneledSession::dequeueBuffer(VTBuffer_t **buffer, int32_t timeout) {
-    mImpl->dequeueBuffer(buffer, timeout);
-    if (*buffer) {
-        c2_trace("dequeue buffer %p", (*buffer));
-        (*buffer)->state = RKVT_STATE_DEQUEUED;
+bool C2RKTunneledSession::dequeueBuffer(int32_t *bufferId) {
+    VTBuffer *buffer = nullptr;
+    mImpl->dequeueBuffer(&buffer, 0);
+    if (buffer) {
+        c2_trace("dequeue buffer %d", buffer->uniqueId);
+        buffer->state = RKVT_STATE_DEQUEUED;
+        (*bufferId) = buffer->uniqueId;
+        mNeedDequeueCnt -= 1;
         return true;
     }
     return false;
 }
 
-bool C2RKTunneledSession::renderBuffer(VTBuffer_t *buffer, int64_t presentTime) {
-    if (mImpl->queueBuffer(buffer, presentTime)) {
-        c2_trace("render buffer %p", buffer);
+bool C2RKTunneledSession::renderBuffer(int32_t bufferId, int64_t presentTime) {
+    VTBuffer *buffer = findBuffer(bufferId);
+    if (buffer && mImpl->queueBuffer(buffer, presentTime)) {
+        c2_trace("render buffer %d", bufferId);
         buffer->state = RKVT_STATE_QUEUED;
+        mNeedDequeueCnt += 1;
         return true;
     }
     return false;
 }
 
-bool C2RKTunneledSession::cancelBuffer(VTBuffer_t *buffer) {
-    if (mImpl->cancelBuffer(buffer)) {
-        c2_trace("reseved buffer %p", buffer);
+bool C2RKTunneledSession::cancelBuffer(int32_t bufferId) {
+    VTBuffer *buffer = findBuffer(bufferId);
+    if (buffer && mImpl->cancelBuffer(buffer)) {
+        c2_trace("reseved buffer %d", bufferId);
         mNeedReservedCnt -= 1;
-        buffer->state = RKVT_STATE_QUEUED;
+        buffer->state = RKVT_STATE_RESERVED;
         return true;
     }
     return false;
 }
 
-void C2RKTunneledSession::newVTBuffer(VTBuffer_t **buffer) {
-    mImpl->allocVTBuffer(buffer);
-    if (*buffer) {
-        c2_trace("alloc buffer %p", (*buffer));
-        (*buffer)->state = (mNeedReservedCnt > 0) ? RKVT_STATE_RESERVED : RTVT_STATE_NEW;
-        (*buffer)->crop = mSideband.crop;
-
-        mVTBuffers.push((*buffer));
+bool C2RKTunneledSession::isReservedBuffer(int32_t bufferId) {
+    VTBuffer *buffer = findBuffer(bufferId);
+    if (buffer) {
+        return (buffer->state == RKVT_STATE_RESERVED);
     }
+    return false;
 }
 
-void C2RKTunneledSession::freeVTBuffer(VTBuffer_t *buffer) {
-    c2_trace("free buffer %p", buffer);
-    mImpl->freeVTBuffer(buffer);
+bool C2RKTunneledSession::newBuffer(native_handle_t *handle, int32_t bufferId) {
+    VTBuffer *buffer = nullptr;
+    mImpl->allocBuffer(&buffer);
+    if (buffer) {
+        c2_trace("alloc buffer %d", bufferId);
+        buffer->handle   = handle;
+        buffer->uniqueId = bufferId;
+        buffer->crop     = mSideband.crop;
+        buffer->state    = RTVT_STATE_NEW;
+
+        mBuffers.insert(std::make_pair(bufferId, buffer));
+
+        if (mNeedReservedCnt > 0) {
+            cancelBuffer(bufferId);
+        }
+    }
+    return (buffer != nullptr);
+}
+
+bool C2RKTunneledSession::freeBuffer(int32_t bufferId) {
+    VTBuffer *buffer = findBuffer(bufferId);
+    if (buffer && mImpl->freeBuffer(buffer)) {
+        c2_trace("free buffer %d", bufferId);
+        return true;
+    }
+    return false;
+}
+
+VTBuffer* C2RKTunneledSession::findBuffer(int32_t bufferId) {
+    auto it = mBuffers.find(bufferId);
+    if (it != mBuffers.end()) {
+        return it->second;
+    }
+    return nullptr;
 }
 
 void* C2RKTunneledSession::getTunnelSideband() {
@@ -304,20 +331,11 @@ void* C2RKTunneledSession::getTunnelSideband() {
 }
 
 int32_t C2RKTunneledSession::getNeedDequeueCnt() {
-    int32_t count = 0;
-
-    for (int32_t i = 0; i < mVTBuffers.size(); i++) {
-        VTBuffer_t *buffer = mVTBuffers.editItemAt(i);
-        if (buffer->state == RKVT_STATE_QUEUED) {
-            count++;
-        }
-    }
-
-    return (count - C2_TUNNELED_RESEVED_SIZE);
+    return mNeedDequeueCnt;
 }
 
 int32_t C2RKTunneledSession::getSmoothnessFactor() {
-    return C2_TUNNELED_RESEVED_SIZE;
+    return C2_TUNNELED_RESERVED_COUNT;
 }
 
 }

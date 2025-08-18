@@ -19,11 +19,9 @@
 
 #include <stdint.h>
 #include <cutils/native_handle.h>
-#include <utils/Vector.h>
+#include <map>
 
 namespace android {
-
-class VTunnelImpl;
 
 typedef enum VTRole {
     RKVT_ROLE_PRODUCER,
@@ -109,24 +107,31 @@ public:
     bool disconnect();
     bool reset();
 
-    bool needReservedBuffer();
-    bool dequeueBuffer(VTBuffer_t **buffer, int32_t timeout = 0);
-    bool renderBuffer(VTBuffer_t *buffer, int64_t presentTime = 0);
-    bool cancelBuffer(VTBuffer_t *buffer);
+    bool dequeueBuffer(int32_t *bufferId);
+    bool renderBuffer(int32_t bufferId, int64_t presentTime = 0);
+    bool cancelBuffer(int32_t bufferId);
 
-    void newVTBuffer(VTBuffer_t **buffer);
-    void freeVTBuffer(VTBuffer_t *buffer);
+    bool isReservedBuffer(int32_t bufferId);
+    bool newBuffer(native_handle_t *handle, int32_t bufferId);
+    bool freeBuffer(int32_t bufferId);
 
-    void *  getTunnelSideband();
+    void*   getTunnelSideband();
     int32_t getNeedDequeueCnt();
     int32_t getSmoothnessFactor();
 
 private:
-    VTunnelImpl        *mImpl;
-    SidebandHandler     mSideband;
-    Vector<VTBuffer_t*> mVTBuffers;
-    int32_t             mTunnelId;
-    int32_t             mNeedReservedCnt;
+    int32_t mTunnelId;
+    int32_t mNeedDequeueCnt;
+    int32_t mNeedReservedCnt;
+
+    SidebandHandler mSideband;
+
+    class Impl;
+    std::shared_ptr<Impl> mImpl;
+
+    std::map<int32_t, VTBuffer_t*> mBuffers;
+
+    VTBuffer* findBuffer(int32_t bufferId);
 };
 
 }

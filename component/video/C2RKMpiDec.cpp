@@ -762,18 +762,28 @@ void C2RKMpiDec::WorkHandler::onMessageReceived(const sp<AMessage> &msg) {
     }
 }
 
-void C2RKMpiDec::OutBuffer::importThisBuffer() {
-    if (mMppBuffer) {
-        mpp_buffer_put(mMppBuffer);
-    }
-    mStatus = OWNED_BY_MPP;
+bool C2RKMpiDec::OutBuffer::ownedByDecoder() {
+    return mOwnedByDecoder;
 }
 
-void C2RKMpiDec::OutBuffer::holdThisBuffer() {
-    if (mMppBuffer) {
-        mpp_buffer_inc_ref(mMppBuffer);
+void C2RKMpiDec::OutBuffer::submitToDecoder() {
+    if (!mOwnedByDecoder) {
+        mpp_buffer_put(mMppBuffer);
+        mOwnedByDecoder = true;
+    } else {
+        c2_warn("submitToDecoder - invalid operation "
+                "(the index %d is already owned by decoder)", mBufferId);
     }
-    mStatus = OWNED_BY_US;
+}
+
+void C2RKMpiDec::OutBuffer::setInusedByClient() {
+    if (mOwnedByDecoder) {
+        mpp_buffer_inc_ref(mMppBuffer);
+        mOwnedByDecoder = false;
+    } else {
+        c2_warn("setInusedByClient - invalid operation "
+                "(the index %d is not owned by decoder)", mBufferId);
+    }
 }
 
 C2RKMpiDec::C2RKMpiDec(
@@ -785,33 +795,32 @@ C2RKMpiDec::C2RKMpiDec(
       mName(name),
       mMime(mime),
       mIntf(intfImpl),
-      mDump(new C2RKDump),
+      mDumper(std::make_shared<C2RKDump>()),
+      mTunneledSession(nullptr),
       mLooper(nullptr),
       mHandler(nullptr),
       mMppCtx(nullptr),
       mMppMpi(nullptr),
       mCodingType(MPP_VIDEO_CodingUnused),
       mColorFormat(MPP_FMT_YUV420SP),
-      mFrmGrp(nullptr),
-      mTunneledSession(nullptr),
+      mBufferGroup(nullptr),
       mWidth(0),
       mHeight(0),
       mHorStride(0),
       mVerStride(0),
       mLeftCorner(0),
       mTopCorner(0),
-      mOutputDelay(0),
-      mReduceFactor(0),
-      mGrallocVersion(C2RKChipCapDef::get()->getGrallocVersion()),
+      mNumOutputSlots(0),
+      mSlotsToReduce(0),
       mPixelFormat(0),
       mScaleMode(0),
       mFdPerf(-1),
       mStarted(false),
       mFlushed(true),
-      mSignalledInputEos(false),
-      mOutputEos(false),
+      mInputEOS(false),
+      mOutputEOS(false),
       mSignalledError(false),
-      mIsGBSource(false),
+      mGraphicSourceMode(false),
       mHdrMetaEnabled(false),
       mTunneled(false),
       mBufferMode(false),
@@ -898,9 +907,9 @@ void C2RKMpiDec::onRelease() {
         mOutBlock.reset();
     }
 
-    if (mFrmGrp != nullptr) {
-        mpp_buffer_group_put(mFrmGrp);
-        mFrmGrp = nullptr;
+    if (mBufferGroup != nullptr) {
+        mpp_buffer_group_put(mBufferGroup);
+        mBufferGroup = nullptr;
     }
 
     if (mMppCtx) {
@@ -908,15 +917,8 @@ void C2RKMpiDec::onRelease() {
         mMppCtx = nullptr;
     }
 
-    if (mDump != nullptr) {
-        delete mDump;
-        mDump = nullptr;
-    }
-
     if (mTunneled) {
         mTunneledSession->disconnect();
-        delete mTunneledSession;
-        mTunneledSession = nullptr;
     }
 
     stopFlushingState();
@@ -928,8 +930,8 @@ void C2RKMpiDec::onRelease() {
 c2_status_t C2RKMpiDec::onFlush_sm() {
     if (!mFlushed) {
         c2_log_func_enter();
-        mSignalledInputEos = false;
-        mOutputEos = false;
+        mInputEOS = false;
+        mOutputEOS = false;
         mSignalledError = false;
 
         if (mMppMpi) {
@@ -941,12 +943,8 @@ c2_status_t C2RKMpiDec::onFlush_sm() {
         }
 
         Mutex::Autolock autoLock(mBufferLock);
-        clearOutBuffers();
-        mpp_buffer_group_clear(mFrmGrp);
 
-        if (mOutBlock) {
-            mOutBlock.reset();
-        }
+        releaseAllBuffers();
 
         mFlushed = true;
     }
@@ -984,7 +982,7 @@ void C2RKMpiDec::stopAndReleaseLooper() {
 int32_t C2RKMpiDec::getFbcOutputMode(const std::unique_ptr<C2Work> &work) {
     int32_t fbcMode = C2RKChipCapDef::get()->getFbcOutputMode(mCodingType);
 
-    if (!fbcMode || mIsGBSource || mBufferMode) {
+    if (!fbcMode || mGraphicSourceMode || mBufferMode) {
         return 0;
     }
 
@@ -1031,7 +1029,7 @@ int32_t C2RKMpiDec::getFbcOutputMode(const std::unique_ptr<C2Work> &work) {
     return fbcMode;
 }
 
-c2_status_t C2RKMpiDec::updateSurfaceConfig(const std::shared_ptr<C2BlockPool> &pool) {
+c2_status_t C2RKMpiDec::getSurfaceFeatures(const std::shared_ptr<C2BlockPool> &pool) {
     c2_status_t err = C2_OK;
     std::shared_ptr<C2GraphicBlock> block;
 
@@ -1055,7 +1053,7 @@ c2_status_t C2RKMpiDec::updateSurfaceConfig(const std::shared_ptr<C2BlockPool> &
 
     uint64_t usage = C2RKGrallocOps::get()->getUsage(handle);
     if (usage & GRALLOC_USAGE_HW_VIDEO_ENCODER) {
-        mIsGBSource = true;
+        mGraphicSourceMode = true;
         updateFbcModeIfNeeded();
     }
 
@@ -1123,10 +1121,8 @@ cleanUp:
 }
 
 c2_status_t C2RKMpiDec::checkUseScaleDown(buffer_handle_t handle) {
-    c2_status_t err = C2_OK;
-    MPP_RET ret = MPP_OK;
+    MPP_RET err = MPP_OK;
     MppDecCfg cfg = nullptr;
-    MppFrame frame  = nullptr;
     (void)handle;
 
     // enable scale dec only in 8k
@@ -1138,55 +1134,29 @@ c2_status_t C2RKMpiDec::checkUseScaleDown(buffer_handle_t handle) {
 
     mMppMpi->control(mMppCtx, MPP_DEC_GET_CFG, cfg);
     mpp_dec_cfg_set_u32(cfg, "base:enable_thumbnail", C2_SCALE_MODE_DOWN_SCALE);
-    ret = mMppMpi->control(mMppCtx, MPP_DEC_SET_CFG, cfg);
-    if (ret != MPP_OK) {
+    err = mMppMpi->control(mMppCtx, MPP_DEC_SET_CFG, cfg);
+    if (err != MPP_OK) {
         c2_warn("failed to set scale down mode");
         goto cleanUp;
     }
 
+    mScaleMode = C2_SCALE_MODE_DOWN_SCALE;
+
     c2_info("enable scale down mode");
 
-    // In down-scaling mode, it is necessary to update surface info using
-    // down-scaling config, so request thumbnail info from decoder first.
-    mpp_frame_init(&frame);
-    mpp_frame_set_width(frame, mWidth);
-    mpp_frame_set_height(frame, mHeight);
-    mpp_frame_set_hor_stride(frame, mHorStride);
-    mpp_frame_set_ver_stride(frame, mVerStride);
-    mpp_frame_set_fmt(frame, mColorFormat);
-
-    ret = mMppMpi->control(mMppCtx, MPP_DEC_GET_THUMBNAIL_FRAME_INFO, (MppParam)frame);
-    if (ret != MPP_OK) {
-        c2_err("failed to get down-scaling thumnail info, err %d", ret);
-        goto cleanUp;
-    }
-
-    mScaleInfo.width   = mpp_frame_get_width(frame);
-    mScaleInfo.height  = mpp_frame_get_height(frame);
-    mScaleInfo.hstride = mpp_frame_get_hor_stride(frame);
-    mScaleInfo.vstride = mpp_frame_get_ver_stride(frame);
-    mScaleInfo.format  = mpp_frame_get_fmt(frame);
-    mScaleMode = C2_SCALE_MODE_DOWN_SCALE;
-    c2_info("update down-scaling config: w %d h %d hor %d ver %d fmt %x",
-            mScaleInfo.width, mScaleInfo.height, mScaleInfo.hstride,
-            mScaleInfo.vstride, mScaleInfo.format);
-
 cleanUp:
-    if (frame != nullptr) {
-        mpp_frame_deinit(&frame);
-    }
     if (cfg != nullptr) {
         mpp_dec_cfg_deinit(cfg);
     }
 
-    return err;
+    return C2_OK;
 }
 
 c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
     c2_status_t err = C2_OK;
     uint32_t width = 0, height = 0, level = 0;
-    uint32_t protocolRefCnt = 0;
-    uint32_t refCnt = 0;
+    uint32_t dpbBasedRefCnt, protocolRefCnt = 0;
+    uint32_t numOutputSlots = 0;
 
     int32_t lowMemoryMode = 0;
 
@@ -1201,7 +1171,8 @@ c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
         }
     }
 
-    refCnt = C2RKMediaUtils::calculateVideoRefCount(mCodingType, width, height, level);
+    numOutputSlots = dpbBasedRefCnt =
+            C2RKMediaUtils::calculateVideoRefCount(mCodingType, width, height, level);
 
     if (work != nullptr) {
         C2ReadView rView = mDummyReadView;
@@ -1210,21 +1181,21 @@ c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
             protocolRefCnt = C2RKNaluParser::detectMaxRefCount(
                     const_cast<uint8_t *>(rView.data()), rView.capacity(), mCodingType);
             if ((lowMemoryMode & LowMemoryMode::MODE_USE_PROTOCOL_REF)
-                    && protocolRefCnt > 0 && protocolRefCnt < refCnt) {
-                refCnt = protocolRefCnt;
+                    && protocolRefCnt > 0 && protocolRefCnt < dpbBasedRefCnt) {
+                numOutputSlots = protocolRefCnt;
             } else {
-                refCnt = C2_MAX(refCnt, protocolRefCnt);
+                numOutputSlots = C2_MAX(dpbBasedRefCnt, protocolRefCnt);
             }
         }
     }
 
     // TODO: Codec2 sfplugin only accepts growing output slots
-    if (refCnt != mOutputDelay) {
-        uint32_t reduceFactor = 0;
+    if (numOutputSlots > mNumOutputSlots) {
+        uint32_t slotsToReduce = 0;
         std::vector<std::unique_ptr<C2SettingResult>> failures;
 
-        c2_info("Codec(%s %dx%d) get %d reference frames from %s",
-                toStr_Coding(mCodingType), width, height, refCnt,
+        c2_info("Codec(%s %dx%d) requires %d output slots based on %s",
+                toStr_Coding(mCodingType), width, height, numOutputSlots,
                 (protocolRefCnt) ? "protocol" : "levelInfo");
 
         /*
@@ -1233,20 +1204,20 @@ c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
          * equivalent to occupying 4 buffer blocks of the framework.
          */
         if (lowMemoryMode & LowMemoryMode::MODE_REDUCE_SMOOTH) {
-            reduceFactor = C2_MIN(refCnt, 4);
+            slotsToReduce = C2_MIN(numOutputSlots, 4);
         }
 
-        C2PortActualDelayTuning::output delayTuning(refCnt - reduceFactor);
-        err = mIntf->config({&delayTuning}, C2_MAY_BLOCK, &failures);
+        C2PortActualDelayTuning::output delay(numOutputSlots - slotsToReduce);
+        err = mIntf->config({&delay}, C2_MAY_BLOCK, &failures);
         if (err != C2_OK) {
             c2_err("failed to config delay tuning, err %d", err);
         } else if (work != nullptr) {
             // update outputDelay config to framework
-            work->worklets.front()->output.configUpdate.push_back(C2Param::Copy(delayTuning));
-        }
+            work->worklets.front()->output.configUpdate.push_back(C2Param::Copy(delay));
 
-        mOutputDelay = refCnt;
-        mReduceFactor = reduceFactor;
+            mSlotsToReduce  = slotsToReduce;
+            mNumOutputSlots = numOutputSlots;
+        }
     }
 
     return err;
@@ -1254,7 +1225,7 @@ c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
 
 c2_status_t C2RKMpiDec::configTunneledPlayback(const std::unique_ptr<C2Work> &work) {
     if (!mTunneledSession) {
-        mTunneledSession = new C2RKTunneledSession;
+        mTunneledSession = std::make_shared<C2RKTunneledSession>();
     }
 
     c2_status_t err = C2_OK;
@@ -1360,12 +1331,165 @@ c2_status_t C2RKMpiDec::updateDecoderArgs(const std::shared_ptr<C2BlockPool> &po
     if (needsUpdate) {
         err = updateMppFrameInfo(getFbcOutputMode());
         if (err == C2_OK) {
-            mUseRgaBlit = true;
-            mAllocParams.needUpdate = true;
+            // update alloc params once args updated
+            err = updateAllocParams();
         }
     }
 
     return err;
+}
+
+c2_status_t C2RKMpiDec::updateAllocParams() {
+    int32_t allocWidth  = 0;
+    int32_t allocHeight = 0;
+    int32_t allocFormat = 0;
+    int64_t allocUsage  = RK_GRALLOC_USAGE_SPECIFY_STRIDE;
+
+    int32_t videoWidth  = mWidth;
+    int32_t videoHeight = mHeight;
+    int32_t frameWidth  = mHorStride;
+    int32_t frameHeight = mVerStride;
+    int32_t colorFormat = mColorFormat;
+
+    if (mScaleMode == C2_SCALE_MODE_DOWN_SCALE) {
+        MppFrame frame  = nullptr;
+
+        // In down-scaling mode, update surface info using down-scaling config
+        mpp_frame_init(&frame);
+        mpp_frame_set_width(frame, mWidth);
+        mpp_frame_set_height(frame, mHeight);
+        mpp_frame_set_hor_stride(frame, mHorStride);
+        mpp_frame_set_ver_stride(frame, mVerStride);
+        mpp_frame_set_fmt(frame, mColorFormat);
+
+        mMppMpi->control(mMppCtx, MPP_DEC_GET_THUMBNAIL_FRAME_INFO, (MppParam)frame);
+
+        videoWidth  = mpp_frame_get_width(frame);
+        videoHeight = mpp_frame_get_height(frame);
+        frameWidth  = mpp_frame_get_hor_stride(frame);
+        frameHeight = mpp_frame_get_ver_stride(frame);
+        colorFormat = mpp_frame_get_fmt(frame);
+
+        c2_info("using down-scaling alloc params: w %d h %d hor %d ver %d fmt %x",
+                videoWidth, videoHeight, frameWidth, frameHeight, colorFormat);
+
+        mpp_frame_deinit(&frame);
+    }
+
+    allocWidth  = frameWidth;
+    allocHeight = frameHeight;
+    allocFormat = C2RKMediaUtils::getHalPixerFormat(colorFormat);
+
+    if (MPP_FRAME_FMT_IS_FBC(colorFormat)) {
+        // NOTE: FBC case may have offset y on top and vertical stride
+        // should aligned to 16.
+        allocHeight = C2_ALIGN(frameHeight + mTopCorner, 16);
+
+        // In fbc 10bit mode, surfaceCB treat width as pixel stride.
+        if (allocFormat == HAL_PIXEL_FORMAT_YUV420_10BIT_I ||
+            allocFormat == HAL_PIXEL_FORMAT_Y210 ||
+            allocFormat == HAL_PIXEL_FORMAT_YUV420_10BIT_RFBC ||
+            allocFormat == HAL_PIXEL_FORMAT_YUV422_10BIT_RFBC ||
+            allocFormat == HAL_PIXEL_FORMAT_YUV444_10BIT_RFBC) {
+            allocWidth = C2_ALIGN(videoWidth, 64);
+        }
+    } else {
+        int32_t grallocVersion = C2RKChipCapDef::get()->getGrallocVersion();
+
+        // NOTE: private gralloc stride usage only support in 4.0.
+        // Update use stride usage if we are able config available stride.
+        if (grallocVersion == 4 && !mGraphicSourceMode) {
+            uint64_t horUsage = 0, verUsage = 0;
+
+            // 10bit video calculate stride base on (width * 10 / 8)
+            if (MPP_FRAME_FMT_IS_YUV_10BIT(colorFormat)) {
+                horUsage = C2RKMediaUtils::getStrideUsage(videoWidth * 10 / 8, frameWidth);
+            } else {
+                horUsage = C2RKMediaUtils::getStrideUsage(videoWidth, frameWidth);
+            }
+            verUsage = C2RKMediaUtils::getHStrideUsage(videoHeight, frameHeight);
+
+            if (horUsage > 0 && verUsage > 0) {
+                allocWidth  = videoWidth;
+                allocHeight = videoHeight;
+                allocUsage &= ~RK_GRALLOC_USAGE_SPECIFY_STRIDE;
+                allocUsage |= (horUsage | verUsage);
+                c2_info("update use stride usage 0x%llx", allocUsage);
+            }
+        } else if (mCodingType == MPP_VIDEO_CodingVP9 && grallocVersion < 4) {
+            allocWidth = C2_ALIGN_ODD(videoWidth, 256);
+        }
+    }
+
+    {
+        IntfImpl::Lock lock = mIntf->lock();
+        std::shared_ptr<C2StreamColorAspectsTuning::output> colorAspects
+                = mIntf->getDefaultColorAspects_l();
+
+        switch (colorAspects->primaries) {
+            case C2Color::PRIMARIES_BT601_525:
+                allocUsage |= MALI_GRALLOC_USAGE_YUV_COLOR_SPACE_BT601;
+                break;
+            case C2Color::PRIMARIES_BT709:
+                allocUsage |= MALI_GRALLOC_USAGE_YUV_COLOR_SPACE_BT709;
+                break;
+            default:
+                break;
+        }
+        switch (colorAspects->range) {
+            case C2Color::RANGE_FULL:
+                allocUsage |= MALI_GRALLOC_USAGE_RANGE_WIDE;
+                break;
+            default:
+                allocUsage |= MALI_GRALLOC_USAGE_RANGE_NARROW;
+                break;
+        }
+    }
+
+    // only large than gralloc 4 can support int64 usage.
+    // otherwise, gralloc 3 will check high 32bit is empty,
+    // if not empty, will alloc buffer failed and return
+    // error. So we need clear high 32 bit.
+    if (C2RKChipCapDef::get()->getGrallocVersion() < 4) {
+        allocUsage &= 0xffffffff;
+    }
+
+#ifdef GRALLOC_USAGE_DYNAMIC_HDR
+    if (mHdrMetaEnabled) {
+        allocUsage |= GRALLOC_USAGE_DYNAMIC_HDR;
+    }
+#endif
+
+    if (mScaleMode == C2_SCALE_MODE_META) {
+        allocUsage |= GRALLOC_USAGE_RKVDEC_SCALING;
+    }
+
+    if (!mBufferMode) {
+        // For 3288 and 3399, Setting buffer with cache can reduce the time
+        // required for SurfaceFlinger_NV12-10bit to 16bit conversion
+        if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_3399 ||
+            C2RKChipCapDef::get()->getChipType() == RK_CHIP_3288) {
+            allocUsage |= kCpuReadWriteUsage;
+        }
+
+        // For rk356x, RGA rotation and scaling maybe used for render, so
+        // allocate output buffer within 4G to avoid rga2 error.
+        if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_356X) {
+            allocUsage |= RK_GRALLOC_USAGE_WITHIN_4G;
+        }
+    }
+
+    mAllocParams.width  = allocWidth;
+    mAllocParams.height = allocHeight;
+    mAllocParams.usage  = allocUsage;
+    mAllocParams.format = allocFormat;
+
+    mUseRgaBlit = true;
+
+    c2_trace("update alloc attrs, width %d height %d usage %lld format %d",
+              allocWidth, allocHeight, allocUsage, allocFormat);
+
+    return C2_OK;
 }
 
 c2_status_t C2RKMpiDec::updateMppFrameInfo(int32_t fbcMode) {
@@ -1434,13 +1558,14 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
     }
 
     {
+        IntfImpl::Lock lock = mIntf->lock();
+
         uint32_t fastParse = C2RKChipCapDef::get()->getFastModeSupport(mCodingType);
         mMppMpi->control(mMppCtx, MPP_DEC_SET_PARSER_FAST_MODE, &fastParse);
 
         uint32_t fastPlay = 2; // 0: disable, 1: enable, 2: enable_once
         mMppMpi->control(mMppCtx, MPP_DEC_SET_ENABLE_FAST_PLAY, &fastPlay);
 
-        IntfImpl::Lock lock = mIntf->lock();
         if (mIntf->getIsLowLatencyMode()) {
             uint32_t fastOut = 1;
             mMppMpi->control(mMppCtx, MPP_DEC_SET_IMMEDIATE_OUT, &fastOut);
@@ -1471,13 +1596,13 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
         goto error;
     }
 
-    err = mpp_buffer_group_get_external(&mFrmGrp, MPP_BUFFER_TYPE_ION);
+    err = mpp_buffer_group_get_external(&mBufferGroup, MPP_BUFFER_TYPE_ION);
     if (err != MPP_OK) {
         c2_err("failed to get buffer_group, err %d", err);
         goto error;
     }
 
-    err = mMppMpi->control(mMppCtx, MPP_DEC_SET_EXT_BUF_GROUP, mFrmGrp);
+    err = mMppMpi->control(mMppCtx, MPP_DEC_SET_EXT_BUF_GROUP, mBufferGroup);
     if (err != MPP_OK) {
         c2_err("failed to set buffer group, err %d", err);
         goto error;
@@ -1510,7 +1635,7 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
     c2_info("init: w %d h %d coding %s", mWidth, mHeight, toStr_Coding(mCodingType));
     c2_info("init: hor %d ver %d color 0x%08x", mHorStride, mVerStride, mColorFormat);
 
-    mDump->initDump(mHorStride, mVerStride, false);
+    mDumper->initDump(mHorStride, mVerStride, false);
 
     return C2_OK;
 
@@ -1545,7 +1670,7 @@ void C2RKMpiDec::setMppPerformance(bool on) {
     if (-1 == mFdPerf) {
         mFdPerf = open("/sys/class/devfreq/dmc/system_status", O_WRONLY);
         if (mFdPerf == -1) {
-            c2_err("failed to open /sys/class/devfreq/dmc/system_status");
+            c2_warn("failed to open /sys/class/devfreq/dmc/system_status");
         }
     }
 
@@ -1563,10 +1688,10 @@ void C2RKMpiDec::setMppPerformance(bool on) {
     }
 }
 
-void C2RKMpiDec::finishWork(OutWorkEntry entry) {
+void C2RKMpiDec::finishWork(WorkEntry entry) {
     std::shared_ptr<C2Buffer> c2Buffer = nullptr;
 
-    std::shared_ptr<C2GraphicBlock> outblock = entry.outblock;
+    std::shared_ptr<C2GraphicBlock> block = entry.block;
     uint64_t timestamp = entry.timestamp;
     uint32_t flags = entry.flags;
 
@@ -1575,12 +1700,9 @@ void C2RKMpiDec::finishWork(OutWorkEntry entry) {
         return;
     }
 
-    if (outblock) {
-        uint32_t left = mLeftCorner;
-        uint32_t top  = mTopCorner;
-
+    if (block) {
         c2Buffer = createGraphicBuffer(
-                std::move(outblock), C2Rect(mWidth, mHeight).at(left, top));
+                std::move(block), C2Rect(mWidth, mHeight).at(mLeftCorner, mTopCorner));
 
         if (mCodingType == MPP_VIDEO_CodingAVC ||
             mCodingType == MPP_VIDEO_CodingHEVC ||
@@ -1620,11 +1742,11 @@ void C2RKMpiDec::finishWork(OutWorkEntry entry) {
     work->worklets.clear();
     work->worklets.emplace_back(new C2Worklet);
 
-    if (flags & OutWorkEntry::FLAGS_INFO_CHANGE) {
+    if (flags & WorkEntry::FLAGS_INFO_CHANGE) {
         c2_info("update new size %dx%d config to framework.", mWidth, mHeight);
 
         C2StreamPictureSizeInfo::output size(0u, mWidth, mHeight);
-        C2PortActualDelayTuning::output delay(mOutputDelay - mReduceFactor);
+        C2PortActualDelayTuning::output delay(mNumOutputSlots - mSlotsToReduce);
         work->worklets.front()->output.configUpdate.push_back(C2Param::Copy(size));
         work->worklets.front()->output.configUpdate.push_back(C2Param::Copy(delay));
 
@@ -1640,11 +1762,11 @@ void C2RKMpiDec::finishWork(OutWorkEntry entry) {
 
     finish(work, fillWork);
 
-    if (flags & OutWorkEntry::FLAGS_EOS) {
+    if (flags & WorkEntry::FLAGS_EOS) {
         c2_info("signalling eos");
         Mutex::Autolock autoLock(mEosLock);
         mEosCondition.signal();
-        mOutputEos = true;
+        mOutputEOS = true;
     }
 }
 
@@ -1681,10 +1803,10 @@ void C2RKMpiDec::process(
             c2_info("failed to initialize, signalled Error");
             return;
         }
-        err = updateSurfaceConfig(pool);
+        err = getSurfaceFeatures(pool);
         if (err == C2_OK) {
-            c2_info("surface config: surfaceMode %d graphicSource %d scaleMode %d",
-                    !mBufferMode, mIsGBSource, mScaleMode);
+            c2_info("surface config: bufferMode %d graphicSource %d scaleMode %d",
+                    mBufferMode, mGraphicSourceMode, mScaleMode);
         }
         if (mTunneled) {
             err = configTunneledPlayback(work);
@@ -1702,13 +1824,16 @@ void C2RKMpiDec::process(
             return;
         }
 
+        // update alloc params once args updated
+        updateAllocParams();
+
         // scene ddr frequency control
         setMppPerformance(true);
 
         mStarted = true;
     }
 
-    if (mSignalledInputEos || mSignalledError) {
+    if (mInputEOS || mSignalledError) {
         work->workletsProcessed = 1u;
         work->result = C2_CORRUPTED;
         return;
@@ -1740,7 +1865,6 @@ void C2RKMpiDec::process(
             err = updateDecoderArgs(pool);
             if (err != C2_OK) {
                 mSignalledError = true;
-                work->workletsProcessed = 1u;
                 work->result = C2_CORRUPTED;
                 return;
             }
@@ -1749,7 +1873,6 @@ void C2RKMpiDec::process(
         err = ensureDecoderState();
         if (err != C2_OK) {
             mSignalledError = true;
-            work->workletsProcessed = 1u;
             work->result = C2_CORRUPTED;
             return;
         }
@@ -1759,7 +1882,6 @@ void C2RKMpiDec::process(
     if (err != C2_OK) {
         c2_err("failed to send packet, pts %lld", timestamp);
         mSignalledError = true;
-        work->workletsProcessed = 1u;
         work->result = C2_CORRUPTED;
         return;
     }
@@ -1767,10 +1889,10 @@ void C2RKMpiDec::process(
     // fillEmpty for old worklet
     if (flags & C2FrameData::FLAG_END_OF_STREAM) {
         flags = C2FrameData::FLAG_END_OF_STREAM;
-        mSignalledInputEos = true;
+        mInputEOS = true;
         // wait output eos stream
         Mutex::Autolock autoLock(mEosLock);
-        if (!mOutputEos) {
+        if (!mOutputEOS) {
             if (mEosCondition.waitRelative(mEosLock, 2000000000 /* 2s */) != OK) {
                 c2_warn("failed to get output eos within 2 seconds");
             }
@@ -1905,214 +2027,76 @@ c2_status_t C2RKMpiDec::updateFbcModeIfNeeded() {
     return err;
 }
 
-c2_status_t C2RKMpiDec::updateAllocParamsIfNeeded(AllocParams *params) {
-    if (!params->needUpdate) {
-        return C2_OK;
-    }
-
-    int32_t allocWidth  = 0, allocHeight = 0, allocFormat = 0;
-    int64_t allocUsage  = RK_GRALLOC_USAGE_SPECIFY_STRIDE;
-
-    int32_t videoWidth  = mWidth;
-    int32_t videoHeight = mHeight;
-    int32_t frameWidth  = mHorStride;
-    int32_t frameHeight = mVerStride;
-    int32_t colorFormat = mColorFormat;
-
-    if (mScaleMode == C2_SCALE_MODE_DOWN_SCALE) {
-        // update scale thumbnail info in down scale mode
-        videoWidth  = mScaleInfo.width;
-        videoHeight = mScaleInfo.height;
-        frameWidth  = mScaleInfo.hstride;
-        frameHeight = mScaleInfo.vstride;
-        colorFormat = mScaleInfo.format;
-    }
-
-    allocWidth  = frameWidth;
-    allocHeight = frameHeight;
-    allocFormat = C2RKMediaUtils::getHalPixerFormat(colorFormat);
-
-    if (MPP_FRAME_FMT_IS_FBC(colorFormat)) {
-        // NOTE: FBC case may have offset y on top and vertical stride
-        // should aligned to 16.
-        allocHeight = C2_ALIGN(frameHeight + mTopCorner, 16);
-
-        // In fbc 10bit mode, surfaceCB treat width as pixel stride.
-        if (allocFormat == HAL_PIXEL_FORMAT_YUV420_10BIT_I ||
-            allocFormat == HAL_PIXEL_FORMAT_Y210 ||
-            allocFormat == HAL_PIXEL_FORMAT_YUV420_10BIT_RFBC ||
-            allocFormat == HAL_PIXEL_FORMAT_YUV422_10BIT_RFBC ||
-            allocFormat == HAL_PIXEL_FORMAT_YUV444_10BIT_RFBC) {
-            allocWidth = C2_ALIGN(videoWidth, 64);
-        }
-    } else {
-        // NOTE: private gralloc stride usage only support in 4.0.
-        // Update use stride usage if we are able config available stride.
-        if (mGrallocVersion == 4 && !mIsGBSource) {
-            uint64_t horUsage = 0, verUsage = 0;
-
-            // 10bit video calculate stride base on (width * 10 / 8)
-            if (MPP_FRAME_FMT_IS_YUV_10BIT(colorFormat)) {
-                horUsage = C2RKMediaUtils::getStrideUsage(videoWidth * 10 / 8, frameWidth);
-            } else {
-                horUsage = C2RKMediaUtils::getStrideUsage(videoWidth, frameWidth);
-            }
-            verUsage = C2RKMediaUtils::getHStrideUsage(videoHeight, frameHeight);
-
-            if (horUsage > 0 && verUsage > 0) {
-                allocWidth = videoWidth;
-                allocHeight = videoHeight;
-                allocUsage &= ~RK_GRALLOC_USAGE_SPECIFY_STRIDE;
-                allocUsage |= (horUsage | verUsage);
-                c2_info("update use stride usage 0x%llx", allocUsage);
-            }
-        } else if (mCodingType == MPP_VIDEO_CodingVP9 && mGrallocVersion < 4) {
-            allocWidth = C2_ALIGN_ODD(videoWidth, 256);
-        }
-    }
-
-    {
-        IntfImpl::Lock lock = mIntf->lock();
-        std::shared_ptr<C2StreamColorAspectsTuning::output> colorAspects
-                = mIntf->getDefaultColorAspects_l();
-
-        switch (colorAspects->primaries) {
-            case C2Color::PRIMARIES_BT601_525:
-                allocUsage |= MALI_GRALLOC_USAGE_YUV_COLOR_SPACE_BT601;
-                break;
-            case C2Color::PRIMARIES_BT709:
-                allocUsage |= MALI_GRALLOC_USAGE_YUV_COLOR_SPACE_BT709;
-                break;
-            default:
-                break;
-        }
-        switch (colorAspects->range) {
-            case C2Color::RANGE_FULL:
-                allocUsage |= MALI_GRALLOC_USAGE_RANGE_WIDE;
-                break;
-            default:
-                allocUsage |= MALI_GRALLOC_USAGE_RANGE_NARROW;
-                break;
-        }
-    }
-
-    // only large than gralloc 4 can support int64 usage.
-    // otherwise, gralloc 3 will check high 32bit is empty,
-    // if not empty, will alloc buffer failed and return
-    // error. So we need clear high 32 bit.
-    if (mGrallocVersion < 4) {
-        allocUsage &= 0xffffffff;
-    }
-
-#ifdef GRALLOC_USAGE_DYNAMIC_HDR
-    if (mHdrMetaEnabled) {
-        allocUsage |= GRALLOC_USAGE_DYNAMIC_HDR;
-    }
-#endif
-
-    if (mScaleMode == C2_SCALE_MODE_META) {
-        allocUsage |= GRALLOC_USAGE_RKVDEC_SCALING;
-    }
-
-    if (!mBufferMode) {
-        // For 3288 and 3399, Setting buffer with cache can reduce the time
-        // required for SurfaceFlinger_NV12-10bit to 16bit conversion
-        if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_3399 ||
-            C2RKChipCapDef::get()->getChipType() == RK_CHIP_3288) {
-            allocUsage |= kCpuReadWriteUsage;
-        }
-
-        // For rk356x, RGA rotation and scaling maybe used for render, so
-        // allocate output buffer within 4G to avoid rga2 error.
-        if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_356X) {
-            allocUsage |= RK_GRALLOC_USAGE_WITHIN_4G;
-        }
-    }
-
-    params->width  = allocWidth;
-    params->height = allocHeight;
-    params->usage  = allocUsage;
-    params->format = allocFormat;
-    params->needUpdate = false;
-
-    return C2_OK;
-}
-
-c2_status_t C2RKMpiDec::importBufferToMpp(std::shared_ptr<C2GraphicBlock> block) {
-    if (!block) {
-        c2_err("null block import error");
-        return C2_CORRUPTED;
-    }
-
+c2_status_t C2RKMpiDec::importBufferToDecoder(std::shared_ptr<C2GraphicBlock> block) {
     c2_status_t err = C2_OK;
     auto c2Handle = block->handle();
-    uint32_t fd = c2Handle->data[0];
+    int32_t fd = c2Handle->data[0];
     buffer_handle_t handle = nullptr;
 
     err = C2RKMediaUtils::importGraphicBuffer(c2Handle, &handle);
-    if (err != C2_OK) return err;
+    if (err != C2_OK) {
+        return err;
+    }
 
     /* check use scale meta when chip feature support it */
     if (C2RKChipCapDef::get()->getScaleMode() == C2_SCALE_MODE_META)
         checkUseScaleMeta(handle);
 
-    uint32_t bufferId = C2RKGrallocOps::get()->getBufferId(handle);
+    int32_t bufferId = C2RKGrallocOps::get()->getBufferId(handle);
 
-    OutBuffer *outBuffer = findOutBuffer(bufferId);
+    std::shared_ptr<OutBuffer> outBuffer = findOutBuffer(bufferId);
     if (outBuffer) {
-        outBuffer->mBlock = block;
-        outBuffer->importThisBuffer();
+        /* reuse this buffer */
+        outBuffer->updateBlock(block);
+        outBuffer->submitToDecoder();
 
-        c2_trace("put this buffer, bufferId %d", bufferId);
+        c2_trace("reuse this buffer, bufferId %d", bufferId);
     } else {
-        /* register this buffer to mpp group */
+        /* register this buffer to decoder */
         MppBuffer mppBuffer;
-        MppBufferInfo info;
-        memset(&info, 0, sizeof(info));
 
-        info.type  = MPP_BUFFER_TYPE_ION;
-        info.fd    = fd;
-        info.size  = C2RKGrallocOps::get()->getAllocationSize(handle);
-        info.index = bufferId;
+        MppBufferInfo bufferInfo {
+            .type  = MPP_BUFFER_TYPE_ION,
+            .size  = (size_t)(C2RKGrallocOps::get()->getAllocationSize(handle)),
+            .fd    = fd,
+            .index = bufferId,
+            .ptr   = nullptr,
+            .hnd   = nullptr
+        };
 
         mpp_buffer_import_with_tag(
-                mFrmGrp, &info, &mppBuffer, "codec2", __FUNCTION__);
+                mBufferGroup, &bufferInfo, &mppBuffer, "codec2", __FUNCTION__);
 
-        OutBuffer *newBuffer  = new OutBuffer;
-        newBuffer->mBufferId  = bufferId;
-        newBuffer->mMppBuffer = mppBuffer;
-        newBuffer->mBlock     = block;
-        newBuffer->mStatus    = OutBuffer::OWNED_BY_MPP;
+        std::shared_ptr<OutBuffer> newBuffer =
+                std::make_shared<OutBuffer>(bufferId, mppBuffer, block);
 
-        mOutBuffers.push(newBuffer);
+        // signal buffer available to decoder
+        newBuffer->submitToDecoder();
 
         if (mTunneled) {
-            mTunneledSession->newVTBuffer(&newBuffer->mTunnelBuffer);
-            newBuffer->mTunnelBuffer->handle = UnwrapNativeCodec2GrallocHandle(c2Handle);
-            newBuffer->mTunnelBuffer->uniqueId = bufferId;
+            mTunneledSession->newBuffer(
+                    UnwrapNativeCodec2GrallocHandle(c2Handle), bufferId);
 
-            // reserved buffer to tunneled surface
-            if (mTunneledSession->needReservedBuffer()) {
-                mTunneledSession->cancelBuffer(newBuffer->mTunnelBuffer);
-                // signal buffer occupied by users
-                newBuffer->holdThisBuffer();
+            // a set of buffer are pre-reserved to surface for smooth
+            if (mTunneledSession->isReservedBuffer(bufferId)) {
+                newBuffer->setInusedByClient();
             }
         }
 
-        // signal buffer available to decoder
-        mpp_buffer_put(mppBuffer);
+        mBuffers.insert(std::make_pair(bufferId, std::move(newBuffer)));
 
-        c2_trace("import this buffer, bufferId %d size %d mppBuf %p listSize %d",
-                 bufferId, info.size, mppBuffer, mOutBuffers.size());
+        c2_trace("import this buffer, bufferId %d size %d listSize %d",
+                 bufferId, bufferInfo.size, mBuffers.size());
     }
 
     C2RKMediaUtils::freeGraphicBuffer(handle);
+
     return err;
 }
 
 c2_status_t C2RKMpiDec::ensureTunneledState() {
     c2_status_t err = C2_OK;
-    OutBuffer *outBuffer = nullptr;
+    std::shared_ptr<OutBuffer> outBuffer = nullptr;
     int32_t count = mTunneledSession->getNeedDequeueCnt();
 
     if (count <= 0) return err;
@@ -2120,13 +2104,13 @@ c2_status_t C2RKMpiDec::ensureTunneledState() {
     c2_trace("required dequeue %d tunnel buffers", count);
 
     for (int32_t i = 0; i < count; i++) {
-        VTBuffer_t *tunnelBuffer = nullptr;
-        if (mTunneledSession->dequeueBuffer(&tunnelBuffer)) {
-            outBuffer = findOutBuffer(tunnelBuffer->uniqueId);
+        int32_t bufferId = -1;
+        if (mTunneledSession->dequeueBuffer(&bufferId)) {
+            outBuffer = findOutBuffer(bufferId);
             if (outBuffer) {
-                importBufferToMpp(outBuffer->mBlock);
+                outBuffer->submitToDecoder();
             } else {
-                c2_err("found unexpected buffer, index %d", tunnelBuffer->uniqueId);
+                c2_err("found unexpected buffer, index %d", bufferId);
                 err = C2_CORRUPTED;
             }
         }
@@ -2145,15 +2129,8 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
 
     Mutex::Autolock autoLock(mBufferLock);
 
-    if (mTunneled && mOutBuffers.size() > 0) {
+    if (mTunneled && mBuffers.size() > 0) {
         return ensureTunneledState();
-    }
-
-    // update params if w/h/hor/ver/fbcMode changed
-    err = updateAllocParamsIfNeeded(&mAllocParams);
-    if (err != C2_OK) {
-        c2_err("failed to update alloc params, err %d", err);
-        return err;
     }
 
     int32_t width  = mAllocParams.width;
@@ -2164,7 +2141,7 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
     if (mBufferMode) {
         int32_t bWidth  = C2_ALIGN(mWidth, 2);
         int32_t bHeight = C2_ALIGN(mHeight, 2);
-        int32_t bFormat = (MPP_FRAME_FMT_IS_YUV_10BIT(mColorFormat)) ? mPixelFormat : format;
+        int32_t bFormat = MPP_FRAME_FMT_IS_YUV_10BIT(mColorFormat) ? mPixelFormat : format;
         int64_t bUsage  = kCpuReadWriteUsage;
 
         // use cachable memory for higher cpu-copy performance
@@ -2191,8 +2168,16 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
         }
     }
 
+    auto getCountOwnedByDecoder = [this]() -> int32_t {
+        int32_t count = 0;
+        for (auto &pair : mBuffers) {
+            if (pair.second->ownedByDecoder()) count++;
+        }
+        return count;
+    };
+
     std::shared_ptr<C2GraphicBlock> outblock;
-    uint32_t count = mOutputDelay - getOutBufferCountOwnByMpi() + 1;
+    uint32_t count = mNumOutputSlots - getCountOwnedByDecoder() + 1;
 
     if (mTunneled) {
         count += mTunneledSession->getSmoothnessFactor();
@@ -2208,7 +2193,7 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
             break;
         }
 
-        err = importBufferToMpp(outblock);
+        err = importBufferToDecoder(outblock);
         if (err != C2_OK) {
             c2_err("failed to commit buffer");
             break;
@@ -2235,7 +2220,7 @@ c2_status_t C2RKMpiDec::onFrameReady() {
     if (mSignalledError) return C2_BAD_STATE;
 
 outframe:
-    OutWorkEntry entry;
+    WorkEntry entry;
     memset(&entry, 0, sizeof(entry));
 
     c2_status_t err = getoutframe(&entry);
@@ -2259,7 +2244,7 @@ error:
 
     // force unlock eos condition
     Mutex::Autolock autoLock(mEosLock);
-    if (mSignalledInputEos && !mOutputEos) {
+    if (mInputEOS && !mOutputEOS) {
         mEosCondition.signal();
     }
 
@@ -2287,7 +2272,7 @@ c2_status_t C2RKMpiDec::sendpacket(uint8_t *data, size_t size, uint64_t pts, uin
     }
 
     /* dump frame time consuming if neccessary */
-    mDump->recordFrameTime(pts);
+    mDumper->recordFrameTime(pts);
 
     static uint32_t kMaxRetryCnt = 1000;
     uint32_t retry = 0;
@@ -2297,8 +2282,8 @@ c2_status_t C2RKMpiDec::sendpacket(uint8_t *data, size_t size, uint64_t pts, uin
         if (err == MPP_OK) {
             c2_trace("send packet pts %lld size %d", pts, size);
             /* dump input data if neccessary */
-            mDump->recordFile(ROLE_INPUT, data, size);
-            mDump->showDebugFps(ROLE_INPUT);
+            mDumper->recordFile(ROLE_INPUT, data, size);
+            mDumper->showDebugFps(ROLE_INPUT);
             break;
         }
 
@@ -2332,7 +2317,7 @@ c2_status_t C2RKMpiDec::sendpacket(uint8_t *data, size_t size, uint64_t pts, uin
     return ret;
 }
 
-c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
+c2_status_t C2RKMpiDec::getoutframe(WorkEntry *entry) {
     c2_status_t ret = C2_OK;
     MPP_RET     err = MPP_OK;
     MppFrame  frame = nullptr;
@@ -2342,19 +2327,20 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
         return C2_NOT_FOUND;
     }
 
-    int32_t width   = mpp_frame_get_width(frame);
-    int32_t height  = mpp_frame_get_height(frame);
-    int32_t hstride = mpp_frame_get_hor_stride(frame);
-    int32_t vstride = mpp_frame_get_ver_stride(frame);
-    int32_t error   = mpp_frame_get_errinfo(frame);
-    int32_t discard = mpp_frame_get_discard(frame);
-    int32_t eos     = mpp_frame_get_eos(frame);
-    uint64_t pts    = mpp_frame_get_pts(frame);
-    int32_t flags   = 0;
+    int32_t width    = mpp_frame_get_width(frame);
+    int32_t height   = mpp_frame_get_height(frame);
+    int32_t hstride  = mpp_frame_get_hor_stride(frame);
+    int32_t vstride  = mpp_frame_get_ver_stride(frame);
+    int32_t error    = mpp_frame_get_errinfo(frame);
+    int32_t discard  = mpp_frame_get_discard(frame);
+    int32_t eos      = mpp_frame_get_eos(frame);
+    int64_t pts      = mpp_frame_get_pts(frame);
+    int32_t flags    = 0;
+    int32_t bufferId = 0;
 
     MppFrameFormat format = mpp_frame_get_fmt(frame);
-    MppBuffer   mppBuffer = mpp_frame_get_buffer(frame);
-    OutBuffer  *outBuffer = nullptr;
+    MppBuffer mppBuffer = mpp_frame_get_buffer(frame);
+    std::shared_ptr<OutBuffer> outBuffer = nullptr;
 
     if (mpp_frame_get_info_change(frame)) {
         c2_info("info-change with old dimensions(%dx%d) stride(%dx%d) fmt %d", \
@@ -2370,25 +2356,13 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
 
         Mutex::Autolock autoLock(mBufferLock);
 
-        if (mTunneled) {
-            mTunneledSession->reset();
-        }
-
-        clearOutBuffers();
-        mpp_buffer_group_clear(mFrmGrp);
-
-        if (mOutBlock) {
-            mOutBlock.reset();
-        }
+        releaseAllBuffers();
 
         mWidth = width;
         mHeight = height;
         mHorStride = hstride;
         mVerStride = vstride;
         mColorFormat = format;
-
-        mUseRgaBlit = true;
-        mAllocParams.needUpdate = true;
 
         // support fbc mode change on info change stage
         updateFbcModeIfNeeded();
@@ -2413,15 +2387,18 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
             goto cleanUp;
         }
 
+        // update alloc params once args updated
+        ret = updateAllocParams();
+
         // feekback config update to first output frame.
-        flags |= OutWorkEntry::FLAGS_INFO_CHANGE;
+        flags |= WorkEntry::FLAGS_INFO_CHANGE;
 
         goto cleanUp;
     }
 
     if (eos) {
         c2_info("get output eos.");
-        flags |= OutWorkEntry::FLAGS_EOS;
+        flags |= WorkEntry::FLAGS_EOS;
         // ignore null frame with eos
         if (!mppBuffer) goto cleanUp;
     }
@@ -2436,7 +2413,9 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
         goto cleanUp;
     }
 
-    outBuffer = findOutBuffer(mppBuffer);
+    bufferId = mpp_buffer_get_index(mppBuffer);
+
+    outBuffer = findOutBuffer(bufferId);
     if (!outBuffer) {
         ret = C2_CORRUPTED;
         c2_err("get outdated mppBuffer %p", mppBuffer);
@@ -2444,78 +2423,65 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
     }
 
     c2_trace("get one frame [%d:%d] stride [%d:%d] pts %lld err %d bufferId %d",
-             width, height, hstride, vstride, pts, error, outBuffer->mBufferId);
+             width, height, hstride, vstride, pts, error, bufferId);
 
     if (mBufferMode) {
-        do {
-            Mutex::Autolock autoLock(mBufferLock);
+        Mutex::Autolock autoLock(mBufferLock);
 
-            if (mOutBlock == nullptr) {
-                c2_err("unexpected null outblock");
-                ret = C2_CORRUPTED;
-                goto cleanUp;
+        auto c2Handle = mOutBlock->handle();
+        int32_t srcFd = mpp_buffer_get_fd(mppBuffer);
+        int32_t dstFd = c2Handle->data[0];
+
+        int32_t srcFmt = MPP_FRAME_FMT_IS_YUV_10BIT(format) ?
+                         HAL_PIXEL_FORMAT_YCrCb_NV12_10 :
+                         HAL_PIXEL_FORMAT_YCrCb_NV12;
+        int32_t dstFmt = mPixelFormat == HAL_PIXEL_FORMAT_YCBCR_P010 ?
+                         HAL_PIXEL_FORMAT_YCBCR_P010 :
+                         HAL_PIXEL_FORMAT_YCrCb_NV12;
+
+        C2GraphicView dstView = mOutBlock->map().get();
+        if (dstView.error()) {
+            c2_err("unexpected map error %d", dstView.error());
+            ret = C2_CORRUPTED;
+            goto cleanUp;
+        }
+
+        int32_t dstStride = dstView.layout().planes[C2PlanarLayout::PLANE_Y].rowInc;
+        int32_t dstVStride = C2_ALIGN(height, 2);
+
+        if (mUseRgaBlit) {
+            RgaInfo srcInfo, dstInfo;
+
+            C2RKRgaDef::SetRgaInfo(
+                    &srcInfo, srcFd, srcFmt, width, height, hstride, vstride);
+            C2RKRgaDef::SetRgaInfo(
+                    &dstInfo, dstFd, dstFmt, width, height, dstStride, dstVStride);
+            if (!C2RKRgaDef::DoBlit(srcInfo, dstInfo)) {
+                mUseRgaBlit = false;
+                c2_warn("failed RGA blit, fallback software copy");
             }
+        }
 
-            auto c2Handle = mOutBlock->handle();
-            int32_t srcFd = mpp_buffer_get_fd(mppBuffer);
-            int32_t dstFd = c2Handle->data[0];
-
-            int32_t srcFmt = MPP_FRAME_FMT_IS_YUV_10BIT(format) ?
-                             HAL_PIXEL_FORMAT_YCrCb_NV12_10 :
-                             HAL_PIXEL_FORMAT_YCrCb_NV12;
-            int32_t dstFmt = mPixelFormat == HAL_PIXEL_FORMAT_YCBCR_P010 ?
-                             HAL_PIXEL_FORMAT_YCBCR_P010 :
-                             HAL_PIXEL_FORMAT_YCrCb_NV12;
-
-            C2GraphicView dstView = mOutBlock->map().get();
-            if (dstView.error()) {
-                c2_err("unexpected map error %d", dstView.error());
-                ret = C2_CORRUPTED;
-                goto cleanUp;
-            }
-
-            int32_t dstStride = dstView.layout().planes[C2PlanarLayout::PLANE_Y].rowInc;
-            int32_t dstVStride = C2_ALIGN(height, 2);
-
-            if (mUseRgaBlit) {
-                RgaInfo srcInfo, dstInfo;
-
-                C2RKRgaDef::SetRgaInfo(
-                        &srcInfo, srcFd, srcFmt,
-                        width, height, hstride, vstride);
-                C2RKRgaDef::SetRgaInfo(
-                        &dstInfo, dstFd, dstFmt,
-                        width, height, dstStride, dstVStride);
-                if (!C2RKRgaDef::DoBlit(srcInfo, dstInfo)) {
-                    mUseRgaBlit = false;
-                    c2_warn("failed RGA blit, fallback software copy");
-                } else {
-                    break;
-                }
-            }
-
-            // fallback software copy
+        // fallback software copy
+        if (!mUseRgaBlit) {
             uint8_t *srcPtr = (uint8_t*)mpp_buffer_get_ptr(mppBuffer);
             uint8_t *dstPtr = (uint8_t*)(dstView.data()[C2PlanarLayout::PLANE_Y]);
 
-            C2RKMediaUtils::convertBufferToRequestFmt(
+            C2RKMediaUtils::translateToRequestFmt(
                     { srcPtr, srcFd, srcFmt, width, height, hstride, vstride },
                     { dstPtr, dstFd, dstFmt, width, height, dstStride, dstVStride },
                     true /* cache sync */);
-        } while (0);
+        }
     } else {
-        if (mScaleMode == C2_SCALE_MODE_META) {
-            configFrameScaleMeta(frame, outBuffer->mBlock);
-        }
-        if (mHdrMetaEnabled) {
-            configFrameHdrMeta(frame, outBuffer->mBlock);
-        }
-        if (mTunneled) {
-            mTunneledSession->renderBuffer(outBuffer->mTunnelBuffer);
-        }
+        // scale/hdr frame meta config
+        configFrameMetaIfNeeded(frame, outBuffer->getBlock());
 
-        // signal buffer occupied by users
-        outBuffer->holdThisBuffer();
+        // signal buffer occupied by client
+        outBuffer->setInusedByClient();
+
+        if (mTunneled) {
+            mTunneledSession->renderBuffer(bufferId);
+        }
     }
 
     if (mCodingType == MPP_VIDEO_CodingAVC ||
@@ -2528,19 +2494,15 @@ c2_status_t C2RKMpiDec::getoutframe(OutWorkEntry *entry) {
     /* dump output data if neccessary */
     if (C2RKDump::hasDebugFlags(C2_DUMP_RECORD_DEC_OUT)) {
         void *data = mpp_buffer_get_ptr(mppBuffer);
-        mDump->recordFile(ROLE_OUTPUT, data, hstride, vstride, mColorFormat);
+        mDumper->recordFile(ROLE_OUTPUT, data, hstride, vstride, format);
     }
 
     /* show output process fps and time consuming if neccessary */
-    mDump->showDebugFps(ROLE_OUTPUT);
-    mDump->showFrameTiming(pts);
+    mDumper->showDebugFps(ROLE_OUTPUT);
+    mDumper->showFrameTiming(pts);
 
-    entry->outblock = mBufferMode ? mOutBlock : outBuffer->mBlock;
+    entry->block = mBufferMode ? std::move(mOutBlock) : std::move(outBuffer->getBlock());
     entry->timestamp = pts;
-
-    /* unuse the block when frame is ready to output */
-    outBuffer->mBlock = nullptr;
-    mOutBlock = nullptr;
 
 cleanUp:
     entry->flags = flags;
@@ -2553,34 +2515,69 @@ cleanUp:
     return ret;
 }
 
-c2_status_t C2RKMpiDec::configFrameScaleMeta(
+void C2RKMpiDec::releaseAllBuffers() {
+    for (auto &pair : mBuffers) {
+        if (!pair.second->ownedByDecoder()) {
+            pair.second->submitToDecoder();
+        }
+    }
+    mBuffers.clear();
+
+    if (mBufferGroup) {
+        mpp_buffer_group_clear(mBufferGroup);
+    }
+    if (mOutBlock) {
+        mOutBlock.reset();
+    }
+    if (mTunneled) {
+        mTunneledSession->reset();
+    }
+}
+
+std::shared_ptr<C2RKMpiDec::OutBuffer> C2RKMpiDec::findOutBuffer(int32_t bufferId) {
+    auto it = mBuffers.find(bufferId);
+    if (it != mBuffers.end()) {
+        return it->second;
+    }
+    return nullptr;
+}
+
+c2_status_t C2RKMpiDec::configFrameMetaIfNeeded(
         MppFrame frame, std::shared_ptr<C2GraphicBlock> block) {
-    if (block->handle()
-            && mpp_frame_has_meta(frame) && mpp_frame_get_thumbnail_en(frame)) {
-        MppMeta meta = nullptr;
-        int32_t scaleYOffset = 0;
-        int32_t scaleUVOffset = 0;
-        int32_t width = 0, height = 0;
+    c2_status_t err = C2_OK;
+    MppMeta meta = mpp_frame_get_meta(frame);
+
+    if (!meta || !block || !block->handle()) {
+        c2_trace("unexpected null pointer in configFrameMeta");
+        return err;
+    }
+
+    // scale meta config
+    if (mScaleMode == C2_SCALE_MODE_META && mpp_frame_get_thumbnail_en(frame)) {
+        int32_t yOffset = 0;
+        int32_t uvOffset = 0;
+        int32_t width = 0;
+        int32_t height = 0;
         MppFrameFormat format;
         C2PreScaleParam scaleParam;
 
         memset(&scaleParam, 0, sizeof(C2PreScaleParam));
 
-        native_handle_t *nHandle = UnwrapNativeCodec2GrallocHandle(block->handle());
+        native_handle_t *nHandle =
+                UnwrapNativeCodec2GrallocHandle(block->handle());
 
         width  = mpp_frame_get_width(frame);
         height = mpp_frame_get_height(frame);
         format = mpp_frame_get_fmt(frame);
-        meta   = mpp_frame_get_meta(frame);
 
-        mpp_meta_get_s32(meta, KEY_DEC_TBN_Y_OFFSET, &scaleYOffset);
-        mpp_meta_get_s32(meta, KEY_DEC_TBN_UV_OFFSET, &scaleUVOffset);
+        mpp_meta_get_s32(meta, KEY_DEC_TBN_Y_OFFSET, &yOffset);
+        mpp_meta_get_s32(meta, KEY_DEC_TBN_UV_OFFSET, &uvOffset);
 
         scaleParam.thumbWidth = width >> 1;
         scaleParam.thumbHeight = height >> 1;
         scaleParam.thumbHorStride = C2_ALIGN(mHorStride >> 1, 16);
-        scaleParam.yOffset = scaleYOffset;
-        scaleParam.uvOffset = scaleUVOffset;
+        scaleParam.yOffset = yOffset;
+        scaleParam.uvOffset = uvOffset;
         if (MPP_FRAME_FMT_IS_YUV_10BIT(format)) {
             scaleParam.format = HAL_PIXEL_FORMAT_YCrCb_NV12_10;
         } else {
@@ -2594,19 +2591,12 @@ c2_status_t C2RKMpiDec::configFrameScaleMeta(
         native_handle_delete(nHandle);
     }
 
-    return C2_OK;
-}
 
-c2_status_t C2RKMpiDec::configFrameHdrMeta(
-        MppFrame frame, std::shared_ptr<C2GraphicBlock> block) {
-    c2_status_t err = C2_OK;
-
-    if (block->handle() && mpp_frame_has_meta(frame)
-            && (MPP_FRAME_FMT_IS_HDR(mpp_frame_get_fmt(frame)))) {
+    // hdr meta config
+    if (mHdrMetaEnabled && MPP_FRAME_FMT_IS_HDR(mpp_frame_get_fmt(frame))) {
         int32_t hdrMetaOffset = 0;
         int32_t hdrMetaSize = 0;
 
-        MppMeta meta = mpp_frame_get_meta(frame);
         mpp_meta_get_s32(meta, KEY_HDR_META_OFFSET, &hdrMetaOffset);
         mpp_meta_get_s32(meta, KEY_HDR_META_SIZE, &hdrMetaSize);
 

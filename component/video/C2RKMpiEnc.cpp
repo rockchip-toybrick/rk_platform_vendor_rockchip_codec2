@@ -119,30 +119,36 @@ public:
 
         mMlvecParams = std::make_shared<MlvecParams>();
 
-        int64_t inputUsage = 0;
-
         /*
-         * Some encoders have input alignment requirement, input buffer need
-         * rga conversion in first. detail see needRgaConvert(). so for fit rga
-         * compatibility, add following buffer usages:
-         * 1. allocate buffer within 4G to avoid rga2 error.
-         * 2. add the minimum RGA alignment in all platforms may needs rga conversion.
+         * RGA Compatibility Constraints:
+         *
+         * Issue: Certain encoders require input buffer alignment for RGA preprocessing.
+         *        See needRgaConvert() for RGA requirement detection.
+         *
+         * Constraints:
+         * 1. 4GB Address Space: RGA2 hardware limitation
+         * 2. Minimum Alignment: Cross-platform RGA compatibility
          */
-        if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_3588 ||
-            C2RKChipCapDef::get()->getChipType() == RK_CHIP_356X) {
-            inputUsage |= RK_GRALLOC_USAGE_WITHIN_4G;
-        }
-        if (C2RKChipCapDef::get()->getChipType() != RK_CHIP_3588 &&
-            C2RKChipCapDef::get()->getChipType() != RK_CHIP_3562 &&
-            C2RKChipCapDef::get()->getChipType() != RK_CHIP_3576 &&
-            C2RKChipCapDef::get()->getChipType() != RK_CHIP_3528) {
-            inputUsage |= RK_GRALLOC_USAGE_STRIDE_ALIGN_16;
-        }
+        auto getRgaCompatibilityUsage = []() -> int64_t {
+            int64_t usage = 0;
+
+            if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_3588 ||
+                C2RKChipCapDef::get()->getChipType() == RK_CHIP_356X) {
+                usage |= RK_GRALLOC_USAGE_WITHIN_4G;
+            }
+            if (C2RKChipCapDef::get()->getChipType() != RK_CHIP_3588 &&
+                C2RKChipCapDef::get()->getChipType() != RK_CHIP_3562 &&
+                C2RKChipCapDef::get()->getChipType() != RK_CHIP_3576 &&
+                C2RKChipCapDef::get()->getChipType() != RK_CHIP_3528) {
+                usage |= RK_GRALLOC_USAGE_STRIDE_ALIGN_16;
+            }
+            return usage;
+        };
 
         addParameter(
                 DefineParam(mUsage, C2_PARAMKEY_INPUT_STREAM_USAGE)
                 .withConstValue(new C2StreamUsageTuning::input(
-                        0u, inputUsage))
+                        0u, getRgaCompatibilityUsage()))
                 .build());
 
         addParameter(
@@ -1250,9 +1256,7 @@ C2RKMpiEnc::C2RKMpiEnc(
       mName(name),
       mMime(mime),
       mIntf(intfImpl),
-      mDmaMem(nullptr),
-      mMlvec(nullptr),
-      mDump(new C2RKDump),
+      mDumper(std::make_shared<C2RKDump>()),
       mRoiCtx(nullptr),
       mMppCtx(nullptr),
       mMppMpi(nullptr),
@@ -1272,7 +1276,6 @@ C2RKMpiEnc::C2RKMpiEnc(
       mVerStride(0),
       mCurLayerCount(0),
       mInputCount(0),
-      mRknnSession(nullptr),
       mProfile(0) {
     c2_info("[%s] version %s", name, C2_COMPONENT_FULL_VERSION);
     mCodingType = (MppCodingType)GetMppCodingFromComponentName(name);
@@ -1372,11 +1375,6 @@ void C2RKMpiEnc::onRelease() {
         stopAndReleaseLooper();
     }
 
-    if (mRknnSession) {
-        delete mRknnSession;
-        mRknnSession = nullptr;
-    }
-
     if (mBlockPool) {
         mBlockPool.reset();
     }
@@ -1403,23 +1401,12 @@ void C2RKMpiEnc::onRelease() {
 
     if (mDmaMem != nullptr) {
         GraphicBufferAllocator::get().free((buffer_handle_t)mDmaMem->handler);
-        free(mDmaMem);
-        mDmaMem = nullptr;
-    }
-
-    if (mMlvec != nullptr) {
-        delete mMlvec;
-        mMlvec = nullptr;
+        mDmaMem.reset();
     }
 
     if (mRoiCtx != nullptr) {
         mpp_enc_roi_deinit(mRoiCtx);
         mRoiCtx = nullptr;
-    }
-
-    if (mDump != nullptr) {
-        delete mDump;
-        mDump = nullptr;
     }
 
     stopFlushingState();
@@ -2166,13 +2153,12 @@ c2_status_t C2RKMpiEnc::setupSuperModeIfNeeded() {
                          (superMode == C2_SUPER_MODE_V3_COMPRESS_FIRST);
 
     if (isV3Mode && !mRknnSession) {
-        mRknnSession = new C2RKYolov5Session();
+        mRknnSession = std::make_shared<C2RKYolov5Session>();
         bool isHEVC = (mCodingType == MPP_VIDEO_CodingHEVC);
         if (!mRknnSession->createSession(
                     std::make_shared<C2RKSessionCallbackImpl>(this), isHEVC)) {
             c2_err("failed to create rknn session, fallback..");
-            delete mRknnSession;
-            mRknnSession = nullptr;
+            mRknnSession.reset();
             return C2_NO_INIT;
         }
         if (!mRknnSession->isMaskResultType()) {
@@ -2312,7 +2298,7 @@ c2_status_t C2RKMpiEnc::setupMlvecIfNeeded() {
                 mSize->width, mSize->height, sarWidth, sarHeight);
         c2_info("setupMlvec: inputCtlMode %d", inputCtlMode);
 
-        mMlvec = new C2RKMlvecLegacy(mMppCtx, mMppMpi, mEncCfg);
+        mMlvec = std::make_shared<C2RKMlvecLegacy>(mMppCtx, mMppMpi, mEncCfg);
 
         memset(&stCfg, 0, sizeof(stCfg));
 
@@ -2462,7 +2448,7 @@ c2_status_t C2RKMpiEnc::initEncoder() {
         goto error;
     }
 
-    mDmaMem = (MyDmaBuffer_t *)malloc(sizeof(MyDmaBuffer_t));
+    mDmaMem = std::make_unique<MyDmaBuffer_t>();
     mDmaMem->fd = C2RKGrallocOps::get()->getShareFd(bufferHandle);
     mDmaMem->size = C2RKGrallocOps::get()->getAllocationSize(bufferHandle);
     mDmaMem->handler = (void *)bufferHandle;
@@ -2519,7 +2505,7 @@ c2_status_t C2RKMpiEnc::initEncoder() {
         goto error;
     }
 
-    mDump->initDump(mSize->width, mSize->height, true);
+    mDumper->initDump(mSize->width, mSize->height, true);
 
     return C2_OK;
 
@@ -2549,19 +2535,15 @@ void C2RKMpiEnc::fillEmptyWork(const std::unique_ptr<C2Work>& work) {
 
 void C2RKMpiEnc::finishWork(
         const std::unique_ptr<C2Work> &work,
-        OutWorkEntry entry) {
+        MppPacket entry) {
     c2_status_t ret = C2_OK;
-    uint64_t frmIndex = 0;
-    MppPacket packet = nullptr;
     std::shared_ptr<C2LinearBlock> block;
     C2MemoryUsage usage = { C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE };
 
-    frmIndex = entry.frameIndex;
-    packet   = entry.outPacket;
-
-    void   *data = mpp_packet_get_data(packet);
-    size_t  len  = mpp_packet_get_length(packet);
-    size_t  size = mpp_packet_get_size(packet);
+    void    *data   = mpp_packet_get_data(entry);
+    size_t   len    = mpp_packet_get_length(entry);
+    size_t   size   = mpp_packet_get_size(entry);
+    uint64_t frmIdx = mpp_packet_get_pts(entry);
 
     ret = mBlockPool->fetchLinearBlock(size, usage, &block);
     if (ret != C2_OK) {
@@ -2581,7 +2563,7 @@ void C2RKMpiEnc::finishWork(
     memcpy(wView.data(), data, len);
 
     std::shared_ptr<C2Buffer> buffer = createLinearBuffer(block, 0, len);
-    MppMeta meta = mpp_packet_get_meta(packet);
+    MppMeta meta = mpp_packet_get_meta(entry);
     if (meta != nullptr) {
         int32_t isIntra = 0;
         MppFrame frame = nullptr;
@@ -2601,7 +2583,7 @@ void C2RKMpiEnc::finishWork(
         }
     }
 
-    mpp_packet_deinit(&packet);
+    mpp_packet_deinit(&entry);
 
     auto fillWork = [buffer](const std::unique_ptr<C2Work> &work) {
         work->worklets.front()->output.flags = (C2FrameData::flags_t)0;
@@ -2611,7 +2593,7 @@ void C2RKMpiEnc::finishWork(
         work->workletsProcessed = 1u;
     };
 
-    if (work && c2_cntr64_t(frmIndex) == work->input.ordinal.frameIndex) {
+    if (work && c2_cntr64_t(frmIdx) == work->input.ordinal.frameIndex) {
         fillWork(work);
         if (mOutputEOS) {
             work->worklets.front()->output.flags = C2FrameData::FLAG_END_OF_STREAM;
@@ -2620,15 +2602,15 @@ void C2RKMpiEnc::finishWork(
         // TODO: wait pendding work ready, getpacket return before process over?
         int32_t retry = 0;
         static const int32_t kMaxPendingRetryTime = 20;
-        while (!isPendingFlushing() && !isPendingWorkExist(frmIndex)) {
+        while (!isPendingFlushing() && !isPendingWorkExist(frmIdx)) {
             usleep(2 * 1000);
             if ((retry++) > kMaxPendingRetryTime) {
-                c2_err("failed to wait work index %lld pendding", frmIndex);
+                c2_err("failed to wait work index %lld pendding", frmIdx);
                 mSignalledError = true;
                 break;
             }
         }
-        finish(frmIndex, fillWork);
+        finish(frmIdx, fillWork);
     }
 }
 
@@ -2643,8 +2625,7 @@ c2_status_t C2RKMpiEnc::drain(
 c2_status_t C2RKMpiEnc::onDrainWork(const std::unique_ptr<C2Work> &work) {
     if (mSignalledError) return C2_BAD_STATE;
 
-    OutWorkEntry entry;
-    memset(&entry, 0, sizeof(entry));
+    MppPacket entry;
 
     c2_status_t err = getoutpacket(&entry);
     if (err == C2_OK) {
@@ -2743,7 +2724,7 @@ void C2RKMpiEnc::process(
             work->worklets.front()->output.configUpdate.push_back(std::move(csd));
 
             /* dump output data if neccessary */
-            mDump->recordFile(ROLE_OUTPUT, data, dataSize);
+            mDumper->recordFile(ROLE_OUTPUT, data, dataSize);
 
             mSpsPpsHeaderReceived = true;
         }
@@ -3093,7 +3074,7 @@ bool C2RKMpiEnc::needRgaConvert(uint32_t width, uint32_t height, MppFrameFormat 
     if (mChipType == RK_CHIP_3588 ||
         mChipType == RK_CHIP_3562 ||
         mChipType == RK_CHIP_3576 ||
-        mChipType == RK_CHIP_3528 ) {
+        mChipType == RK_CHIP_3528) {
         needsRga = (mCodingType == MPP_VIDEO_CodingVP8);
     }
 
@@ -3159,7 +3140,7 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
     std::shared_ptr<C2Buffer> inputBuffer = nullptr;
 
     /* dump frame time consuming if neccessary */
-    mDump->recordFrameTime(frameIndex);
+    mDumper->recordFrameTime(frameIndex);
 
     inputBuffer = work->input.buffers[0];
     view = std::make_shared<const C2GraphicView>(
@@ -3206,7 +3187,7 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
         uint32_t fd = c2Handle->data[0];
 
         /* dump input data if neccessary */
-        mDump->recordFile(ROLE_INPUT,
+        mDumper->recordFile(ROLE_INPUT,
                 (void*)input->data()[0], stride, height, MPP_FMT_RGBA8888);
 
         if (!needRgaConvert(stride, height, MPP_FMT_RGBA8888)) {
@@ -3251,7 +3232,7 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
         uint32_t fd = c2Handle->data[0];
 
         /* dump input data if neccessary */
-        mDump->recordFile(ROLE_INPUT,
+        mDumper->recordFile(ROLE_INPUT,
                 (void*)input->data()[0], stride, height, MPP_FMT_YUV420SP);
 
         if (mInputMppFmt != MPP_FMT_YUV420SP) {
@@ -3427,7 +3408,7 @@ c2_status_t C2RKMpiEnc::sendframe(
         if (err == MPP_OK) {
             c2_trace("send frame fd %d size %d pts %lld", dBuffer.fd, dBuffer.size, pts);
             /* dump show input process fps if neccessary */
-            mDump->showDebugFps(ROLE_INPUT);
+            mDumper->showDebugFps(ROLE_INPUT);
             mInputCount++;
             break;
         }
@@ -3448,7 +3429,7 @@ error:
     return ret;
 }
 
-c2_status_t C2RKMpiEnc::getoutpacket(OutWorkEntry *entry) {
+c2_status_t C2RKMpiEnc::getoutpacket(MppPacket *entry) {
     MPP_RET err = MPP_OK;
     MppPacket packet = nullptr;
 
@@ -3464,11 +3445,11 @@ c2_status_t C2RKMpiEnc::getoutpacket(OutWorkEntry *entry) {
         c2_trace("get outpacket pts %lld size %d eos %d", pts, len, eos);
 
         /* dump output data if neccessary */
-        mDump->recordFile(ROLE_OUTPUT, data, len);
+        mDumper->recordFile(ROLE_OUTPUT, data, len);
 
         /* dump show input process fps and time consuming if neccessary */
-        mDump->showDebugFps(ROLE_OUTPUT);
-        mDump->showFrameTiming(pts);
+        mDumper->showDebugFps(ROLE_OUTPUT);
+        mDumper->showFrameTiming(pts);
 
         if (eos) {
             c2_info("get output eos");
@@ -3485,8 +3466,7 @@ c2_status_t C2RKMpiEnc::getoutpacket(OutWorkEntry *entry) {
             return C2_NOT_FOUND;
         }
 
-        entry->frameIndex = pts;
-        entry->outPacket  = packet;
+        *entry = packet;
 
         return C2_OK;
     }

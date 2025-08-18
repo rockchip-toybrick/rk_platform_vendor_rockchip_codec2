@@ -96,7 +96,7 @@ public:
     static bool isP010Allowed();
 
     // frame converter, software processing
-    static void convertBufferToRequestFmt(
+    static void translateToRequestFmt(
             C2FrameInfo srcInfo, C2FrameInfo dstInfo, bool cacheSync = false);
     static void convert10BitNV12ToP010(
             C2FrameInfo srcInfo, C2FrameInfo dstInfo, bool cacheSync = false);

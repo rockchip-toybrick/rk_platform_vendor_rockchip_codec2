@@ -322,7 +322,7 @@ bool C2RKMediaUtils::isP010Allowed() {
     return kFirstApiLevel >= 33;
 }
 
-void C2RKMediaUtils::convertBufferToRequestFmt(
+void C2RKMediaUtils::translateToRequestFmt(
         C2FrameInfo srcInfo, C2FrameInfo dstInfo, bool cacheSync) {
     int32_t srcFmt = srcInfo.format;
     int32_t dstFmt = dstInfo.format;

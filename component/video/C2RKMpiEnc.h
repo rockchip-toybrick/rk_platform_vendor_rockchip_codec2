@@ -84,11 +84,6 @@ private:
         C2_SUPER_MODE_BUTT,
     } MySuperMode;
 
-    typedef struct {
-        MppPacket outPacket;
-        uint64_t  frameIndex;
-    } OutWorkEntry;
-
     class WorkHandler : public AHandler {
     public:
         enum {
@@ -114,15 +109,18 @@ private:
 
     const char* mName;
     const char* mMime;
-    std::shared_ptr<IntfImpl> mIntf;
-    std::shared_ptr<C2BlockPool> mBlockPool;
+    std::shared_ptr<IntfImpl>          mIntf;
+    std::shared_ptr<C2BlockPool>       mBlockPool;
+
+    std::shared_ptr<C2RKMlvecLegacy>   mMlvec;
+    std::shared_ptr<C2RKDump>          mDumper;
+    // npu object detection
+    std::shared_ptr<C2RKYolov5Session> mRknnSession;
+    std::unique_ptr<MyDmaBuffer_t>     mDmaMem;
 
     sp<ALooper>      mLooper;
     sp<WorkHandler>  mHandler;
 
-    MyDmaBuffer_t   *mDmaMem;
-    C2RKMlvecLegacy *mMlvec;
-    C2RKDump        *mDump;
     void            *mRoiCtx;
 
     /* MPI interface parameters */
@@ -147,9 +145,6 @@ private:
     int32_t          mCurLayerCount;
     int32_t          mInputCount;
 
-    // npu object detection
-    C2RKYolov5Session *mRknnSession;
-
     // configurations used by component in process
     // (TODO: keep this in intf but make them internal only)
     uint32_t mProfile;
@@ -160,7 +155,7 @@ private:
     void fillEmptyWork(const std::unique_ptr<C2Work> &work);
     void finishWork(
             const std::unique_ptr<C2Work> &work,
-            OutWorkEntry entry);
+            MppPacket entry);
 
     /* packet output looper */
     c2_status_t setupAndStartLooper();
@@ -199,7 +194,7 @@ private:
     c2_status_t getInBufferFromWork(
             const std::unique_ptr<C2Work> &work, MyDmaBuffer_t *outBuffer);
     c2_status_t sendframe(MyDmaBuffer_t dBuffer, uint64_t pts, uint32_t flags);
-    c2_status_t getoutpacket(OutWorkEntry *entry);
+    c2_status_t getoutpacket(MppPacket *entry);
 
     C2_DO_NOT_COPY(C2RKMpiEnc);
 };

@@ -21,14 +21,14 @@
 #include "C2RKInterface.h"
 #include "rk_mpi.h"
 
+#include <map>
 #include <utils/Vector.h>
 
 namespace android {
 
+struct ColorAspects;
 class C2RKDump;
 class C2RKTunneledSession;
-struct VTBuffer;
-struct ColorAspects;
 
 class C2RKMpiDec : public C2RKComponent {
 public:
@@ -58,54 +58,6 @@ public:
     c2_status_t onFrameReady();
 
 private:
-    struct OutBuffer {
-        enum Status {
-            OWNED_BY_MPP = 0,
-            OWNED_BY_US,
-        };
-
-        /* index to find this buffer */
-        uint32_t  mBufferId;
-        /* who own this buffer */
-        Status    mStatus;
-        /* mpp buffer */
-        MppBuffer mMppBuffer;
-        /* tunneled playback buffer */
-        VTBuffer *mTunnelBuffer;
-        /* block shared by surface */
-        std::shared_ptr<C2GraphicBlock> mBlock;
-
-        /* signal buffer available to decoder */
-        void importThisBuffer();
-        /* signal buffer occupied by users */
-        void holdThisBuffer();
-    };
-
-    struct OutWorkEntry {
-        enum Flags {
-            FLAGS_EOS         = 0x1,
-            FLAGS_ERROR_FRAME = 0x2,
-            FLAGS_INFO_CHANGE = 0x4,
-        };
-
-        std::shared_ptr<C2GraphicBlock> outblock;
-        uint64_t timestamp;
-        uint32_t flags;
-    };
-
-    /*
-     * low memory mode config from user
-     *
-     * 0x0: default value, normal device mode
-     * 0x1: low memory case, reduce smoothFactor count from frameworks only.
-     * 0x2: low memory case, use protocol delayRef.
-     */
-    enum LowMemoryMode {
-        MODE_NONE             = 0x0,
-        MODE_REDUCE_SMOOTH    = 0x1,
-        MODE_USE_PROTOCOL_REF = 0x2,
-    };
-
     class WorkHandler : public AHandler {
     public:
         enum {
@@ -122,29 +74,76 @@ private:
         void onMessageReceived(const sp<AMessage> &msg) override;
     };
 
+    // Output buffer structure
+    struct OutBuffer {
+        int32_t   mBufferId;
+        bool      mOwnedByDecoder;
+        MppBuffer mMppBuffer;
+        std::shared_ptr<C2GraphicBlock> mBlock;
+
+        OutBuffer(
+                int32_t bufferId,
+                MppBuffer mppBuffer,
+                const std::shared_ptr<C2GraphicBlock> &block) :
+                mBufferId(bufferId), mOwnedByDecoder(false),
+                mMppBuffer(mppBuffer), mBlock(block) {}
+
+        bool ownedByDecoder();
+
+        void updateBlock(std::shared_ptr<C2GraphicBlock> block) { mBlock = block; }
+        std::shared_ptr<C2GraphicBlock> getBlock() { return mBlock; }
+
+        void submitToDecoder();
+        void setInusedByClient();
+    };
+
+    struct WorkEntry {
+        enum Flags {
+            FLAGS_EOS         = 0x1,
+            FLAGS_INFO_CHANGE = 0x2,
+        };
+
+        int64_t timestamp;
+        int32_t flags;
+        std::shared_ptr<C2GraphicBlock> block;
+    };
+
+    /*
+     * low memory mode config from user
+     *
+     * 0x0: default value, normal device mode
+     * 0x1: low memory case, reduce smoothFactor count from frameworks only.
+     * 0x2: low memory case, use protocol delayRef.
+     */
+    enum LowMemoryMode {
+        MODE_NONE             = 0x0,
+        MODE_REDUCE_SMOOTH    = 0x1,
+        MODE_USE_PROTOCOL_REF = 0x2,
+    };
+
     const char* mName;
     const char* mMime;
     std::shared_ptr<IntfImpl> mIntf;
 
-    Mutex     mBufferLock;
-    C2RKDump *mDump;
+    std::shared_ptr<C2RKDump> mDumper;
+    std::shared_ptr<C2RKTunneledSession> mTunneledSession;
 
+    Mutex     mBufferLock;
     Mutex     mEosLock;
     Condition mEosCondition;
 
-    sp<ALooper>     mLooper;
-    sp<WorkHandler> mHandler;
+    sp<ALooper>      mLooper;
+    sp<WorkHandler>  mHandler;
 
     /* MPI interface parameters */
-    MppCtx          mMppCtx;
-    MppApi         *mMppMpi;
-    MppCodingType   mCodingType;
-    MppFrameFormat  mColorFormat;
-    MppBufferGroup  mFrmGrp;
+    MppCtx           mMppCtx;
+    MppApi          *mMppMpi;
+    MppCodingType    mCodingType;
+    MppFrameFormat   mColorFormat;
+    MppBufferGroup   mBufferGroup;
     // Indicates that these buffers should be decoded but not rendered.
-    Vector<uint64_t>     mDropFrames;
-    Vector<OutBuffer*>   mOutBuffers;
-    C2RKTunneledSession *mTunneledSession;
+    Vector<uint64_t> mDropFrames;
+    std::map<int32_t, std::shared_ptr<OutBuffer>> mBuffers;
 
     int32_t mWidth;
     int32_t mHeight;
@@ -153,48 +152,32 @@ private:
     // fbc output has padding inside, set crop before display
     int32_t mLeftCorner;
     int32_t mTopCorner;
-    int32_t mOutputDelay;
-    // reduce factor for low memory mode
-    int32_t mReduceFactor;
-    int32_t mGrallocVersion;
+    int32_t mNumOutputSlots;
+    int32_t mSlotsToReduce;
     int32_t mPixelFormat;
     int32_t mScaleMode;
     int32_t mFdPerf;
 
     bool mStarted;
     bool mFlushed;
-    bool mSignalledInputEos;
-    bool mOutputEos;
+    bool mInputEOS;
+    bool mOutputEOS;
     bool mSignalledError;
-    bool mIsGBSource;
+    bool mGraphicSourceMode;
     bool mHdrMetaEnabled;
     bool mTunneled;
-
-    /*
-       1. BufferMode:  without surcace
-       2. SurfaceMode: render surface
-    */
     bool mBufferMode;
     bool mUseRgaBlit;
 
+    std::shared_ptr<C2GraphicBlock> mOutBlock;
+    std::shared_ptr<C2BlockPool>    mBlockPool;
+
     struct AllocParams {
-        int32_t needUpdate;
         int32_t width;
         int32_t height;
         int64_t usage;
         int32_t format;
     } mAllocParams;
-
-    struct ScaleThumbInfo {
-        int32_t width;
-        int32_t height;
-        int32_t hstride;
-        int32_t vstride;
-        int32_t format;
-    } mScaleInfo;
-
-    std::shared_ptr<C2GraphicBlock> mOutBlock;
-    std::shared_ptr<C2BlockPool>    mBlockPool;
 
     // Color aspects. These are ISO values and are meant to detect changes
     // in aspects to avoid converting them to C2 values for each frame.
@@ -218,29 +201,31 @@ private:
     void stopAndReleaseLooper();
 
     int32_t getFbcOutputMode(const std::unique_ptr<C2Work> &work = nullptr);
-    c2_status_t updateSurfaceConfig(const std::shared_ptr<C2BlockPool> &pool);
+    c2_status_t getSurfaceFeatures(const std::shared_ptr<C2BlockPool> &pool);
     c2_status_t configOutputDelay(const std::unique_ptr<C2Work> &work = nullptr);
     c2_status_t configTunneledPlayback(const std::unique_ptr<C2Work> &work);
-    void finishWork(OutWorkEntry entry);
+    void finishWork(WorkEntry entry);
 
     c2_status_t initDecoder(const std::unique_ptr<C2Work> &work);
     c2_status_t updateDecoderArgs(const std::shared_ptr<C2BlockPool> &pool);
+    c2_status_t updateAllocParams();
     c2_status_t updateMppFrameInfo(int32_t fbcMode);
     void setMppPerformance(bool on);
     void setDefaultCodecColorAspectsIfNeeded(ColorAspects &aspects);
     void getVuiParams(MppFrame frame);
     c2_status_t updateFbcModeIfNeeded();
-    c2_status_t updateAllocParamsIfNeeded(AllocParams *params);
-    c2_status_t importBufferToMpp(std::shared_ptr<C2GraphicBlock> block);
+    c2_status_t importBufferToDecoder(std::shared_ptr<C2GraphicBlock> block);
     c2_status_t ensureTunneledState();
     c2_status_t ensureDecoderState();
     c2_status_t sendpacket(uint8_t *data, size_t size, uint64_t pts, uint32_t flags);
-    c2_status_t getoutframe(OutWorkEntry *entry);
+    c2_status_t getoutframe(WorkEntry *entry);
 
-    c2_status_t configFrameScaleMeta(MppFrame frame, std::shared_ptr<C2GraphicBlock> block);
-    c2_status_t configFrameHdrMeta(MppFrame frame, std::shared_ptr<C2GraphicBlock> block);
+    c2_status_t configFrameMetaIfNeeded(MppFrame frame, std::shared_ptr<C2GraphicBlock> block);
     c2_status_t checkUseScaleMeta(buffer_handle_t handle);
     c2_status_t checkUseScaleDown(buffer_handle_t handle);
+
+    void releaseAllBuffers();
+    std::shared_ptr<OutBuffer> findOutBuffer(int32_t bufferId);
 
     inline bool isDropFrame(uint64_t pts) {
         Vector<uint64_t>::iterator it;
@@ -253,52 +238,6 @@ private:
         return false;
     }
 
-    /*
-     * OutBuffer vector operations
-     */
-    OutBuffer* findOutBuffer(uint32_t bufferId) {
-        for (int i = 0; i < mOutBuffers.size(); i++) {
-            OutBuffer *buffer = mOutBuffers.editItemAt(i);
-            if (buffer->mBufferId == bufferId) {
-                return buffer;
-            }
-        }
-        return nullptr;
-    }
-
-    OutBuffer* findOutBuffer(MppBuffer mppBuffer) {
-        for (int i = 0; i < mOutBuffers.size(); i++) {
-            OutBuffer *buffer = mOutBuffers.editItemAt(i);
-            if (buffer->mMppBuffer == mppBuffer) {
-                return buffer;
-            }
-        }
-        return nullptr;
-    }
-
-    void clearOutBuffers() {
-        while (!mOutBuffers.isEmpty()) {
-            OutBuffer *buffer = mOutBuffers.editItemAt(0);
-            if (buffer != nullptr) {
-                if (buffer->mStatus != OutBuffer::OWNED_BY_MPP) {
-                    buffer->importThisBuffer();
-                }
-                delete buffer;
-            }
-            mOutBuffers.removeAt(0);
-        }
-    }
-
-    int getOutBufferCountOwnByMpi() {
-        int count = 0;
-        for (int i = 0; i < mOutBuffers.size(); i++) {
-            OutBuffer *buffer = mOutBuffers.editItemAt(i);
-            if (buffer->mStatus == OutBuffer::OWNED_BY_MPP) {
-                count++;
-            }
-        }
-        return count;
-    }
 
     C2_DO_NOT_COPY(C2RKMpiDec);
 };
