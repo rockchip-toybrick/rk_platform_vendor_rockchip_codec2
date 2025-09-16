@@ -2599,17 +2599,6 @@ void C2RKMpiEnc::finishWork(
             work->worklets.front()->output.flags = C2FrameData::FLAG_END_OF_STREAM;
         }
     } else {
-        // TODO: wait pendding work ready, getpacket return before process over?
-        int32_t retry = 0;
-        static const int32_t kMaxPendingRetryTime = 20;
-        while (!isPendingFlushing() && !isPendingWorkExist(frmIdx)) {
-            usleep(2 * 1000);
-            if ((retry++) > kMaxPendingRetryTime) {
-                c2_err("failed to wait work index %lld pendding", frmIdx);
-                mSignalledError = true;
-                break;
-            }
-        }
         finish(frmIdx, fillWork);
     }
 }

@@ -446,11 +446,6 @@ bool C2RKComponent::isPendingFlushing() {
     return state->mFlushing;
 }
 
-bool C2RKComponent::isPendingWorkExist(uint64_t frameIndex) {
-    Mutexed<WorkQueue>::Locked queue(mWorkQueue);
-    return (queue->pending().count(frameIndex) > 0);
-}
-
 void C2RKComponent::finish(
         uint64_t frameIndex,
         std::function<void(const std::unique_ptr<C2Work> &)> fillWork) {

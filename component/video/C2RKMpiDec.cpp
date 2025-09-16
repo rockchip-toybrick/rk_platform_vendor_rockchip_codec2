@@ -1328,7 +1328,7 @@ c2_status_t C2RKMpiDec::updateDecoderArgs(const std::shared_ptr<C2BlockPool> &po
         mColorFormat = (mStarted) ? mColorFormat : (MppFrameFormat)colorFormat;
     }
 
-    if (needsUpdate) {
+    if (mStarted && needsUpdate) {
         err = updateMppFrameInfo(getFbcOutputMode());
         if (err == C2_OK) {
             // update alloc params once args updated
@@ -1486,7 +1486,7 @@ c2_status_t C2RKMpiDec::updateAllocParams() {
 
     mUseRgaBlit = true;
 
-    c2_trace("update alloc attrs, width %d height %d usage %lld format %d",
+    c2_trace("update alloc attrs, width %d height %d usage %xllx format %d",
               allocWidth, allocHeight, allocUsage, allocFormat);
 
     return C2_OK;

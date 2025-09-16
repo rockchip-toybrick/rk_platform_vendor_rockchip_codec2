@@ -115,11 +115,6 @@ protected:
     void stopFlushingState();
     bool isPendingFlushing();
 
-    /**
-     * check is peeding work with frameIndex exits
-     */
-    bool isPendingWorkExist(uint64_t frameIndex);
-
     // for derived classes
     /**
      * Finish pending work.
