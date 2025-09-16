@@ -446,6 +446,29 @@ bool C2RKComponent::isPendingFlushing() {
     return state->mFlushing;
 }
 
+bool C2RKComponent::isPendingWorkExist(uint64_t frameIndex) {
+    Mutexed<WorkQueue>::Locked queue(mWorkQueue);
+    return (queue->pending().count(frameIndex) > 0);
+}
+
+void C2RKComponent::flushPeddingWorks() {
+    Mutexed<WorkQueue>::Locked queue(mWorkQueue);
+    while (!queue->pending().empty()) {
+        std::unique_ptr<C2Work> work = std::move(queue->pending().begin()->second);
+
+        work->worklets.front()->output.flags = (C2FrameData::flags_t)0;
+        work->worklets.front()->output.buffers.clear();
+        work->worklets.front()->output.ordinal = work->input.ordinal;
+        work->workletsProcessed = 1u;
+
+        std::shared_ptr<C2Component::Listener> listener = mExecState.lock()->mListener;
+        listener->onWorkDone_nb(shared_from_this(), vec(work));
+        c2_trace("flush pending work, index %lld", queue->pending().begin()->first);
+
+        queue->pending().erase(queue->pending().begin());
+    }
+}
+
 void C2RKComponent::finish(
         uint64_t frameIndex,
         std::function<void(const std::unique_ptr<C2Work> &)> fillWork) {

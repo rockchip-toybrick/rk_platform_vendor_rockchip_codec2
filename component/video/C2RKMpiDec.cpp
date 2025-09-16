@@ -731,19 +731,36 @@ static int32_t frameReadyCb(void *ctx, void *mppCtx, int32_t cmd, void *frame) {
     return 0;
 }
 
-void C2RKMpiDec::WorkHandler::flushAllMessages() {
-    sp<AMessage> msg = new AMessage(WorkHandler::kWhatFlushMessage, this);
+static int64_t _toDts(int64_t frameIndex) {
+    return (++frameIndex);
+}
 
+static int64_t _toFrameIndex(int64_t dts) {
+    return (--dts);
+}
+
+void C2RKMpiDec::WorkHandler::flushAllMessages() {
+    mRunning = false;
+
+    sp<AMessage> msg = new AMessage(WorkHandler::kWhatFlushMessage, this);
     sp<AMessage> response;
     msg->postAndAwaitResponse(&response);
+
+    mRunning = true;
+}
+
+void C2RKMpiDec::WorkHandler::stop() {
+    flushAllMessages();
+
+    mRunning = false;
 }
 
 void C2RKMpiDec::WorkHandler::onMessageReceived(const sp<AMessage> &msg) {
     switch (msg->what()) {
         case kWhatFrameReady: {
             C2RKMpiDec *thiz = nullptr;
-            if (msg->findPointer("thiz", (void **)(&thiz)) && thiz) {
-                thiz->onFrameReady();
+            if (mRunning && msg->findPointer("thiz", (void **)(&thiz)) && thiz) {
+                thiz->drainWork();
             }
         } break;
         case kWhatFlushMessage: {
@@ -821,7 +838,8 @@ C2RKMpiDec::C2RKMpiDec(
       mHdrMetaEnabled(false),
       mTunneled(false),
       mBufferMode(false),
-      mUseRgaBlit(true) {
+      mUseRgaBlit(true),
+      mStandardWorkFlow(true) {
     c2_info("[%s] version %s", name, C2_COMPONENT_FULL_VERSION);
     mCodingType = (MppCodingType)GetMppCodingFromComponentName(name);
     if (mCodingType == MPP_VIDEO_CodingUnused) {
@@ -1685,12 +1703,25 @@ void C2RKMpiDec::setMppPerformance(bool on) {
     }
 }
 
-void C2RKMpiDec::finishWork(WorkEntry entry) {
+void C2RKMpiDec::fillEmptyWork(const std::unique_ptr<C2Work> &work) {
+    uint32_t flags = 0;
+    if (work->input.flags & C2FrameData::FLAG_END_OF_STREAM) {
+        flags |= C2FrameData::FLAG_END_OF_STREAM;
+    }
+    work->worklets.front()->output.flags = (C2FrameData::flags_t)flags;
+    work->worklets.front()->output.buffers.clear();
+    work->worklets.front()->output.ordinal = work->input.ordinal;
+    work->workletsProcessed = 1u;
+}
+
+void C2RKMpiDec::finishWork(
+        const std::unique_ptr<C2Work> &work, WorkEntry entry) {
     std::shared_ptr<C2Buffer> c2Buffer = nullptr;
 
     std::shared_ptr<C2GraphicBlock> block = entry.block;
-    uint64_t timestamp = entry.timestamp;
     uint32_t flags = entry.flags;
+    uint64_t timestamp = entry.timestamp;
+    uint64_t frameIndex = entry.frameIndex;
 
     // stop work output in tunnel mode
     if (mTunneled) {
@@ -1710,61 +1741,96 @@ void C2RKMpiDec::finishWork(WorkEntry entry) {
         }
     }
 
-    uint32_t inFlags = 0;
-
-    if (isDropFrame(timestamp)) {
-        inFlags = C2FrameData::FLAG_DROP_FRAME;
-    }
-
-    auto fillWork = [c2Buffer, inFlags, timestamp]
-            (const std::unique_ptr<C2Work> &work) {
-        work->input.ordinal.timestamp = 0;
-        work->input.ordinal.frameIndex = OUTPUT_WORK_INDEX;
-        work->input.ordinal.customOrdinal = 0;
-        work->input.flags = (C2FrameData::flags_t)inFlags;
-
-        // TODO: work flags set to incomplete to ignore frame index check
-        work->worklets.front()->output.flags = C2FrameData::FLAG_INCOMPLETE;
+    auto fillWork = [c2Buffer, flags, timestamp, this](const std::unique_ptr<C2Work> &work) {
+        work->worklets.front()->output.buffers.clear();
         work->worklets.front()->output.ordinal = work->input.ordinal;
         work->worklets.front()->output.ordinal.timestamp = timestamp;
-        work->worklets.front()->output.buffers.clear();
+
         if (c2Buffer) {
             work->worklets.front()->output.buffers.push_back(c2Buffer);
         }
+        if (flags & WorkEntry::FLAGS_DROP_FRAME) {
+            work->input.flags = C2FrameData::flags_t(
+                    work->input.flags | C2FrameData::FLAG_DROP_FRAME);
+            work->worklets.front()->output.flags = C2FrameData::flags_t(
+                    work->worklets.front()->output.flags |C2FrameData::FLAG_DROP_FRAME);
+        }
+        if (flags & WorkEntry::FLAGS_INFO_CHANGE) {
+            c2_info("update new size %dx%d config to framework.", mWidth, mHeight);
+            C2StreamPictureSizeInfo::output size(0u, mWidth, mHeight);
+            C2PortActualDelayTuning::output delay(mNumOutputSlots - mSlotsToReduce);
+
+            work->worklets.front()->output.configUpdate.push_back(C2Param::Copy(size));
+            work->worklets.front()->output.configUpdate.push_back(C2Param::Copy(delay));
+
+            if (mTunneled) {
+                configTunneledPlayback(work);
+             }
+        }
+        if (flags & WorkEntry::FLAGS_EOS) {
+            c2_info("signalling eos");
+            mOutputEOS = true;
+            work->worklets.front()->output.flags = C2FrameData::FLAG_END_OF_STREAM;
+        }
+
         work->workletsProcessed = 1u;
         work->result = C2_OK;
     };
 
-    std::unique_ptr<C2Work> work(new C2Work);
-    work->worklets.clear();
-    work->worklets.emplace_back(new C2Worklet);
+    if (work && (flags & WorkEntry::FLAGS_EOS)) {
+        fillWork(work);
+    } else {
+        if (isPendingWorkExist(frameIndex)) {
+            finish(frameIndex, fillWork);
+        } else {
+            // not present in the current peddingWorks, maybe interlaced video
+            // source, sent through new work pipeline.
+            std::unique_ptr<C2Work> work(new C2Work);
+            work->worklets.clear();
+            work->worklets.emplace_back(new C2Worklet);
 
-    if (flags & WorkEntry::FLAGS_INFO_CHANGE) {
-        c2_info("update new size %dx%d config to framework.", mWidth, mHeight);
+            // work flags set to incomplete to ignore frame index check
+            work->input.ordinal.frameIndex = OUTPUT_WORK_INDEX;
+            work->worklets.front()->output.flags = C2FrameData::FLAG_INCOMPLETE;
 
-        C2StreamPictureSizeInfo::output size(0u, mWidth, mHeight);
-        C2PortActualDelayTuning::output delay(mNumOutputSlots - mSlotsToReduce);
-        work->worklets.front()->output.configUpdate.push_back(C2Param::Copy(size));
-        work->worklets.front()->output.configUpdate.push_back(C2Param::Copy(delay));
+            finish(work, fillWork);
+        }
+    }
+}
 
-        if (mTunneled) {
-            c2_status_t err = configTunneledPlayback(work);
-            if (err != C2_OK) {
-                work->result = C2_BAD_VALUE;
-                c2_err("failed to configure tunneled playback, signalled Error");
-                return;
-            }
+c2_status_t C2RKMpiDec::drainEOS(const std::unique_ptr<C2Work> &work) {
+    if (mHandler) {
+        mHandler->stop();
+    }
+
+    int64_t maxTimeUs = 2000000; /* 2s */
+    int64_t startTimeUs = ALooper::GetNowUs();
+
+    while (true) {
+        if (C2_OK != drainWork(work)) {
+            goto error;
+        }
+
+        if (mOutputEOS) {
+            break;
+        }
+
+        if (ALooper::GetNowUs() - startTimeUs >= maxTimeUs) {
+            c2_warn("failed to get output eos within 2 seconds");
+            goto error;
+        } else {
+            usleep(1000);
         }
     }
 
-    finish(work, fillWork);
+    return C2_OK;
 
-    if (flags & WorkEntry::FLAGS_EOS) {
-        c2_info("signalling eos");
-        Mutex::Autolock autoLock(mEosLock);
-        mEosCondition.signal();
-        mOutputEOS = true;
-    }
+error:
+    mSignalledError = true;
+    work->workletsProcessed = 1u;
+    work->result = C2_CORRUPTED;
+
+    return C2_CORRUPTED;
 }
 
 c2_status_t C2RKMpiDec::drain(
@@ -1854,6 +1920,8 @@ void C2RKMpiDec::process(
     uint64_t frameIndex = work->input.ordinal.frameIndex.peekull();
     uint64_t timestamp = work->input.ordinal.timestamp.peekll();
 
+    mInputEOS = ((flags & C2FrameData::FLAG_END_OF_STREAM) != 0);
+
     c2_trace("in buffer attr. size %zu timestamp %lld frameindex %lld, flags %x",
              inSize, timestamp, frameIndex, flags);
 
@@ -1875,7 +1943,7 @@ void C2RKMpiDec::process(
         }
     }
 
-    err = sendpacket(inData, inSize, timestamp, flags);
+    err = sendpacket(inData, inSize, timestamp, frameIndex, flags);
     if (err != C2_OK) {
         c2_err("failed to send packet, pts %lld", timestamp);
         mSignalledError = true;
@@ -1883,25 +1951,11 @@ void C2RKMpiDec::process(
         return;
     }
 
-    // fillEmpty for old worklet
-    if (flags & C2FrameData::FLAG_END_OF_STREAM) {
-        flags = C2FrameData::FLAG_END_OF_STREAM;
-        mInputEOS = true;
-        // wait output eos stream
-        Mutex::Autolock autoLock(mEosLock);
-        if (!mOutputEOS) {
-            if (mEosCondition.waitRelative(mEosLock, 2000000000 /* 2s */) != OK) {
-                c2_warn("failed to get output eos within 2 seconds");
-            }
-        }
-    } else {
-        flags = 0;
+    if (mInputEOS) {
+        drainEOS(work);
+    } else if (!mStandardWorkFlow || (flags & C2FrameData::FLAG_CODEC_CONFIG)) {
+        fillEmptyWork(work);
     }
-
-    work->worklets.front()->output.flags = (C2FrameData::flags_t)flags;
-    work->worklets.front()->output.buffers.clear();
-    work->worklets.front()->output.ordinal = work->input.ordinal;
-    work->workletsProcessed = 1u;
 
     mFlushed = false;
 }
@@ -2213,42 +2267,46 @@ void C2RKMpiDec::postFrameReady() {
     }
 }
 
-c2_status_t C2RKMpiDec::onFrameReady() {
+c2_status_t C2RKMpiDec::drainWork(const std::unique_ptr<C2Work> &work) {
     if (mSignalledError) return C2_BAD_STATE;
 
-outframe:
     WorkEntry entry;
     memset(&entry, 0, sizeof(entry));
 
+outframe:
     c2_status_t err = getoutframe(&entry);
     if (err == C2_OK) {
-        finishWork(entry);
-        /* Avoid stock frame, continue to search available output */
+        finishWork(work, entry);
+
         err = ensureDecoderState();
         if (err != C2_OK) {
             goto error;
         }
-        goto outframe;
+    } else if (err == C2_NO_MEMORY) {
+        err = ensureDecoderState();
+        if (err == C2_OK) {
+            // feekback config update to first output frame.
+            entry.flags |= WorkEntry::FLAGS_INFO_CHANGE;
+            goto outframe;
+        } else {
+            goto error;
+        }
     } else if (err == C2_CORRUPTED) {
         goto error;
     }
 
-    return err;
+    return C2_OK;
 
 error:
     c2_err("signalling error");
     mSignalledError = true;
 
-    // force unlock eos condition
-    Mutex::Autolock autoLock(mEosLock);
-    if (mInputEOS && !mOutputEOS) {
-        mEosCondition.signal();
-    }
-
-    return err;
+    return C2_CORRUPTED;
 }
 
-c2_status_t C2RKMpiDec::sendpacket(uint8_t *data, size_t size, uint64_t pts, uint32_t flags) {
+c2_status_t C2RKMpiDec::sendpacket(
+        uint8_t *data, size_t size, uint64_t pts,
+        uint64_t frameIndex, uint32_t flags) {
     c2_status_t ret = C2_OK;
     MppPacket packet = nullptr;
 
@@ -2256,6 +2314,10 @@ c2_status_t C2RKMpiDec::sendpacket(uint8_t *data, size_t size, uint64_t pts, uin
     mpp_packet_set_pts(packet, pts);
     mpp_packet_set_pos(packet, data);
     mpp_packet_set_length(packet, size);
+    // non-zero dts after decoding validates this method, so
+    // we will never set dts to 0.
+    // FIXME: better way to pass frameIndex.
+    mpp_packet_set_dts(packet, _toDts(frameIndex));
 
     if (flags & C2FrameData::FLAG_END_OF_STREAM) {
         c2_info("send input eos");
@@ -2332,6 +2394,9 @@ c2_status_t C2RKMpiDec::getoutframe(WorkEntry *entry) {
     int32_t discard  = mpp_frame_get_discard(frame);
     int32_t eos      = mpp_frame_get_eos(frame);
     int64_t pts      = mpp_frame_get_pts(frame);
+    int64_t dts      = mpp_frame_get_dts(frame);
+    int32_t mode     = mpp_frame_get_mode(frame);
+    int64_t frameIdx = _toFrameIndex(dts);
     int32_t flags    = 0;
     int32_t bufferId = 0;
 
@@ -2339,10 +2404,18 @@ c2_status_t C2RKMpiDec::getoutframe(WorkEntry *entry) {
     MppBuffer mppBuffer = mpp_frame_get_buffer(frame);
     std::shared_ptr<OutBuffer> outBuffer = nullptr;
 
+    if (mStandardWorkFlow) {
+        if ((mode & MPP_FRAME_FLAG_IEP_DEI_MASK) || (!eos && !dts)) {
+            c2_info("fallback non-standard workflow");
+            mStandardWorkFlow = false;
+            flushPeddingWorks();
+        }
+    }
+
     if (mpp_frame_get_info_change(frame)) {
-        c2_info("info-change with old dimensions(%dx%d) stride(%dx%d) fmt %d", \
+        c2_info("info-change with old dimensions(%dx%d) stride(%dx%d) fmt 0x%llx", \
                 mWidth, mHeight, mHorStride, mVerStride, mColorFormat);
-        c2_info("info-change with new dimensions(%dx%d) stride(%dx%d) fmt %d", \
+        c2_info("info-change with new dimensions(%dx%d) stride(%dx%d) fmt 0x%llx", \
                 width, height, hstride, vstride, format);
 
         if (width > kMaxVideoWidth || height > kMaxVideoWidth) {
@@ -2385,23 +2458,23 @@ c2_status_t C2RKMpiDec::getoutframe(WorkEntry *entry) {
         }
 
         // update alloc params once args updated
-        ret = updateAllocParams();
+        updateAllocParams();
 
-        // feekback config update to first output frame.
-        flags |= WorkEntry::FLAGS_INFO_CHANGE;
+        ret = C2_NO_MEMORY;
 
         goto cleanUp;
     }
 
     if (eos) {
-        c2_info("get output eos.");
+        c2_info("get output eos");
         flags |= WorkEntry::FLAGS_EOS;
         // ignore null frame with eos
         if (!mppBuffer) goto cleanUp;
     }
 
-    if (error || discard) {
-        c2_warn("skip error frame with pts %lld", pts);
+    if (error || discard || isDropFrame(pts)) {
+        c2_warn("skip error/drop frame with pts %lld", pts);
+        flags |= WorkEntry::FLAGS_DROP_FRAME;
         goto cleanUp;
     }
 
@@ -2499,10 +2572,11 @@ c2_status_t C2RKMpiDec::getoutframe(WorkEntry *entry) {
     mDumper->showFrameTiming(pts);
 
     entry->block = mBufferMode ? std::move(mOutBlock) : std::move(outBuffer->getBlock());
-    entry->timestamp = pts;
 
 cleanUp:
-    entry->flags = flags;
+    entry->flags |= flags;
+    entry->timestamp = pts;
+    entry->frameIndex = frameIdx;
 
     if (frame) {
         mpp_frame_deinit(&frame);

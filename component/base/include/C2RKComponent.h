@@ -115,6 +115,16 @@ protected:
     void stopFlushingState();
     bool isPendingFlushing();
 
+    /**
+     * check is pending work with frameIndex exits
+     */
+    bool isPendingWorkExist(uint64_t frameIndex);
+
+    /**
+     * finish all pedding works
+     */
+    void flushPeddingWorks();
+
     // for derived classes
     /**
      * Finish pending work.

@@ -55,7 +55,7 @@ public:
             const std::shared_ptr<C2BlockPool> &pool) override;
 
     void postFrameReady();
-    c2_status_t onFrameReady();
+    c2_status_t drainWork(const std::unique_ptr<C2Work> &work = nullptr);
 
 private:
     class WorkHandler : public AHandler {
@@ -65,13 +65,17 @@ private:
             kWhatFlushMessage,
         };
 
-        WorkHandler() {}
+        WorkHandler() : mRunning(true) {}
         ~WorkHandler() override = default;
 
         void flushAllMessages();
+        void stop();
 
     protected:
         void onMessageReceived(const sp<AMessage> &msg) override;
+
+    private:
+        bool mRunning;
     };
 
     // Output buffer structure
@@ -101,8 +105,10 @@ private:
         enum Flags {
             FLAGS_EOS         = 0x1,
             FLAGS_INFO_CHANGE = 0x2,
+            FLAGS_DROP_FRAME  = 0x4,
         };
 
+        int64_t frameIndex;
         int64_t timestamp;
         int32_t flags;
         std::shared_ptr<C2GraphicBlock> block;
@@ -128,10 +134,7 @@ private:
     std::shared_ptr<C2RKDump> mDumper;
     std::shared_ptr<C2RKTunneledSession> mTunneledSession;
 
-    Mutex     mBufferLock;
-    Mutex     mEosLock;
-    Condition mEosCondition;
-
+    Mutex            mBufferLock;
     sp<ALooper>      mLooper;
     sp<WorkHandler>  mHandler;
 
@@ -168,6 +171,7 @@ private:
     bool mTunneled;
     bool mBufferMode;
     bool mUseRgaBlit;
+    bool mStandardWorkFlow;
 
     std::shared_ptr<C2GraphicBlock> mOutBlock;
     std::shared_ptr<C2BlockPool>    mBlockPool;
@@ -200,11 +204,14 @@ private:
     c2_status_t setupAndStartLooper();
     void stopAndReleaseLooper();
 
+    c2_status_t drainEOS(const std::unique_ptr<C2Work> &work);
+
     int32_t getFbcOutputMode(const std::unique_ptr<C2Work> &work = nullptr);
     c2_status_t getSurfaceFeatures(const std::shared_ptr<C2BlockPool> &pool);
     c2_status_t configOutputDelay(const std::unique_ptr<C2Work> &work = nullptr);
     c2_status_t configTunneledPlayback(const std::unique_ptr<C2Work> &work);
-    void finishWork(WorkEntry entry);
+    void fillEmptyWork(const std::unique_ptr<C2Work> &work);
+    void finishWork(const std::unique_ptr<C2Work> &work, WorkEntry entry);
 
     c2_status_t initDecoder(const std::unique_ptr<C2Work> &work);
     c2_status_t updateDecoderArgs(const std::shared_ptr<C2BlockPool> &pool);
@@ -217,7 +224,9 @@ private:
     c2_status_t importBufferToDecoder(std::shared_ptr<C2GraphicBlock> block);
     c2_status_t ensureTunneledState();
     c2_status_t ensureDecoderState();
-    c2_status_t sendpacket(uint8_t *data, size_t size, uint64_t pts, uint32_t flags);
+    c2_status_t sendpacket(
+            uint8_t *data, size_t size, uint64_t pts,
+            uint64_t frameIndex, uint32_t flags);
     c2_status_t getoutframe(WorkEntry *entry);
 
     c2_status_t configFrameMetaIfNeeded(MppFrame frame, std::shared_ptr<C2GraphicBlock> block);
