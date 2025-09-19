@@ -346,6 +346,15 @@ int32_t C2RKChipCapDef::getFbcOutputOffset(
     return 0;
 }
 
+bool C2RKChipCapDef::preferDureCoreEncoding(int64_t load) {
+    // enable dual-core encoding if load > 50% of threshold
+    if ((getChipType() == RK_CHIP_3588 && load > (7680 * 4320 * 15)) ||
+        (getChipType() == RK_CHIP_3576 && load > (4096 * 2160 * 30))) {
+        return true;
+    }
+
+    return false;
+}
 
 bool C2RKChipCapDef::is10bitSupport(MppCodingType codecId) {
     bool ret = false;

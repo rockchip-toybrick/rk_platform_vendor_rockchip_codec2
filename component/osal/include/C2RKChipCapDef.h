@@ -130,7 +130,7 @@ public:
     int32_t getFbcMinStride(int32_t fbcMode);
     int32_t getFbcOutputOffset(MppCodingType codecId, int32_t *offsetX, int32_t *offsetY);
 
-    bool useSpsRefFrameCount();
+    bool preferDureCoreEncoding(int64_t load);
     bool is10bitSupport(MppCodingType codecId);
     bool hasRkVenc();
 

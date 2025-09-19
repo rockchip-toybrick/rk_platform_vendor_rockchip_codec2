@@ -1324,21 +1324,26 @@ c2_status_t C2RKMpiEnc::stopAndReleaseLooper() {
 c2_status_t C2RKMpiEnc::onInit() {
     c2_log_func_enter();
 
+    uint32_t  width = mIntf->getSize_l()->width;
+    uint32_t height = mIntf->getSize_l()->height;
+    float frameRate = mIntf->getFrameRate_l()->value;
+
     C2RKMemTrace::C2NodeInfo node {
         .client = this,
         .name   = mName,
         .mime   = mMime,
         .type   = C2RKMemTrace::C2_TRACE_ENCODER,
-        .width  = mIntf->getSize_l()->width,
-        .height = mIntf->getSize_l()->height,
-        .frameRate = mIntf->getFrameRate_l()->value
+        .width  = width,
+        .height = height,
+        .frameRate = frameRate
     };
     if (!C2RKMemTrace::get()->tryAddVideoNode(node)) {
         C2RKMemTrace::get()->dumpAllNode();
         return C2_NO_MEMORY;
     }
 
-    if (C2RKPropsDef::getEncAsncOutputMode()) {
+    if (C2RKChipCapDef::get()->preferDureCoreEncoding(width * height * frameRate) ||
+        C2RKPropsDef::getEncAsncOutputMode()) {
         c2_info("use async output mode");
         c2_status_t err = setupAndStartLooper();
         if (err != C2_OK) {
