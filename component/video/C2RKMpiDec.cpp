@@ -338,7 +338,8 @@ public:
         if (mediaType == MEDIA_MIMETYPE_VIDEO_AVC ||
             mediaType == MEDIA_MIMETYPE_VIDEO_HEVC ||
             mediaType == MEDIA_MIMETYPE_VIDEO_AV1 ||
-            mediaType == MEDIA_MIMETYPE_VIDEO_MPEG2) {
+            mediaType == MEDIA_MIMETYPE_VIDEO_MPEG2 ||
+            mediaType == MEDIA_MIMETYPE_VIDEO_VP9) {
             addParameter(
                     DefineParam(mCodedColorAspects, C2_PARAMKEY_VUI_COLOR_ASPECTS)
                     .withDefault(new C2StreamColorAspectsInfo::input(
@@ -580,10 +581,6 @@ public:
     static C2R TunneledPlaybackSetter(
         bool mayBlock, C2P<C2PortTunneledModeTuning::output> &me) {
         (void)mayBlock;
-        if (me.v.m.syncType != C2PortTunneledModeTuning::Struct::sync_type_t::REALTIME) {
-            c2_warn("only support real-time sync type currently");
-            me.set().m.mode = C2PortTunneledModeTuning::Struct::NONE;
-        }
         return C2R::Ok();
     }
 
