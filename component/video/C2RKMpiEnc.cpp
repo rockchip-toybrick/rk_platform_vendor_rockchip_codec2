@@ -2112,6 +2112,52 @@ c2_status_t C2RKMpiEnc::setupPrependHeaderSetting() {
     return C2_OK;
 }
 
+c2_status_t C2RKMpiEnc::setupIntraRefresh() {
+    IntfImpl::Lock lock = mIntf->lock();
+    std::shared_ptr<C2StreamIntraRefreshTuning::output> intraRefresh
+            = mIntf->getIntraRefresh_l();
+
+    int32_t gop = 0;
+    mpp_enc_cfg_get_s32(mEncCfg, "rc:gop", &gop);
+
+    if (gop && intraRefresh->period > gop) {
+        c2_warn("setupIntraRefresh: period %.1f is larger than gop %d, ignored",
+                intraRefresh->period, gop);
+        return C2_OK;
+    }
+
+    if (intraRefresh->period > 1.0f) {
+        int32_t ctuSize = 16;
+
+        if (mCodingType == MPP_VIDEO_CodingHEVC) {
+            int32_t hevcLcuSize = 0;
+            mpp_enc_cfg_get_s32(mEncCfg, "h265:lcu_size", &hevcLcuSize);
+            if (hevcLcuSize > 0) {
+                ctuSize = hevcLcuSize;
+            } else {
+                if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_3528 ||
+                    C2RKChipCapDef::get()->getChipType() == RK_CHIP_3576) {
+                    ctuSize = 32;
+                } else {
+                    ctuSize = 64;
+                }
+            }
+        }
+
+        int32_t mbs = std::ceil(mSize->height / ctuSize);
+        int32_t refreshRowsPerFrame = std::ceil(mbs / intraRefresh->period);
+
+        mpp_enc_cfg_set_s32(mEncCfg, "rc:refresh_en", 1);
+        mpp_enc_cfg_set_s32(mEncCfg, "rc:refresh_mode", MPP_ENC_RC_INTRA_REFRESH_ROW);
+        mpp_enc_cfg_set_s32(mEncCfg, "rc:refresh_num", refreshRowsPerFrame);
+
+        c2_info("setupIntraRefresh: period(frames) %.1f refreshRowsPerFrame %d",
+                intraRefresh->period, refreshRowsPerFrame);
+    }
+
+    return C2_OK;
+}
+
 c2_status_t C2RKMpiEnc::setupSuperModeIfNeeded() {
     IntfImpl::Lock lock = mIntf->lock();
     std::shared_ptr<C2StreamEncSEModeSetting::input> settings
@@ -2387,6 +2433,9 @@ c2_status_t C2RKMpiEnc::setupEncCfg() {
     /* Video control Set Prepend Header Setting */
     setupPrependHeaderSetting();
 
+    /*  Video control Set Intra Refresh */
+    setupIntraRefresh();
+
     /* Video control Set Super Encoding Mode */
     setupSuperModeIfNeeded();
 
@@ -2425,6 +2474,7 @@ c2_status_t C2RKMpiEnc::initEncoder() {
         mSize = mIntf->getSize_l();
         mBitrate = mIntf->getBitrate_l();
         mFrameRate = mIntf->getFrameRate_l();
+        mIntraRefresh = mIntf->getIntraRefresh_l();
         mProfile = mIntf->getProfile_l(mCodingType);
     }
 
@@ -2797,6 +2847,7 @@ c2_status_t C2RKMpiEnc::handleCommonDynamicCfg() {
     std::shared_ptr<C2StreamPictureSizeInfo::input> size = mIntf->getSize_l();
     std::shared_ptr<C2StreamBitrateInfo::output> bitrate = mIntf->getBitrate_l();
     std::shared_ptr<C2StreamFrameRateInfo::output> frameRate = mIntf->getFrameRate_l();
+    std::shared_ptr<C2StreamIntraRefreshTuning::output> intraRefresh = mIntf->getIntraRefresh_l();
     uint32_t profile = mIntf->getProfile_l(mCodingType);
     lock.unlock();
 
@@ -2829,6 +2880,14 @@ c2_status_t C2RKMpiEnc::handleCommonDynamicCfg() {
         c2_info("new profile request, value %s", toStr_Profile(profile, mCodingType));
         mProfile = profile;
         setupProfileParams();
+        change = true;
+    }
+
+    // handle dynamic intra refresh config.
+    if (intraRefresh != mIntraRefresh) {
+        c2_info("new intra refresh request, period %.1f", intraRefresh->period);
+        mIntraRefresh = intraRefresh;
+        setupIntraRefresh();
         change = true;
     }
 

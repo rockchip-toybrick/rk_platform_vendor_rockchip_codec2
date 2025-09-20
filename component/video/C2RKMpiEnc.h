@@ -151,6 +151,7 @@ private:
     std::shared_ptr<C2StreamPictureSizeInfo::input> mSize;
     std::shared_ptr<C2StreamBitrateInfo::output> mBitrate;
     std::shared_ptr<C2StreamFrameRateInfo::output> mFrameRate;
+    std::shared_ptr<C2StreamIntraRefreshTuning::output> mIntraRefresh;
 
     void fillEmptyWork(const std::unique_ptr<C2Work> &work);
     void finishWork(
@@ -175,6 +176,7 @@ private:
     c2_status_t setupVuiParams();
     c2_status_t setupTemporalLayers();
     c2_status_t setupPrependHeaderSetting();
+    c2_status_t setupIntraRefresh();
     c2_status_t setupSuperModeIfNeeded();
     c2_status_t setupMlvecIfNeeded();
     c2_status_t setupEncCfg();
