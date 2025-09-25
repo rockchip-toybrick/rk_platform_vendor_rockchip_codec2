@@ -57,6 +57,9 @@ public:
     void postFrameReady();
     c2_status_t drainWork(const std::unique_ptr<C2Work> &work = nullptr);
 
+    // Implementation of virtual function from C2NodeInfoListener
+    void onNodeSummaryRequest(std::string &summary);
+
 private:
     class WorkHandler : public AHandler {
     public:
@@ -81,21 +84,24 @@ private:
     // Output buffer structure
     struct OutBuffer {
         int32_t   mBufferId;
+        int32_t   mSize;
         bool      mOwnedByDecoder;
         MppBuffer mMppBuffer;
         std::shared_ptr<C2GraphicBlock> mBlock;
 
         OutBuffer(
                 int32_t bufferId,
+                int32_t size,
                 MppBuffer mppBuffer,
                 const std::shared_ptr<C2GraphicBlock> &block) :
-                mBufferId(bufferId), mOwnedByDecoder(false),
+                mBufferId(bufferId), mSize(size), mOwnedByDecoder(false),
                 mMppBuffer(mppBuffer), mBlock(block) {}
 
         bool ownedByDecoder();
 
         void updateBlock(std::shared_ptr<C2GraphicBlock> block) { mBlock = block; }
         std::shared_ptr<C2GraphicBlock> getBlock() { return mBlock; }
+        int32_t getSize() { return mSize; }
 
         void submitToDecoder();
         void setInusedByClient();
@@ -195,7 +201,7 @@ private:
         VuiColorAspects()
             : primaries(2), transfer(2), coeffs(2), fullRange(0) { }
 
-        bool operator==(const VuiColorAspects &o) {
+        bool operator==(const VuiColorAspects &o) const {
             return primaries == o.primaries && transfer == o.transfer &&
                     coeffs == o.coeffs && fullRange == o.fullRange;
         }

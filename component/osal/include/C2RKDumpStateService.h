@@ -26,11 +26,14 @@
 
 namespace android {
 
+class BitrateCalculator;
+class FrameRateCalculator;
+
 /* Log dump flags */
 #define C2_DUMP_LOG_TRACE                   (0x00000001)
 #define C2_DUMP_LOG_DETAIL                  (0x00000002)
-#define C2_DUMP_FPS_SHOW_INPUT              (0x00000004)
-#define C2_DUMP_FPS_SHOW_OUTPUT             (0x00000008)
+#define C2_DUMP_FPS_DEBUGGING               (0x00000004)
+#define C2_DUMP_BPS_DEBUGGING               (0x00000008)
 
 /* Record dump flags */
 #define C2_DUMP_RECORD_ENCODE_INPUT         (0x00000010)
@@ -39,32 +42,39 @@ namespace android {
 #define C2_DUMP_RECORD_DECODE_OUTPUT        (0x00000080)
 #define C2_DUMP_RECORD_IO_MASK              (0x000000f0)
 
-
 /* Performance monitoring flags */
 #define C2_DUMP_FRAME_TIMING                (0x00000100)
 
+enum C2DumpPort {
+    kPortIndexInput  = 0,
+    kPortIndexOutput = 1,
+};
 
-enum C2DumpRole {
-    ROLE_INPUT = 0,
-    ROLE_OUTPUT,
-    ROLE_BUTT,
+class C2NodeInfoListener {
+public:
+    virtual ~C2NodeInfoListener() = default;
+    virtual void onNodeSummaryRequest(std::string &summary) = 0;
 };
 
 struct C2NodeInfo {
 public:
     C2NodeInfo(void *nodeId,
-            const char *name, const char *mime,
             uint32_t width, uint32_t height,
             bool isEncoder, float frameRate) :
-        mNodeId(nodeId), mName(name),
-        mMime(mime), mWidth(width), mHeight(height),
+        mNodeId(nodeId), mWidth(width), mHeight(height),
         mIsEncoder(isEncoder), mFrameRate(frameRate),
-        mPid(0), mInFile(nullptr), mOutFile(nullptr) {}
+        mPid(0), mInFile(nullptr), mOutFile(nullptr), mBpsCalculator(nullptr) {}
+
+    void setListener(const std::shared_ptr<C2NodeInfoListener> &listener);
+
+    const char* getNodeSummary();
+
+public:
+    std::string mNodeSummary;
+    std::shared_ptr<C2NodeInfoListener> mListener;
 
     /* codec basic information */
     void*       mNodeId;
-    const char *mName;
-    const char *mMime;
     uint32_t    mWidth;
     uint32_t    mHeight;
     bool        mIsEncoder;
@@ -75,15 +85,14 @@ public:
     FILE       *mInFile;
     FILE       *mOutFile;
 
-    /* fps debugging */
-    uint32_t    mFrameCount[ROLE_BUTT];
-    uint32_t    mLastFrameCount[ROLE_BUTT];
-    nsecs_t     mLastFpsTime[ROLE_BUTT];
-
     /*  frame timing analysis */
     /* <frameIndex, frameStartTime> */
     Mutex       mRecordLock;
     KeyedVector<int64_t, int64_t> mRecordStartTimes;
+
+    /* real-time bps/fps debugging */
+    std::shared_ptr<BitrateCalculator> mBpsCalculator;
+    std::shared_ptr<FrameRateCalculator> mFpsCalculator;
 };
 
 class C2RKDumpStateService {
@@ -93,25 +102,26 @@ public:
         return &_gInstance;
     }
 
+    void updateDebugFlags(int32_t flags);
     static bool hasDebugFlags(int32_t flags);
 
-    // Node management
+    /* Node management */
     std::shared_ptr<C2NodeInfo> findNodeItem(void *nodeId);
     bool addNode(std::shared_ptr<C2NodeInfo> node);
     bool removeNode(void *nodeId);
+    bool resetNode(void *nodeId);
+    bool updateNode(void *nodeId, uint32_t width, uint32_t height, float frameRate = .0f);
+    bool getNodePortFrameCount(void *nodeId, int64_t *inputFrames, int64_t *outputFrames);
 
-    // Input/output recording
-    void recordFile(void *nodeId, void *data, size_t size);
-    void recordFile(void *nodeId, void *src, int32_t w, int32_t h, int32_t fmt);
+    /* Input/output recording */
+    void recordFrame(void *nodeId, void *data, size_t size, bool isConfig = false);
+    void recordFrame(void *nodeId, void *src, int32_t w, int32_t h, int32_t fmt);
 
-    // FPS debugging
-    void showDebugFps(void *nodeId, C2DumpRole role);
-
-    // Frame timing analysis
+    /* Frame timing analysis */
     void recordFrameTime(void *nodeId, int64_t frameIndex);
     void showFrameTiming(void *nodeId, int64_t frameIndex);
 
-    // Node summary
+    /* Node summary */
     std::string dumpNodesSummary(bool logging = true);
 
 private:
@@ -119,7 +129,7 @@ private:
     virtual ~C2RKDumpStateService();
 
     // Dynamically determine file capture based on dumpFlags
-    void updateDumpFileStatus(std::shared_ptr<C2NodeInfo> node);
+    void onDumpFlagsUpdated(std::shared_ptr<C2NodeInfo> node);
 
 private:
     static int32_t mDumpFlags;

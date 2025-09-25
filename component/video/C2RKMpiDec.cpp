@@ -48,6 +48,7 @@ constexpr uint64_t kCpuReadWriteUsage = (GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_U
 constexpr uint32_t kMaxVideoWidth = 8192;
 constexpr uint32_t kMaxVideoHeight = 4320;
 
+constexpr size_t kRenderSmoothnessFactor = 4;
 constexpr size_t kMinInputBufferSize = 2 * 1024 * 1024;
 
 struct MlvecParams {
@@ -799,6 +800,19 @@ void C2RKMpiDec::OutBuffer::setInusedByClient() {
     }
 }
 
+class C2DecNodeInfoListener : public C2NodeInfoListener {
+public:
+    explicit C2DecNodeInfoListener(C2RKMpiDec *thiz) : mThiz(thiz) {}
+    ~C2DecNodeInfoListener() override = default;
+
+    void onNodeSummaryRequest(std::string &summary) override {
+        mThiz->onNodeSummaryRequest(summary);
+    }
+
+private:
+    C2RKMpiDec *mThiz;
+};
+
 C2RKMpiDec::C2RKMpiDec(
         const char *name,
         const char *mime,
@@ -853,19 +867,99 @@ C2RKMpiDec::~C2RKMpiDec() {
     mDumpService->dumpNodesSummary();
 }
 
+// Implementation of virtual function from C2NodeInfoListener
+void C2RKMpiDec::onNodeSummaryRequest(std::string &summary) {
+    const size_t SIZE = 256;
+    char buffer[SIZE];
+    int64_t inputFrames = 0;
+    int64_t outputFrames = 0;
+    ColorAspects sfAspects;
+
+    ColorUtils::convertIsoColorAspectsToCodecAspects(
+            mBitstreamColorAspects.primaries, mBitstreamColorAspects.transfer,
+            mBitstreamColorAspects.coeffs, mBitstreamColorAspects.fullRange, sfAspects);
+
+    snprintf(buffer, sizeof(buffer),
+        "| Component   : %s\n"
+        "| Media Format: %s, %.1f fps, %s%s\n"
+        "| Resolution  : %dx%d (Stride %dx%d)\n",
+        mName, mMime, mIntf->getFrameRate_l()->value,
+        MPP_FRAME_FMT_IS_YUV_10BIT(mColorFormat) ? "10-Bit" : "8-Bit",
+        MPP_FRAME_FMT_IS_FBC(mColorFormat) ? ", FBC" : "",
+        mWidth, mHeight, mHorStride, mVerStride);
+
+    summary.append(buffer);
+
+    snprintf(buffer, sizeof(buffer),
+        "| Color Info  : Range=%d(%s)\n"
+        "|               Primaries=%d(%s)\n"
+        "|               Matrix=%d(%s)\n"
+        "|               Transfer=%d(%s)\n",
+        sfAspects.mRange, asString(sfAspects.mRange),
+        sfAspects.mPrimaries, asString(sfAspects.mPrimaries),
+        sfAspects.mMatrixCoeffs, asString(sfAspects.mMatrixCoeffs),
+        sfAspects.mTransfer, asString(sfAspects.mTransfer));
+
+    summary.append(buffer);
+
+    if (mBuffers.size()) {
+        int32_t bufferSize = 0;
+
+        size_t sizeOwnedByDecoder = std::count_if(
+            mBuffers.begin(), mBuffers.end(),
+            [&bufferSize] (const decltype(mBuffers)::value_type &value) {
+                if (value.second->ownedByDecoder()) {
+                    bufferSize = value.second->getSize();
+                    return true;
+                }
+                return false;
+            });
+
+        snprintf(buffer, sizeof(buffer),
+            "|\n|--------------Buffer Allocation State-------------|\n"
+            "| Count       : %zu (%zu in decoder)\n"
+            "| Size        : %d bytes each\n"
+            "| Usage       : 0x%llx\n"
+            "| Format      : 0x%x\n"
+            "| Mode        : %s\n",
+            mBuffers.size(), sizeOwnedByDecoder, bufferSize,
+            (long long)mAllocParams.usage, mAllocParams.format,
+            mBufferMode ? "BufferMode" : "SurfaceMode");
+
+        summary.append(buffer);
+    }
+
+    if (mDumpService->getNodePortFrameCount(this, &inputFrames, &outputFrames)
+            && inputFrames > 0) {
+        int32_t diff = inputFrames - outputFrames;
+        int32_t threshold = mNumOutputSlots - mSlotsToReduce + kRenderSmoothnessFactor;
+
+        snprintf(buffer, sizeof(buffer),
+            "|\n|--------------Pipeline Runtime State--------------|\n"
+            "| Input packet: %lld Totals, %lld Decoded\n"
+            "| Threshold   : %d (Slots %d Smoothness %d)\n"
+            "| State       : %s\n",
+            (long long)inputFrames, (long long)outputFrames, threshold,
+            (mNumOutputSlots - mSlotsToReduce), (int)kRenderSmoothnessFactor,
+            (diff >= threshold) ? "Pipeline-Full" : "Normal");
+
+        summary.append(buffer);
+    }
+}
+
 c2_status_t C2RKMpiDec::onInit() {
     c2_log_func_enter();
 
     std::shared_ptr<C2NodeInfo> nodeInfo =
             std::make_shared<C2NodeInfo>(
                 this,   // nodeId
-                mName,  // name
-                mMime,  // mime
                 mIntf->getSize_l()->width,  // width
                 mIntf->getSize_l()->height, // height
                 false,  // isEncoder
                 mIntf->getFrameRate_l()->value // frameRate
             );
+
+    nodeInfo->setListener(std::make_shared<C2DecNodeInfoListener>(this));
 
     if (!mDumpService->addNode(nodeInfo)) {
         mDumpService->dumpNodesSummary();
@@ -961,6 +1055,9 @@ c2_status_t C2RKMpiDec::onFlush_sm() {
         Mutex::Autolock autoLock(mBufferLock);
 
         releaseAllBuffers();
+
+        // reset dump statistics
+        mDumpService->resetNode(this);
 
         mFlushed = true;
     }
@@ -1220,7 +1317,7 @@ c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
          * equivalent to occupying 4 buffer blocks of the framework.
          */
         if (lowMemoryMode & LowMemoryMode::MODE_REDUCE_SMOOTH) {
-            slotsToReduce = C2_MIN(numOutputSlots, 4);
+            slotsToReduce = C2_MIN(numOutputSlots, kRenderSmoothnessFactor);
         }
 
         C2PortActualDelayTuning::output delay(numOutputSlots - slotsToReduce);
@@ -1502,7 +1599,7 @@ c2_status_t C2RKMpiDec::updateAllocParams() {
 
     mUseRgaBlit = true;
 
-    c2_trace("update alloc attrs, width %d height %d usage %xllx format %d",
+    c2_trace("update alloc attrs, width %d height %d usage 0x%llx format %d",
               allocWidth, allocHeight, allocUsage, allocFormat);
 
     return C2_OK;
@@ -2118,7 +2215,7 @@ c2_status_t C2RKMpiDec::importBufferToDecoder(std::shared_ptr<C2GraphicBlock> bl
                 mBufferGroup, &bufferInfo, &mppBuffer, "codec2", __FUNCTION__);
 
         std::shared_ptr<OutBuffer> newBuffer =
-                std::make_shared<OutBuffer>(bufferId, mppBuffer, block);
+                std::make_shared<OutBuffer>(bufferId, bufferInfo.size, mppBuffer, block);
 
         // signal buffer available to decoder
         newBuffer->submitToDecoder();
@@ -2339,9 +2436,9 @@ c2_status_t C2RKMpiDec::sendpacket(
         MPP_RET err = mMppMpi->decode_put_packet(mMppCtx, packet);
         if (err == MPP_OK) {
             c2_trace("send packet pts %lld size %d", pts, size);
-            /* dump input data if neccessary */
-            mDumpService->recordFile(this, data, size);
-            mDumpService->showDebugFps(this, ROLE_INPUT);
+            /* record input packet buffer */
+            mDumpService->recordFrame(
+                    this, data, size, (flags & C2FrameData::FLAG_CODEC_CONFIG));
             break;
         }
 
@@ -2459,6 +2556,9 @@ c2_status_t C2RKMpiDec::getoutframe(WorkEntry *entry) {
         // update alloc params once args updated
         updateAllocParams();
 
+        // update node params of service
+        mDumpService->updateNode(this, mWidth, mHeight);
+
         ret = C2_NO_MEMORY;
 
         goto cleanUp;
@@ -2560,15 +2660,16 @@ c2_status_t C2RKMpiDec::getoutframe(WorkEntry *entry) {
         getVuiParams(frame);
     }
 
-    /* dump output data if neccessary */
-    if (mDumpService->hasDebugFlags(C2_DUMP_RECORD_DECODE_OUTPUT)) {
-        void *data = mpp_buffer_get_ptr(mppBuffer);
-        mDumpService->recordFile(this, data, hstride, vstride, format);
-    }
+    {
+        /* record output frame buffer */
+        void *dumpData = nullptr;
+        if (mDumpService->hasDebugFlags(C2_DUMP_RECORD_DECODE_OUTPUT)) {
+            dumpData = mpp_buffer_get_ptr(mppBuffer);
+        }
+        mDumpService->recordFrame(this, dumpData, hstride, vstride, format);
 
-    /* show output process fps and time consuming if neccessary */
-    mDumpService->showDebugFps(this, ROLE_OUTPUT);
-    mDumpService->showFrameTiming(this, pts);
+        mDumpService->showFrameTiming(this, pts);
+    }
 
     entry->block = mBufferMode ? std::move(mOutBlock) : std::move(outBuffer->getBlock());
 

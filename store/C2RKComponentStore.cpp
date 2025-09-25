@@ -271,6 +271,13 @@ private:
      */
     void visitComponents();
 
+    /**
+     * Initialize an Android dumpsys service to listen to all codec states
+     */
+    void registerDumpStateService();
+
+    typedef void (*RegisterDumpStateServiceFunc)();
+
     std::mutex mMutex; ///< mutex guarding the component lists during construction
     bool mVisited; ///< component modules visited
     std::map<C2String, ComponentLoader> mComponents; ///< componentName -> component module
@@ -476,6 +483,25 @@ C2RKComponentStore::C2RKComponentStore()
             emplace(sComponentMaps[i].name.c_str());
         }
     }
+
+   // Initialize an Android dumpsys service to listen to all codec states
+   registerDumpStateService();
+}
+
+void C2RKComponentStore::registerDumpStateService() {
+    void *libHandle = dlopen(C2_RK_COMPONENT_PATH, RTLD_NOW | RTLD_NODELETE);
+    LOG_ALWAYS_FATAL_IF(libHandle == nullptr,
+            "could not dlopen %s: %s", C2_RK_COMPONENT_PATH, dlerror());
+
+    RegisterDumpStateServiceFunc registerDumpStateService =
+            (RegisterDumpStateServiceFunc)dlsym(libHandle, "RegisterDumpStateService");
+    LOG_ALWAYS_FATAL_IF(registerDumpStateService == nullptr,
+        "registerDumpStateService is null in %s", C2_RK_COMPONENT_PATH);
+
+    ALOGD("register DumpStateService...");
+    registerDumpStateService();
+
+    dlclose(libHandle);
 }
 
 c2_status_t C2RKComponentStore::copyBuffer(

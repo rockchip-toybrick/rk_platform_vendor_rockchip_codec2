@@ -1246,6 +1246,19 @@ private:
     C2RKMpiEnc *mThiz;
 };
 
+class C2EncNodeInfoListener : public C2NodeInfoListener {
+public:
+    explicit C2EncNodeInfoListener(C2RKMpiEnc *thiz) : mThiz(thiz) {}
+    ~C2EncNodeInfoListener() override = default;
+
+    void onNodeSummaryRequest(std::string &summary) override {
+        mThiz->onNodeSummaryRequest(summary);
+    }
+
+private:
+    C2RKMpiEnc *mThiz;
+};
+
 C2RKMpiEnc::C2RKMpiEnc(
         const char *name,
         const char *mime,
@@ -1320,6 +1333,86 @@ c2_status_t C2RKMpiEnc::stopAndReleaseLooper() {
     return C2_OK;
 }
 
+// Implementation of virtual function from C2NodeInfoListener
+void C2RKMpiEnc::onNodeSummaryRequest(std::string &summary) {
+    const size_t SIZE = 256;
+    char buffer[SIZE];
+    int64_t inputFrames = 0;
+    int64_t outputFrames = 0;
+
+    snprintf(buffer, sizeof(buffer),
+        "| Component   : %s\n"
+        "| Media Format: %s, %.1f fps\n"
+        "| Resolution  : %dx%d (Stride %dx%d)\n"
+        "| Pixel Format: %s\n"
+        "| Profile     : %s\n",
+        mName, mMime, mFrameRate->value,
+        mSize->width, mSize->height, mHorStride, mVerStride,
+        toStr_Format(mInputMppFmt),
+        toStr_Profile(mIntf->getProfile_l(mCodingType), mCodingType)
+    );
+
+    summary.append(buffer);
+
+    if (mEncCfg) {
+        int32_t gop = 0;
+        int32_t rcMode = 0;
+        int32_t bps = 0;
+        int32_t qpInit = 0;
+        int32_t pMin = 0, pMax = 0, iMin = 0, iMax = 0;
+        int32_t primaries, transfer, coeffs, range;
+
+        ColorAspects sfAspects;
+
+        mpp_enc_cfg_get_s32(mEncCfg, "rc:gop", &gop);
+        mpp_enc_cfg_get_s32(mEncCfg, "rc:mode", &rcMode);
+        mpp_enc_cfg_get_s32(mEncCfg, "rc:bps_target", &bps);
+
+        mpp_enc_cfg_get_s32(mEncCfg, "rc:qp_min", &pMin);
+        mpp_enc_cfg_get_s32(mEncCfg, "rc:qp_max", &pMax);
+        mpp_enc_cfg_get_s32(mEncCfg, "rc:qp_min_i", &iMin);
+        mpp_enc_cfg_get_s32(mEncCfg, "rc:qp_max_i", &iMax);
+        mpp_enc_cfg_get_s32(mEncCfg, "rc:qp_init", &qpInit);
+
+        mpp_enc_cfg_get_s32(mEncCfg, "prep:range", &range);
+        mpp_enc_cfg_get_s32(mEncCfg, "prep:colorprim", &primaries);
+        mpp_enc_cfg_get_s32(mEncCfg, "prep:colortrc", &transfer);
+        mpp_enc_cfg_get_s32(mEncCfg, "prep:colorspace", &coeffs);
+
+        ColorUtils::convertIsoColorAspectsToCodecAspects(
+                primaries, transfer, coeffs, range == 2, sfAspects);
+
+        snprintf(buffer, sizeof(buffer),
+            "| BitRate     : %d kbps (%s)\n"
+            "| GopSize     : %d\n"
+            "| Quality     : Init=%d I-Frame=%d-%d P-Frame=%d-%d\n"
+            "| Color Info  : Range=%d(%s)\n"
+            "|               Primaries=%d(%s)\n"
+            "|               Matrix=%d(%s)\n"
+            "|               Transfer=%d(%s)\n",
+            (bps / 1000), toStr_BitrateMode(rcMode), gop, qpInit,
+            iMin, iMax, pMin, pMax,
+            sfAspects.mRange, asString(sfAspects.mRange),
+            sfAspects.mPrimaries, asString(sfAspects.mPrimaries),
+            sfAspects.mMatrixCoeffs, asString(sfAspects.mMatrixCoeffs),
+            sfAspects.mTransfer, asString(sfAspects.mTransfer)
+        );
+
+        summary.append(buffer);
+    }
+
+    if (mDumpService->getNodePortFrameCount(this, &inputFrames, &outputFrames)
+            && inputFrames > 0) {
+        snprintf(buffer, sizeof(buffer),
+            "|\n|--------------Pipeline Runtime State--------------|\n"
+            "| Input Frame : %lld Totals, %lld Encoded\n",
+            (long long)inputFrames, (long long)outputFrames
+        );
+
+        summary.append(buffer);
+    }
+}
+
 c2_status_t C2RKMpiEnc::onInit() {
     c2_log_func_enter();
 
@@ -1330,13 +1423,13 @@ c2_status_t C2RKMpiEnc::onInit() {
     std::shared_ptr<C2NodeInfo> nodeInfo =
             std::make_shared<C2NodeInfo>(
                 this,     // nodeId
-                mName,    // name
-                mMime,    // mime
                 width,    // width
                 height,   // height
                 true,     // isEncoder
                 frameRate // frameRate
             );
+
+    nodeInfo->setListener(std::make_shared<C2EncNodeInfoListener>(this));
 
     if (!mDumpService->addNode(nodeInfo)) {
         mDumpService->dumpNodesSummary();
@@ -2766,8 +2859,8 @@ void C2RKMpiEnc::process(
             memcpy(csd->m.value, data, dataSize);
             work->worklets.front()->output.configUpdate.push_back(std::move(csd));
 
-            /* dump output data if neccessary */
-            mDumpService->recordFile(this, data, dataSize);
+            /* record output packet buffer */
+            mDumpService->recordFrame(this, data, dataSize, true /* ifConfig */);
 
             mSpsPpsHeaderReceived = true;
         }
@@ -2895,6 +2988,9 @@ c2_status_t C2RKMpiEnc::handleCommonDynamicCfg() {
         if (err != MPP_OK) {
             c2_err("failed to setup dynamic config, ret %d", err);
         }
+
+        // update node params of service
+        mDumpService->updateNode(this, mSize->width, mSize->height, mFrameRate->value);
     }
 
     return C2_OK;
@@ -3238,8 +3334,8 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
     case C2PlanarLayout::TYPE_RGBA: {
         uint32_t fd = c2Handle->data[0];
 
-        /* dump input data if neccessary */
-        mDumpService->recordFile(this,
+        /* record input frame buffer */
+        mDumpService->recordFrame(this,
                 (void*)input->data()[0], stride, height, MPP_FMT_RGBA8888);
 
         if (!needRgaConvert(stride, height, MPP_FMT_RGBA8888)) {
@@ -3283,8 +3379,8 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
     case C2PlanarLayout::TYPE_YUV: {
         uint32_t fd = c2Handle->data[0];
 
-        /* dump input data if neccessary */
-        mDumpService->recordFile(this,
+        /* record input frame buffer */
+        mDumpService->recordFrame(this,
                 (void*)input->data()[0], stride, height, MPP_FMT_YUV420SP);
 
         if (mInputMppFmt != MPP_FMT_YUV420SP) {
@@ -3459,8 +3555,6 @@ c2_status_t C2RKMpiEnc::sendframe(
         MPP_RET err = mMppMpi->encode_put_frame(mMppCtx, frame);
         if (err == MPP_OK) {
             c2_trace("send frame fd %d size %d pts %lld", dBuffer.fd, dBuffer.size, pts);
-            /* dump show input process fps if neccessary */
-            mDumpService->showDebugFps(this, ROLE_INPUT);
             mInputCount++;
             break;
         }
@@ -3496,11 +3590,9 @@ c2_status_t C2RKMpiEnc::getoutpacket(MppPacket *entry) {
 
         c2_trace("get outpacket pts %lld size %d eos %d", pts, len, eos);
 
-        /* dump output data if neccessary */
-        mDumpService->recordFile(this, data, len);
+        /* record output packet buffer */
+        mDumpService->recordFrame(this, data, len);
 
-        /* dump show input process fps and time consuming if neccessary */
-        mDumpService->showDebugFps(this, ROLE_OUTPUT);
         mDumpService->showFrameTiming(this, pts);
 
         if (eos) {

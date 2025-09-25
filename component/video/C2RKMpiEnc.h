@@ -56,6 +56,11 @@ public:
             const std::shared_ptr<C2BlockPool> &pool) override;
 
     c2_status_t onDrainWork(const std::unique_ptr<C2Work> &work = nullptr);
+
+    // Implementation of virtual function from C2NodeInfoListener
+    void onNodeSummaryRequest(std::string &summary);
+
+    // Implementation of virtual function from C2RKSessionCallback
     c2_status_t onDetectResultReady(ImageBuffer *srcImage, void *result);
 
 private:

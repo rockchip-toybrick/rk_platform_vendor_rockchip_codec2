@@ -18,13 +18,57 @@
 #define ROCKCHIP_LOG_TAG    "C2RKComponentFactory"
 
 #include <C2ComponentFactory.h>
+#include <binder/BinderService.h>
 
 #include "C2RKPlatformSupport.h"
+#include "C2RKDumpStateService.h"
 #include "C2RKMpiDec.h"
 #include "C2RKMpiEnc.h"
 #include "C2RKLog.h"
 
 using namespace android;
+
+class C2RKDumpStateWrapperService : public BBinder {
+public:
+    C2RKDumpStateWrapperService() {}
+    virtual ~C2RKDumpStateWrapperService() {}
+
+    // register dumpsys service
+    static void instantiate() {
+        defaultServiceManager()->addService(
+                String16(C2RKDumpStateWrapperService::getServiceName()),
+                new C2RKDumpStateWrapperService());
+    }
+
+    static char const* getServiceName() { return "codec2.dumpstate"; }
+
+    virtual status_t dump(int fd, const Vector<String16>& args) {
+        if (args.size() >= 2) {
+            String16 arg = args[0];
+
+            // Update dump flags of service
+            if (arg.compare(String16("-flags")) == 0 ||
+                arg.compare(String16("--flags")) == 0) {
+                char* endptr;
+                long setFlags = strtol(String8(args[1]).c_str(), &endptr, 0);
+                if (*endptr == '\0') {
+                    C2RKDumpStateService::get()->updateDebugFlags(setFlags);
+                    return NO_ERROR;
+                }
+            }
+            String8 usageWarning("Please specify flags like '-flags 0x1'\n");
+            write(fd, usageWarning.c_str(), usageWarning.size());
+        } else {
+            std::string summary = C2RKDumpStateService::get()->dumpNodesSummary(false);
+            write(fd, summary.c_str(), summary.size());
+        }
+        return NO_ERROR;
+    }
+};
+
+extern "C" void RegisterDumpStateService() {
+    C2RKDumpStateWrapperService::instantiate();
+}
 
 extern "C" ::C2ComponentFactory* CreateRKCodec2Factory(std::string componentName) {
     C2RKComponentEntry *entry = NULL;
