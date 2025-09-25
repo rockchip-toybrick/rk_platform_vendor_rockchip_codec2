@@ -3363,7 +3363,7 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
 
             C2RKRgaDef::SetRgaInfo(
                     &srcInfo, fd, HAL_PIXEL_FORMAT_RGBA_8888,
-                    width, height, stride, height);
+                    mSize->width, mSize->height, stride, height);
             C2RKRgaDef::SetRgaInfo(
                     &dstInfo, mDmaMem->fd, HAL_PIXEL_FORMAT_YCrCb_NV12,
                     mSize->width, mSize->height, mHorStride, mVerStride);
@@ -3406,7 +3406,7 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
 
             C2RKRgaDef::SetRgaInfo(
                     &srcInfo, fd, HAL_PIXEL_FORMAT_YCrCb_NV12,
-                    width, height, stride, height);
+                    mSize->width, mSize->height, stride, height);
             C2RKRgaDef::SetRgaInfo(
                     &dstInfo, mDmaMem->fd, HAL_PIXEL_FORMAT_YCrCb_NV12,
                     mSize->width, mSize->height, mHorStride, mVerStride);
