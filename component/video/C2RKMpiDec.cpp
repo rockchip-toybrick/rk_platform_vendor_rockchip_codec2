@@ -35,8 +35,7 @@
 #include "C2RKMlvecLegacy.h"
 #include "C2RKExtendParameters.h"
 #include "C2RKGrallocOps.h"
-#include "C2RKMemTrace.h"
-#include "C2RKDump.h"
+#include "C2RKDumpStateService.h"
 #include "C2RKTunneledSession.h"
 #include "C2RKPropsDef.h"
 #include "C2RKVersion.h"
@@ -581,6 +580,7 @@ public:
     static C2R TunneledPlaybackSetter(
         bool mayBlock, C2P<C2PortTunneledModeTuning::output> &me) {
         (void)mayBlock;
+        (void)me;
         return C2R::Ok();
     }
 
@@ -809,8 +809,8 @@ C2RKMpiDec::C2RKMpiDec(
       mName(name),
       mMime(mime),
       mIntf(intfImpl),
-      mDumper(std::make_shared<C2RKDump>()),
       mTunneledSession(nullptr),
+      mDumpService(C2RKDumpStateService::get()),
       mLooper(nullptr),
       mHandler(nullptr),
       mMppCtx(nullptr),
@@ -850,24 +850,26 @@ C2RKMpiDec::C2RKMpiDec(
 C2RKMpiDec::~C2RKMpiDec() {
     onRelease();
 
-    C2RKMemTrace::get()->removeVideoNode(this);
-    C2RKMemTrace::get()->dumpAllNode();
+    mDumpService->removeNode(this);
+    mDumpService->dumpNodesSummary();
 }
 
 c2_status_t C2RKMpiDec::onInit() {
     c2_log_func_enter();
 
-    C2RKMemTrace::C2NodeInfo node {
-        .client = this,
-        .name   = mName,
-        .mime   = mMime,
-        .type   = C2RKMemTrace::C2_TRACE_DECODER,
-        .width  = mIntf->getSize_l()->width,
-        .height = mIntf->getSize_l()->height,
-        .frameRate = mIntf->getFrameRate_l()->value
-    };
-    if (!C2RKMemTrace::get()->tryAddVideoNode(node)) {
-        C2RKMemTrace::get()->dumpAllNode();
+    std::shared_ptr<C2NodeInfo> nodeInfo =
+            std::make_shared<C2NodeInfo>(
+                this,   // nodeId
+                mName,  // name
+                mMime,  // mime
+                mIntf->getSize_l()->width,  // width
+                mIntf->getSize_l()->height, // height
+                false,  // isEncoder
+                mIntf->getFrameRate_l()->value // frameRate
+            );
+
+    if (!mDumpService->addNode(nodeInfo)) {
+        mDumpService->dumpNodesSummary();
         return C2_NO_MEMORY;
     }
 
@@ -1650,8 +1652,6 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
     c2_info("init: w %d h %d coding %s", mWidth, mHeight, toStr_Coding(mCodingType));
     c2_info("init: hor %d ver %d color 0x%08x", mHorStride, mVerStride, mColorFormat);
 
-    mDumper->initDump(mHorStride, mVerStride, false);
-
     return C2_OK;
 
 error:
@@ -2331,7 +2331,7 @@ c2_status_t C2RKMpiDec::sendpacket(
     }
 
     /* dump frame time consuming if neccessary */
-    mDumper->recordFrameTime(pts);
+    mDumpService->recordFrameTime(this, pts);
 
     static uint32_t kMaxRetryCnt = 1000;
     uint32_t retry = 0;
@@ -2341,8 +2341,8 @@ c2_status_t C2RKMpiDec::sendpacket(
         if (err == MPP_OK) {
             c2_trace("send packet pts %lld size %d", pts, size);
             /* dump input data if neccessary */
-            mDumper->recordFile(ROLE_INPUT, data, size);
-            mDumper->showDebugFps(ROLE_INPUT);
+            mDumpService->recordFile(this, data, size);
+            mDumpService->showDebugFps(this, ROLE_INPUT);
             break;
         }
 
@@ -2562,14 +2562,14 @@ c2_status_t C2RKMpiDec::getoutframe(WorkEntry *entry) {
     }
 
     /* dump output data if neccessary */
-    if (C2RKDump::hasDebugFlags(C2_DUMP_RECORD_DEC_OUT)) {
+    if (mDumpService->hasDebugFlags(C2_DUMP_RECORD_DECODE_OUTPUT)) {
         void *data = mpp_buffer_get_ptr(mppBuffer);
-        mDumper->recordFile(ROLE_OUTPUT, data, hstride, vstride, format);
+        mDumpService->recordFile(this, data, hstride, vstride, format);
     }
 
     /* show output process fps and time consuming if neccessary */
-    mDumper->showDebugFps(ROLE_OUTPUT);
-    mDumper->showFrameTiming(pts);
+    mDumpService->showDebugFps(this, ROLE_OUTPUT);
+    mDumpService->showFrameTiming(this, pts);
 
     entry->block = mBufferMode ? std::move(mOutBlock) : std::move(outBuffer->getBlock());
 

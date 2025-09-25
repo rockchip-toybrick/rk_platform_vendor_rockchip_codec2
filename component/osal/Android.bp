@@ -18,16 +18,15 @@ cc_library_static {
     srcs: [
         "C2RKChipCapDef.cpp",
         "C2RKLog.cpp",
-        "C2RKDump.cpp",
         "C2RKRgaDef.cpp",
         "C2RKMediaUtils.cpp",
         "C2RKGrallocOrigin.cpp",
         "C2RKGralloc4.cpp",
         "C2RKGrallocOps.cpp",
         "C2RKVdecExtendFeature.cpp",
-        "C2RKMemTrace.cpp",
         "C2RKPropsDef.cpp",
         "C2RKDmaBufSync.cpp",
+        "C2RKDumpStateService.cpp",
     ],
 
     shared_libs: [

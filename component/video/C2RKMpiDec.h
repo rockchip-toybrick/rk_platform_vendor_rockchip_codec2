@@ -27,7 +27,7 @@
 namespace android {
 
 struct ColorAspects;
-class C2RKDump;
+class C2RKDumpStateService;
 class C2RKTunneledSession;
 
 class C2RKMpiDec : public C2RKComponent {
@@ -130,9 +130,9 @@ private:
     const char* mName;
     const char* mMime;
     std::shared_ptr<IntfImpl> mIntf;
-
-    std::shared_ptr<C2RKDump> mDumper;
     std::shared_ptr<C2RKTunneledSession> mTunneledSession;
+
+    C2RKDumpStateService *mDumpService;
 
     Mutex            mBufferLock;
     sp<ALooper>      mLooper;

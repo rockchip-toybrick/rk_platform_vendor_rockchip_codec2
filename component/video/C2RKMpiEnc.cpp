@@ -35,10 +35,9 @@
 #include "C2RKCodecMapper.h"
 #include "C2RKChipCapDef.h"
 #include "C2RKGrallocOps.h"
-#include "C2RKMemTrace.h"
+#include "C2RKDumpStateService.h"
 #include "C2RKPropsDef.h"
 #include "C2RKMlvecLegacy.h"
-#include "C2RKDump.h"
 #include "C2RKMpiRoiUtils.h"
 #include "C2RKYolov5Session.h"
 #include "C2RKVersion.h"
@@ -1256,7 +1255,7 @@ C2RKMpiEnc::C2RKMpiEnc(
       mName(name),
       mMime(mime),
       mIntf(intfImpl),
-      mDumper(std::make_shared<C2RKDump>()),
+      mDumpService(C2RKDumpStateService::get()),
       mRoiCtx(nullptr),
       mMppCtx(nullptr),
       mMppMpi(nullptr),
@@ -1287,8 +1286,8 @@ C2RKMpiEnc::C2RKMpiEnc(
 C2RKMpiEnc::~C2RKMpiEnc() {
     onRelease();
 
-    C2RKMemTrace::get()->removeVideoNode(this);
-    C2RKMemTrace::get()->dumpAllNode();
+    mDumpService->removeNode(this);
+    mDumpService->dumpNodesSummary();
 }
 
 c2_status_t C2RKMpiEnc::setupAndStartLooper() {
@@ -1328,17 +1327,19 @@ c2_status_t C2RKMpiEnc::onInit() {
     uint32_t height = mIntf->getSize_l()->height;
     float frameRate = mIntf->getFrameRate_l()->value;
 
-    C2RKMemTrace::C2NodeInfo node {
-        .client = this,
-        .name   = mName,
-        .mime   = mMime,
-        .type   = C2RKMemTrace::C2_TRACE_ENCODER,
-        .width  = width,
-        .height = height,
-        .frameRate = frameRate
-    };
-    if (!C2RKMemTrace::get()->tryAddVideoNode(node)) {
-        C2RKMemTrace::get()->dumpAllNode();
+    std::shared_ptr<C2NodeInfo> nodeInfo =
+            std::make_shared<C2NodeInfo>(
+                this,     // nodeId
+                mName,    // name
+                mMime,    // mime
+                width,    // width
+                height,   // height
+                true,     // isEncoder
+                frameRate // frameRate
+            );
+
+    if (!mDumpService->addNode(nodeInfo)) {
+        mDumpService->dumpNodesSummary();
         return C2_NO_MEMORY;
     }
 
@@ -2560,8 +2561,6 @@ c2_status_t C2RKMpiEnc::initEncoder() {
         goto error;
     }
 
-    mDumper->initDump(mSize->width, mSize->height, true);
-
     return C2_OK;
 
 error:
@@ -2768,7 +2767,7 @@ void C2RKMpiEnc::process(
             work->worklets.front()->output.configUpdate.push_back(std::move(csd));
 
             /* dump output data if neccessary */
-            mDumper->recordFile(ROLE_OUTPUT, data, dataSize);
+            mDumpService->recordFile(this, data, dataSize);
 
             mSpsPpsHeaderReceived = true;
         }
@@ -3193,7 +3192,7 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
     std::shared_ptr<C2Buffer> inputBuffer = nullptr;
 
     /* dump frame time consuming if neccessary */
-    mDumper->recordFrameTime(frameIndex);
+    mDumpService->recordFrameTime(this, frameIndex);
 
     inputBuffer = work->input.buffers[0];
     view = std::make_shared<const C2GraphicView>(
@@ -3240,7 +3239,7 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
         uint32_t fd = c2Handle->data[0];
 
         /* dump input data if neccessary */
-        mDumper->recordFile(ROLE_INPUT,
+        mDumpService->recordFile(this,
                 (void*)input->data()[0], stride, height, MPP_FMT_RGBA8888);
 
         if (!needRgaConvert(stride, height, MPP_FMT_RGBA8888)) {
@@ -3285,7 +3284,7 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
         uint32_t fd = c2Handle->data[0];
 
         /* dump input data if neccessary */
-        mDumper->recordFile(ROLE_INPUT,
+        mDumpService->recordFile(this,
                 (void*)input->data()[0], stride, height, MPP_FMT_YUV420SP);
 
         if (mInputMppFmt != MPP_FMT_YUV420SP) {
@@ -3461,7 +3460,7 @@ c2_status_t C2RKMpiEnc::sendframe(
         if (err == MPP_OK) {
             c2_trace("send frame fd %d size %d pts %lld", dBuffer.fd, dBuffer.size, pts);
             /* dump show input process fps if neccessary */
-            mDumper->showDebugFps(ROLE_INPUT);
+            mDumpService->showDebugFps(this, ROLE_INPUT);
             mInputCount++;
             break;
         }
@@ -3498,11 +3497,11 @@ c2_status_t C2RKMpiEnc::getoutpacket(MppPacket *entry) {
         c2_trace("get outpacket pts %lld size %d eos %d", pts, len, eos);
 
         /* dump output data if neccessary */
-        mDumper->recordFile(ROLE_OUTPUT, data, len);
+        mDumpService->recordFile(this, data, len);
 
         /* dump show input process fps and time consuming if neccessary */
-        mDumper->showDebugFps(ROLE_OUTPUT);
-        mDumper->showFrameTiming(pts);
+        mDumpService->showDebugFps(this, ROLE_OUTPUT);
+        mDumpService->showFrameTiming(this, pts);
 
         if (eos) {
             c2_info("get output eos");

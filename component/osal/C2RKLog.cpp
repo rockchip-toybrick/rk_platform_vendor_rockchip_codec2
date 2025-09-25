@@ -18,8 +18,8 @@
 #include <string.h>
 #include <android/log.h>
 
+#include "C2RKDumpStateService.h"
 #include "C2RKLog.h"
-#include "C2RKDump.h"
 
 using namespace android;
 
@@ -28,7 +28,7 @@ using namespace android;
 uint32_t getALogLevel(uint32_t level) {
     switch (level) {
     case C2_LOG_TRACE: {
-        if (C2RKDump::hasDebugFlags(C2_DUMP_LOG_TRACE)) {
+        if (C2RKDumpStateService::hasDebugFlags(C2_DUMP_LOG_TRACE)) {
             return ANDROID_LOG_DEBUG;
         }
     } break;
@@ -52,7 +52,7 @@ void _c2_log(uint32_t level, const char *tag, const char *fmt,
     va_list args;
     va_start(args, row);
 
-    if (C2RKDump::hasDebugFlags(C2_DUMP_LOG_DETAIL)) {
+    if (C2RKDumpStateService::hasDebugFlags(C2_DUMP_LOG_DETAIL)) {
         char line[MAX_LINE_LEN];
         snprintf(line, sizeof(line), "{%-16.16s:%04u} %s\r\n", fname, row, fmt);
 

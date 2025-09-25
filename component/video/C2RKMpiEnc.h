@@ -27,7 +27,7 @@
 namespace android {
 
 class C2RKMlvecLegacy;
-class C2RKDump;
+class C2RKDumpStateService;
 class C2RKYolov5Session;
 struct ImageBuffer;
 struct RoiRegionCfg;
@@ -112,8 +112,8 @@ private:
     std::shared_ptr<IntfImpl>          mIntf;
     std::shared_ptr<C2BlockPool>       mBlockPool;
 
+    C2RKDumpStateService              *mDumpService;
     std::shared_ptr<C2RKMlvecLegacy>   mMlvec;
-    std::shared_ptr<C2RKDump>          mDumper;
     // npu object detection
     std::shared_ptr<C2RKYolov5Session> mRknnSession;
     std::unique_ptr<MyDmaBuffer_t>     mDmaMem;
