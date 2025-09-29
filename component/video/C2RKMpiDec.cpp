@@ -337,8 +337,7 @@ public:
         if (mediaType == MEDIA_MIMETYPE_VIDEO_AVC ||
             mediaType == MEDIA_MIMETYPE_VIDEO_HEVC ||
             mediaType == MEDIA_MIMETYPE_VIDEO_AV1 ||
-            mediaType == MEDIA_MIMETYPE_VIDEO_MPEG2 ||
-            mediaType == MEDIA_MIMETYPE_VIDEO_VP9) {
+            mediaType == MEDIA_MIMETYPE_VIDEO_MPEG2) {
             addParameter(
                     DefineParam(mCodedColorAspects, C2_PARAMKEY_VUI_COLOR_ASPECTS)
                     .withDefault(new C2StreamColorAspectsInfo::input(
@@ -374,90 +373,90 @@ public:
                     })
                     .withSetter(ColorAspectsSetter, mDefaultColorAspects, mCodedColorAspects)
                     .build());
-
-            addParameter(
-                    DefineParam(mLowLatency, C2_PARAMKEY_LOW_LATENCY_MODE)
-                    .withDefault(new C2GlobalLowLatencyModeTuning(false))
-                    .withFields({C2F(mLowLatency, value)})
-                    .withSetter(Setter<decltype(*mLowLatency)>::NonStrictValueWithNoDeps)
-                    .build());
-
-            /* tunneled video playback */
-            addParameter(
-                    DefineParam(mTunneledPlayback, C2_PARAMKEY_TUNNELED_RENDER)
-                    .withDefault(C2PortTunneledModeTuning::output::AllocUnique(
-                            0, C2PortTunneledModeTuning::Struct::NONE,
-                            C2PortTunneledModeTuning::Struct::REALTIME, 0))
-                    .withFields({
-                        C2F(mTunneledPlayback, m.mode).oneOf({
-                                C2PortTunneledModeTuning::Struct::NONE,
-                                C2PortTunneledModeTuning::Struct::SIDEBAND}),
-                        C2F(mTunneledPlayback, m.syncType).oneOf({
-                                C2PortTunneledModeTuning::Struct::REALTIME,
-                                C2PortTunneledModeTuning::Struct::AUDIO_HW_SYNC,
-                                C2PortTunneledModeTuning::Struct::HW_AV_SYNC}),
-                        C2F(mTunneledPlayback, m.syncId).any()
-                    })
-                    .withSetter(TunneledPlaybackSetter)
-                    .build());
-
-            addParameter(
-                    DefineParam(mTunneledSideband, C2_PARAMKEY_OUTPUT_TUNNEL_HANDLE)
-                    .withDefault(decltype(mTunneledSideband)::element_type::AllocShared(256))
-                    .withFields({C2F(mTunneledSideband, m.values).any()})
-                    .withSetter(TunneledSidebandSetter, mTunneledPlayback)
-                    .build());
-
-            /* extend parameter definition */
-            addParameter(
-                    DefineParam(mDisableDpbCheck, C2_PARAMKEY_DEC_DISABLE_DPB_CHECK)
-                    .withDefault(new C2StreamDecDisableDpbCheck::input(0))
-                    .withFields({C2F(mDisableDpbCheck, value).any()})
-                    .withSetter(Setter<decltype(mDisableDpbCheck)::element_type>::StrictValueWithNoDeps)
-                    .build());
-
-            addParameter(
-                    DefineParam(mDisableErrorMark, C2_PARAMKEY_DEC_DISABLE_ERROR_MARK)
-                    .withDefault(new C2StreamDecDisableErrorMark::input(0))
-                    .withFields({C2F(mDisableErrorMark, value).any()})
-                    .withSetter(Setter<decltype(mDisableErrorMark)::element_type>::StrictValueWithNoDeps)
-                    .build());
-
-            addParameter(
-                    DefineParam(mLowMemoryMode, C2_PARAMKEY_DEC_LOW_MEMORY_MODE)
-                    .withDefault(new C2StreamDecLowMemoryMode::input(0))
-                    .withFields({C2F(mLowMemoryMode, value).any()})
-                    .withSetter(Setter<decltype(mLowMemoryMode)::element_type>::StrictValueWithNoDeps)
-                    .build());
-
-            addParameter(
-                    DefineParam(mFbcDisable, C2_PARAMKEY_DEC_FBC_DISABLE)
-                    .withDefault(new C2StreamDecFbcDisable::input(0))
-                    .withFields({C2F(mFbcDisable, value).any()})
-                    .withSetter(Setter<decltype(mFbcDisable)::element_type>::StrictValueWithNoDeps)
-                    .build());
-
-            addParameter(
-                    DefineParam(mOutputCropEnable, C2_PARAMKEY_DEC_OUTPUT_CROP)
-                    .withDefault(new C2StreamDecOutputCropEnable::input(0))
-                    .withFields({C2F(mOutputCropEnable, value).any()})
-                    .withSetter(Setter<decltype(mOutputCropEnable)::element_type>::StrictValueWithNoDeps)
-                    .build());
-
-            addParameter(
-                    DefineParam(mMlvecParams->driverInfo, C2_PARAMKEY_MLVEC_DEC_DRI_VERSION)
-                    .withConstValue(new C2DriverVersion::output(MLVEC_DRIVER_VERSION))
-                    .build());
-
-            addParameter(
-                    DefineParam(mMlvecParams->lowLatencyMode, C2_PARAMKEY_MLVEC_DEC_LOW_LATENCY_MODE)
-                    .withDefault(new C2LowLatencyMode::output(0))
-                    .withFields({
-                        C2F(mMlvecParams->lowLatencyMode, enable).any(),
-                    })
-                    .withSetter(MLowLatenctyModeSetter)
-                    .build());
         }
+
+        /* tunneled video playback */
+        addParameter(
+                DefineParam(mTunneledPlayback, C2_PARAMKEY_TUNNELED_RENDER)
+                .withDefault(C2PortTunneledModeTuning::output::AllocUnique(
+                        0, C2PortTunneledModeTuning::Struct::NONE,
+                        C2PortTunneledModeTuning::Struct::REALTIME, 0))
+                .withFields({
+                    C2F(mTunneledPlayback, m.mode).oneOf({
+                            C2PortTunneledModeTuning::Struct::NONE,
+                            C2PortTunneledModeTuning::Struct::SIDEBAND}),
+                    C2F(mTunneledPlayback, m.syncType).oneOf({
+                            C2PortTunneledModeTuning::Struct::REALTIME,
+                            C2PortTunneledModeTuning::Struct::AUDIO_HW_SYNC,
+                            C2PortTunneledModeTuning::Struct::HW_AV_SYNC}),
+                    C2F(mTunneledPlayback, m.syncId).any()
+                })
+                .withSetter(TunneledPlaybackSetter)
+                .build());
+
+        addParameter(
+                DefineParam(mTunneledSideband, C2_PARAMKEY_OUTPUT_TUNNEL_HANDLE)
+                .withDefault(decltype(mTunneledSideband)::element_type::AllocShared(256))
+                .withFields({C2F(mTunneledSideband, m.values).any()})
+                .withSetter(TunneledSidebandSetter, mTunneledPlayback)
+                .build());
+
+        addParameter(
+                DefineParam(mLowLatency, C2_PARAMKEY_LOW_LATENCY_MODE)
+                .withDefault(new C2GlobalLowLatencyModeTuning(false))
+                .withFields({C2F(mLowLatency, value)})
+                .withSetter(Setter<decltype(*mLowLatency)>::NonStrictValueWithNoDeps)
+                .build());
+
+        /* extend parameter definition */
+        addParameter(
+                DefineParam(mDisableDpbCheck, C2_PARAMKEY_DEC_DISABLE_DPB_CHECK)
+                .withDefault(new C2StreamDecDisableDpbCheck::input(0))
+                .withFields({C2F(mDisableDpbCheck, value).any()})
+                .withSetter(Setter<decltype(mDisableDpbCheck)::element_type>::StrictValueWithNoDeps)
+                .build());
+
+        addParameter(
+                DefineParam(mDisableErrorMark, C2_PARAMKEY_DEC_DISABLE_ERROR_MARK)
+                .withDefault(new C2StreamDecDisableErrorMark::input(0))
+                .withFields({C2F(mDisableErrorMark, value).any()})
+                .withSetter(Setter<decltype(mDisableErrorMark)::element_type>::StrictValueWithNoDeps)
+                .build());
+
+        addParameter(
+                DefineParam(mLowMemoryMode, C2_PARAMKEY_DEC_LOW_MEMORY_MODE)
+                .withDefault(new C2StreamDecLowMemoryMode::input(0))
+                .withFields({C2F(mLowMemoryMode, value).any()})
+                .withSetter(Setter<decltype(mLowMemoryMode)::element_type>::StrictValueWithNoDeps)
+                .build());
+
+        addParameter(
+                DefineParam(mFbcDisable, C2_PARAMKEY_DEC_FBC_DISABLE)
+                .withDefault(new C2StreamDecFbcDisable::input(0))
+                .withFields({C2F(mFbcDisable, value).any()})
+                .withSetter(Setter<decltype(mFbcDisable)::element_type>::StrictValueWithNoDeps)
+                .build());
+
+        addParameter(
+                DefineParam(mOutputCropEnable, C2_PARAMKEY_DEC_OUTPUT_CROP)
+                .withDefault(new C2StreamDecOutputCropEnable::input(0))
+                .withFields({C2F(mOutputCropEnable, value).any()})
+                .withSetter(Setter<decltype(mOutputCropEnable)::element_type>::StrictValueWithNoDeps)
+                .build());
+
+        addParameter(
+                DefineParam(mMlvecParams->driverInfo, C2_PARAMKEY_MLVEC_DEC_DRI_VERSION)
+                .withConstValue(new C2DriverVersion::output(MLVEC_DRIVER_VERSION))
+                .build());
+
+        addParameter(
+                DefineParam(mMlvecParams->lowLatencyMode, C2_PARAMKEY_MLVEC_DEC_LOW_LATENCY_MODE)
+                .withDefault(new C2LowLatencyMode::output(0))
+                .withFields({
+                    C2F(mMlvecParams->lowLatencyMode, enable).any(),
+                })
+                .withSetter(MLowLatenctyModeSetter)
+                .build());
     }
 
     static C2R SizeSetter(bool mayBlock, const C2P<C2StreamPictureSizeInfo::output> &oldMe,
