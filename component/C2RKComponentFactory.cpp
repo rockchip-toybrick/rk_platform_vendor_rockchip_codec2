@@ -35,6 +35,7 @@ public:
 
     // register dumpsys service
     static void instantiate() {
+        android::ProcessState::self()->startThreadPool();
         defaultServiceManager()->addService(
                 String16(C2RKDumpStateWrapperService::getServiceName()),
                 new C2RKDumpStateWrapperService());
