@@ -24,12 +24,10 @@
 #include <errno.h>
 #include <dlfcn.h>
 #include <cutils/properties.h>
-#include <ui/GraphicBufferMapper.h>
 #include <ui/GraphicBufferAllocator.h>
 
 #include "C2RKYolov5Session.h"
 #include "C2RKPostProcess.h"
-#include "C2RKGrallocOps.h"
 #include "C2RKMediaUtils.h"
 #include "C2RKChipCapDef.h"
 #include "C2RKRknnWrapper.h"
@@ -178,7 +176,7 @@ ImageBuffer* allocImageBuffer(int32_t width, int32_t height, ImageFormat format)
     image->size    = size;
     image->format  = format;
     image->handle  = (void *)bufferHandle;
-    image->fd      = C2RKGrallocOps::get()->getShareFd(bufferHandle);
+    image->fd      = bufferHandle->data[0];
     image->virAddr = (uint8_t*)mmap(nullptr, size,
                         PROT_READ | PROT_WRITE, MAP_SHARED, image->fd, 0);
     return image;

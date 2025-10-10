@@ -34,7 +34,7 @@
 #include "C2RKExtendParameters.h"
 #include "C2RKCodecMapper.h"
 #include "C2RKChipCapDef.h"
-#include "C2RKGrallocOps.h"
+#include "C2RKGraphicBufferMapper.h"
 #include "C2RKDumpStateService.h"
 #include "C2RKPropsDef.h"
 #include "C2RKMlvecLegacy.h"
@@ -2598,8 +2598,8 @@ c2_status_t C2RKMpiEnc::initEncoder() {
     }
 
     mDmaMem = std::make_unique<MyDmaBuffer_t>();
-    mDmaMem->fd = C2RKGrallocOps::get()->getShareFd(bufferHandle);
-    mDmaMem->size = C2RKGrallocOps::get()->getAllocationSize(bufferHandle);
+    mDmaMem->fd = C2RKGraphicBufferMapper::get()->getShareFd(bufferHandle);
+    mDmaMem->size = C2RKGraphicBufferMapper::get()->getAllocationSize(bufferHandle);
     mDmaMem->handler = (void *)bufferHandle;
 
     c2_info("alloc temporary DmaMem fd %d size %d", mDmaMem->fd, mDmaMem->size);

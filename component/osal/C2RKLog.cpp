@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-#include <stdio.h>
 #include <string.h>
 #include <android/log.h>
 
@@ -25,7 +24,7 @@ using namespace android;
 
 #define MAX_LINE_LEN  256
 
-uint32_t getALogLevel(uint32_t level) {
+uint32_t getALogLevel(int level) {
     switch (level) {
     case C2_LOG_TRACE: {
         if (C2RKDumpStateService::hasDebugFlags(C2_DUMP_LOG_TRACE)) {
@@ -41,9 +40,9 @@ uint32_t getALogLevel(uint32_t level) {
     return ANDROID_LOG_UNKNOWN;
 }
 
-void _c2_log(uint32_t level, const char *tag, const char *fmt,
-             const char *fname, const uint32_t row, ...) {
-    uint32_t ALevel = getALogLevel(level);
+void _c2_log(int level, const char *tag, const char *fmt,
+             const char *fname, const int row, ...) {
+    int ALevel = getALogLevel(level);
 
     if (ALevel == ANDROID_LOG_UNKNOWN) {
         return;

@@ -34,7 +34,7 @@
 #include "C2RKCodecMapper.h"
 #include "C2RKMlvecLegacy.h"
 #include "C2RKExtendParameters.h"
-#include "C2RKGrallocOps.h"
+#include "C2RKGraphicBufferMapper.h"
 #include "C2RKDumpStateService.h"
 #include "C2RKTunneledSession.h"
 #include "C2RKPropsDef.h"
@@ -1171,7 +1171,7 @@ c2_status_t C2RKMpiDec::getSurfaceFeatures(const std::shared_ptr<C2BlockPool> &p
         return err;
     }
 
-    uint64_t usage = C2RKGrallocOps::get()->getUsage(handle);
+    uint64_t usage = C2RKGraphicBufferMapper::get()->getUsage(handle);
     if (usage & GRALLOC_USAGE_HW_VIDEO_ENCODER) {
         mGraphicSourceMode = true;
         updateFbcModeIfNeeded();
@@ -2199,7 +2199,7 @@ c2_status_t C2RKMpiDec::importBufferToDecoder(std::shared_ptr<C2GraphicBlock> bl
     if (C2RKChipCapDef::get()->getScaleMode() == C2_SCALE_MODE_META)
         checkUseScaleMeta(handle);
 
-    int32_t bufferId = C2RKGrallocOps::get()->getBufferId(handle);
+    int32_t bufferId = C2RKGraphicBufferMapper::get()->getBufferId(handle);
 
     std::shared_ptr<OutBuffer> outBuffer = findOutBuffer(bufferId);
     if (outBuffer) {
@@ -2214,7 +2214,7 @@ c2_status_t C2RKMpiDec::importBufferToDecoder(std::shared_ptr<C2GraphicBlock> bl
 
         MppBufferInfo bufferInfo {
             .type  = MPP_BUFFER_TYPE_ION,
-            .size  = (size_t)(C2RKGrallocOps::get()->getAllocationSize(handle)),
+            .size  = (size_t)(C2RKGraphicBufferMapper::get()->getAllocationSize(handle)),
             .fd    = fd,
             .index = bufferId,
             .ptr   = nullptr,

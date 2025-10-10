@@ -48,8 +48,8 @@
 extern "C" {
 #endif
 
-void _c2_log(uint32_t level, const char *tag, const char *fmt,
-             const char *fname, const uint32_t row, ...);
+void _c2_log(int level, const char *tag, const char *fmt,
+             const char *fname, const int row, ...);
 
 #ifdef __cplusplus
 }

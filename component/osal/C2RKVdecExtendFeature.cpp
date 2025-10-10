@@ -19,7 +19,7 @@
 
 #include "C2RKVdecExtendFeature.h"
 #include "C2RKLog.h"
-#include "C2RKGrallocOps.h"
+#include "C2RKGraphicBufferMapper.h"
 
 #include <errno.h>
 #include <inttypes.h>
@@ -27,7 +27,7 @@
 namespace android {
 
 int C2RKVdecExtendFeature::configFrameHdrDynamicMeta(buffer_handle_t hnd, int64_t offset) {
-    return C2RKGrallocOps::get()->setDynamicHdrMeta(hnd, offset);
+    return C2RKGraphicBufferMapper::get()->setDynamicHdrMeta(hnd, offset);
 }
 
 int C2RKVdecExtendFeature::checkNeedScale(buffer_handle_t hnd) {
@@ -36,8 +36,8 @@ int C2RKVdecExtendFeature::checkNeedScale(buffer_handle_t hnd) {
     uint64_t bufId = 0;
 
     metadata_for_rkvdec_scaling_t* metadata = NULL;
-    bufId = C2RKGrallocOps::get()->getBufferId(hnd);
-    ret = C2RKGrallocOps::get()->mapScaleMeta(hnd, &metadata);
+    bufId = C2RKGraphicBufferMapper::get()->getBufferId(hnd);
+    ret = C2RKGraphicBufferMapper::get()->mapScaleMeta(hnd, &metadata);
     if (!ret) {
         /*
          * NOTE: After info change realloc buf, buf has not processed by hwc,
@@ -59,7 +59,7 @@ int C2RKVdecExtendFeature::checkNeedScale(buffer_handle_t hnd) {
             need = -1;
             break;
         }
-        C2RKGrallocOps::get()->unmapScaleMeta(hnd);
+        C2RKGraphicBufferMapper::get()->unmapScaleMeta(hnd);
     }
 
     return need;
@@ -70,7 +70,7 @@ int C2RKVdecExtendFeature::configFrameScaleMeta(
     int ret = 0;
     metadata_for_rkvdec_scaling_t* metadata = NULL;
 
-    ret = C2RKGrallocOps::get()->mapScaleMeta(hnd, &metadata);
+    ret = C2RKGraphicBufferMapper::get()->mapScaleMeta(hnd, &metadata);
     if (!ret) {
         int32_t thumbWidth     = scaleParam->thumbWidth;
         int32_t thumbHeight    = scaleParam->thumbHeight;
@@ -84,7 +84,7 @@ int C2RKVdecExtendFeature::configFrameScaleMeta(
          */
         metadata->width         = thumbHorStride;
         metadata->height        = thumbHeight;
-        metadata->pixel_stride  = thumbHorStride;
+        metadata->pixelStride   = thumbHorStride;
         metadata->format        = scaleParam->format;
 
         // NV12 8/10 bit nfbc, modifier = 0
@@ -99,11 +99,11 @@ int C2RKVdecExtendFeature::configFrameScaleMeta(
         metadata->byteStride[0] = thumbHorStride;
         metadata->byteStride[1] = thumbHorStride;
 
-        usage = C2RKGrallocOps::get()->getUsage(hnd);
+        usage = C2RKGraphicBufferMapper::get()->getUsage(hnd);
         metadata->usage = (uint32_t)usage;
     }
 
-    ret = C2RKGrallocOps::get()->unmapScaleMeta(hnd);
+    ret = C2RKGraphicBufferMapper::get()->unmapScaleMeta(hnd);
 
     return ret;
 }
