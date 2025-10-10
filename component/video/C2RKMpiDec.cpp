@@ -873,6 +873,7 @@ void C2RKMpiDec::onNodeSummaryRequest(std::string &summary) {
     char buffer[SIZE];
     int64_t inputFrames = 0;
     int64_t outputFrames = 0;
+    int64_t errorFrames = 0;
     ColorAspects sfAspects;
 
     ColorUtils::convertIsoColorAspectsToCodecAspects(
@@ -929,18 +930,24 @@ void C2RKMpiDec::onNodeSummaryRequest(std::string &summary) {
         summary.append(buffer);
     }
 
-    if (mDumpService->getNodePortFrameCount(this, &inputFrames, &outputFrames)
-            && inputFrames > 0) {
-        int32_t diff = inputFrames - outputFrames;
+    if (mDumpService->getNodePortFrameCount(
+            this, &inputFrames, &outputFrames, &errorFrames) && inputFrames > 0) {
+        int32_t diff = inputFrames - outputFrames - errorFrames;
         int32_t threshold = mNumOutputSlots - mSlotsToReduce + kRenderSmoothnessFactor;
+        std::string errorFramesDesc = "";
+
+        if (errorFrames > 0) {
+            snprintf(buffer, sizeof(buffer), ", %lld Error", (long long)errorFrames);
+            errorFramesDesc.append(buffer);
+        }
 
         snprintf(buffer, sizeof(buffer),
             "|\n|--------------Pipeline Runtime State--------------|\n"
-            "| Input packet: %lld Totals, %lld Decoded\n"
+            "| Input packet: %lld Totals, %lld Decoded%s\n"
             "| Threshold   : %d (Slots %d Smoothness %d)\n"
             "| State       : %s\n",
-            (long long)inputFrames, (long long)outputFrames, threshold,
-            (mNumOutputSlots - mSlotsToReduce), (int)kRenderSmoothnessFactor,
+            (long long)inputFrames, (long long)outputFrames, errorFramesDesc.c_str(),
+            threshold, (mNumOutputSlots - mSlotsToReduce), (int)kRenderSmoothnessFactor,
             (diff >= threshold) ? "Pipeline-Full" : "Normal");
 
         summary.append(buffer);
@@ -1845,6 +1852,9 @@ void C2RKMpiDec::finishWork(
         if (c2Buffer) {
             work->worklets.front()->output.buffers.push_back(c2Buffer);
         }
+        if (flags & WorkEntry::FLAGS_ERROR_FRAME) {
+            c2_trace("finish empty error work, pts %lld", timestamp);
+        }
         if (flags & WorkEntry::FLAGS_DROP_FRAME) {
             work->input.flags = C2FrameData::flags_t(
                     work->input.flags | C2FrameData::FLAG_DROP_FRAME);
@@ -2437,8 +2447,8 @@ c2_status_t C2RKMpiDec::sendpacket(
         if (err == MPP_OK) {
             c2_trace("send packet pts %lld size %d", pts, size);
             /* record input packet buffer */
-            mDumpService->recordFrame(
-                    this, data, size, (flags & C2FrameData::FLAG_CODEC_CONFIG));
+            bool skipStats = (flags & C2FrameData::FLAG_CODEC_CONFIG);
+            mDumpService->recordFrame(this, data, size, skipStats);
             break;
         }
 
@@ -2571,9 +2581,19 @@ c2_status_t C2RKMpiDec::getoutframe(WorkEntry *entry) {
         if (!mppBuffer) goto cleanUp;
     }
 
-    if (error || discard || isDropFrame(pts)) {
-        c2_warn("skip error/drop frame with pts %lld", pts);
+    if (isDropFrame(pts)) {
+        c2_warn("skip drop frame with pts %lld", pts);
         flags |= WorkEntry::FLAGS_DROP_FRAME;
+        /* record drop output frame */
+        mDumpService->recordFrame(this, kErrorFrame);
+        goto cleanUp;
+    }
+
+    if (error || discard) {
+        c2_warn("skip error frame with pts %lld", pts);
+        flags |= WorkEntry::FLAGS_ERROR_FRAME;
+        /* record error output frame */
+        mDumpService->recordFrame(this, kErrorFrame);
         goto cleanUp;
     }
 
@@ -2667,7 +2687,6 @@ c2_status_t C2RKMpiDec::getoutframe(WorkEntry *entry) {
             dumpData = mpp_buffer_get_ptr(mppBuffer);
         }
         mDumpService->recordFrame(this, dumpData, hstride, vstride, format);
-
         mDumpService->showFrameTiming(this, pts);
     }
 

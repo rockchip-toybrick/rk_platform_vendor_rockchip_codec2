@@ -2860,7 +2860,7 @@ void C2RKMpiEnc::process(
             work->worklets.front()->output.configUpdate.push_back(std::move(csd));
 
             /* record output packet buffer */
-            mDumpService->recordFrame(this, data, dataSize, true /* ifConfig */);
+            mDumpService->recordFrame(this, data, dataSize, true /* skipStats */);
 
             mSpsPpsHeaderReceived = true;
         }

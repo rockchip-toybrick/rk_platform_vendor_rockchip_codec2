@@ -50,6 +50,11 @@ enum C2DumpPort {
     kPortIndexOutput = 1,
 };
 
+enum C2FrameFlags {
+    kErrorFrame  = 0x1,
+    kEOSFrame    = 0x2,
+};
+
 class C2NodeInfoListener {
 public:
     virtual ~C2NodeInfoListener() = default;
@@ -91,6 +96,7 @@ public:
     KeyedVector<int64_t, int64_t> mRecordStartTimes;
 
     /* real-time bps/fps debugging */
+    uint32_t    mErrorFrameCnt;
     std::shared_ptr<BitrateCalculator> mBpsCalculator;
     std::shared_ptr<FrameRateCalculator> mFpsCalculator;
 };
@@ -111,11 +117,13 @@ public:
     bool removeNode(void *nodeId);
     bool resetNode(void *nodeId);
     bool updateNode(void *nodeId, uint32_t width, uint32_t height, float frameRate = .0f);
-    bool getNodePortFrameCount(void *nodeId, int64_t *inputFrames, int64_t *outputFrames);
+    bool getNodePortFrameCount(
+            void *nodeId, int64_t *inFrames, int64_t *outFrames, int64_t *errFrames = nullptr);
 
     /* Input/output recording */
-    void recordFrame(void *nodeId, void *data, size_t size, bool isConfig = false);
+    void recordFrame(void *nodeId, void *data, size_t size, bool skipStats = false);
     void recordFrame(void *nodeId, void *src, int32_t w, int32_t h, int32_t fmt);
+    void recordFrame(void *nodeId, int32_t frameFlags);
 
     /* Frame timing analysis */
     void recordFrameTime(void *nodeId, int64_t frameIndex);

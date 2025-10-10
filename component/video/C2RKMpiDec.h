@@ -112,6 +112,7 @@ private:
             FLAGS_EOS         = 0x1,
             FLAGS_INFO_CHANGE = 0x2,
             FLAGS_DROP_FRAME  = 0x4,
+            FLAGS_ERROR_FRAME = 0x8,
         };
 
         int64_t frameIndex;

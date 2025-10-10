@@ -440,6 +440,7 @@ bool C2RKDumpStateService::resetNode(void *nodeId) {
 
     std::shared_ptr<C2NodeInfo> node = findNodeItem(nodeId);
     if (node) {
+        node->mErrorFrameCnt = 0;
         node->mFpsCalculator->reset();
         node->mBpsCalculator->reset();
         return true;
@@ -480,11 +481,14 @@ bool C2RKDumpStateService::updateNode(
 }
 
 bool C2RKDumpStateService::getNodePortFrameCount(
-        void *nodeId, int64_t *inputFrames, int64_t *outputFrames) {
+        void *nodeId, int64_t *inFrames, int64_t *outFrames, int64_t *errFrames) {
     std::shared_ptr<C2NodeInfo> node = findNodeItem(nodeId);
     if (node) {
-        *inputFrames = node->mFpsCalculator->getTotalInputFrames();
-        *outputFrames = node->mFpsCalculator->getTotalOutputFrames();
+        *inFrames = node->mFpsCalculator->getTotalInputFrames();
+        *outFrames = node->mFpsCalculator->getTotalOutputFrames();
+        if (errFrames) {
+            *errFrames = node->mErrorFrameCnt;
+        }
         return true;
     }
 
@@ -549,14 +553,14 @@ void C2RKDumpStateService::onDumpFlagsUpdated(std::shared_ptr<C2NodeInfo> node) 
 }
 
 void C2RKDumpStateService::recordFrame(
-        void *nodeId, void *data, size_t size, bool isConfig) {
+        void *nodeId, void *data, size_t size, bool skipStats) {
     std::shared_ptr<C2NodeInfo> node = findNodeItem(nodeId);
     if (node) {
         int32_t port = (node->mIsEncoder) ? kPortIndexOutput : kPortIndexInput;
 
-        // statistics track for each frame.
-        node->mBpsCalculator->addFrame(size);
-        if (!isConfig) {
+        if (!skipStats) {
+            // statistics track for each frame
+            node->mBpsCalculator->addFrame(size);
             node->mFpsCalculator->recordFrame(port == kPortIndexInput /* input */);
         }
 
@@ -577,7 +581,7 @@ void C2RKDumpStateService::recordFrame(
     if (node) {
         int32_t port = (node->mIsEncoder) ? kPortIndexInput : kPortIndexOutput;
 
-        // statistics track for each frame.
+        // statistics track for each frame
         node->mFpsCalculator->recordFrame(port == kPortIndexInput /* input */);
 
         // file saving for codec input and output
@@ -612,6 +616,18 @@ void C2RKDumpStateService::recordFrame(
             fflush(file);
             c2_info("%s dump_%s_%s: data 0x%08x w:h [%d:%d]", toStr_Node(node).c_str(),
                     toStr_DumpPort(port), toStr_RawType(fmt), src, w, h);
+        }
+    }
+}
+
+void C2RKDumpStateService::recordFrame(void *nodeId, int32_t frameFlags) {
+    std::shared_ptr<C2NodeInfo> node = findNodeItem(nodeId);
+    if (node) {
+        if (frameFlags & kErrorFrame) {
+            node->mErrorFrameCnt += 1;
+        }
+        if (frameFlags & kEOSFrame) {
+            node->mFpsCalculator->recordFrame(false /* input */);
         }
     }
 }
