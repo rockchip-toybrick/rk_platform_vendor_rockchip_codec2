@@ -23,6 +23,7 @@
 #include <cutils/properties.h>
 #include <unistd.h>
 #include <errno.h>
+#include <sstream>
 #include <queue>
 
 #include "C2RKLog.h"
@@ -623,7 +624,7 @@ void C2RKDumpStateService::recordFrame(
 void C2RKDumpStateService::recordFrame(void *nodeId, int32_t frameFlags) {
     std::shared_ptr<C2NodeInfo> node = findNodeItem(nodeId);
     if (node) {
-        if (frameFlags & kErrorFrame) {
+        if (frameFlags & kErrorFrame || frameFlags & kDropFrame) {
             node->mErrorFrameCnt += 1;
         }
         if (frameFlags & kEOSFrame) {
@@ -691,7 +692,12 @@ std::string C2RKDumpStateService::dumpNodesSummary(bool logging) {
     result.append("========================================\n");
 
     if (logging) {
-        c2_info("%s", result.c_str());
+        std::stringstream ss(result);
+        std::string line;
+
+        while (std::getline(ss, line)) {
+            c2_info("%s", line.c_str());
+        }
     }
 
     return result;

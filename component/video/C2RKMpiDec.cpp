@@ -2585,7 +2585,7 @@ c2_status_t C2RKMpiDec::getoutframe(WorkEntry *entry) {
         c2_warn("skip drop frame with pts %lld", pts);
         flags |= WorkEntry::FLAGS_DROP_FRAME;
         /* record drop output frame */
-        mDumpService->recordFrame(this, kErrorFrame);
+        mDumpService->recordFrame(this, kDropFrame);
         goto cleanUp;
     }
 

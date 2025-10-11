@@ -53,6 +53,7 @@ enum C2DumpPort {
 enum C2FrameFlags {
     kErrorFrame  = 0x1,
     kEOSFrame    = 0x2,
+    kDropFrame   = 0x4
 };
 
 class C2NodeInfoListener {
