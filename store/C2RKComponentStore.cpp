@@ -271,13 +271,6 @@ private:
      */
     void visitComponents();
 
-    /**
-     * Initialize an Android dumpsys service to listen to all codec states
-     */
-    void registerDumpStateService();
-
-    typedef void (*RegisterDumpStateServiceFunc)();
-
     std::mutex mMutex; ///< mutex guarding the component lists during construction
     bool mVisited; ///< component modules visited
     std::map<C2String, ComponentLoader> mComponents; ///< componentName -> component module
@@ -483,25 +476,6 @@ C2RKComponentStore::C2RKComponentStore()
             emplace(sComponentMaps[i].name.c_str());
         }
     }
-
-   // Initialize an Android dumpsys service to listen to all codec states
-   registerDumpStateService();
-}
-
-void C2RKComponentStore::registerDumpStateService() {
-    void *libHandle = dlopen(C2_RK_COMPONENT_PATH, RTLD_NOW | RTLD_NODELETE);
-    LOG_ALWAYS_FATAL_IF(libHandle == nullptr,
-            "could not dlopen %s: %s", C2_RK_COMPONENT_PATH, dlerror());
-
-    RegisterDumpStateServiceFunc registerDumpStateService =
-            (RegisterDumpStateServiceFunc)dlsym(libHandle, "RegisterDumpStateService");
-    LOG_ALWAYS_FATAL_IF(registerDumpStateService == nullptr,
-        "registerDumpStateService is null in %s", C2_RK_COMPONENT_PATH);
-
-    ALOGD("register DumpStateService...");
-    registerDumpStateService();
-
-    dlclose(libHandle);
 }
 
 c2_status_t C2RKComponentStore::copyBuffer(
@@ -602,6 +576,55 @@ C2String C2RKComponentStore::getName() const {
 
 std::shared_ptr<C2ParamReflector> C2RKComponentStore::getParamReflector() const {
     return mReflector;
+}
+
+// Initialize to listen to all codec states
+bool UpdateComponentDump(int fd, Vector<C2String>& args) {
+    void *libHandle = dlopen(C2_RK_COMPONENT_PATH, RTLD_NOW | RTLD_NODELETE);
+    if (!libHandle) {
+        ALOGE("could not dlopen %s: %s", C2_RK_COMPONENT_PATH, dlerror());
+        return false;
+    }
+
+    bool result = false;
+    int setFlags = -1;
+
+    typedef bool (*updateComponentDumpFunc)(int fd, int setFlags);
+
+    updateComponentDumpFunc updateComponentDump =
+            (updateComponentDumpFunc)dlsym(libHandle, "UpdateComponentDump");
+    if (!updateComponentDump) {
+        ALOGE("UpdateComponentDump is null in %s", C2_RK_COMPONENT_PATH);
+        goto cleanUp;
+    }
+
+    if (args.size() >= 2) {
+        C2String arg = args[0];
+
+        // Update dump flags of service
+        if (arg.compare(C2String("-flags")) == 0 ||
+            arg.compare(C2String("--flags")) == 0) {
+            char* endptr;
+            long flags = strtol(args[1].c_str(), &endptr, 0);
+            if (*endptr == '\0') {
+                setFlags = flags;
+            }
+        }
+
+        if (setFlags == -1) {
+            C2String usageWarning("Please specify flags like '-flags 0x1'\n");
+            write(fd, usageWarning.c_str(), usageWarning.size());
+            goto cleanUp;
+        }
+    }
+
+    result = updateComponentDump(fd, setFlags);
+
+cleanUp:
+    if (libHandle) {
+        dlclose(libHandle);
+    }
+    return result;
 }
 
 std::shared_ptr<C2ComponentStore> GetCodec2RKComponentStore() {

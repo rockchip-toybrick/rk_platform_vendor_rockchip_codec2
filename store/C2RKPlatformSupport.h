@@ -18,6 +18,7 @@
 #define ANDROID_C2_RK_PLATFORM_SUPPORT_H__
 
 #include <C2Config.h>
+#include <utils/Vector.h>
 #include <media/stagefright/foundation/MediaDefs.h>
 
 namespace android {
@@ -66,6 +67,7 @@ int32_t GetMppCtxTypeFromComponentName(C2String name);
 
 /* Get Rockchip componentStore */
 std::shared_ptr<C2ComponentStore> GetCodec2RKComponentStore();
+bool UpdateComponentDump(int fd, Vector<C2String>& args);
 
 } // namespace android
 

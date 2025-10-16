@@ -25,6 +25,8 @@
 
 #include "C2RKPlatformSupport.h"
 
+using namespace ::android::hardware::media::c2::V1_1;
+
 // This is the absolute on-device path of the prebuild_etc module
 // "android.hardware.media.c2@1.1-seccomp_policy" in Android.bp.
 static constexpr char kBaseSeccompPolicyPath[] =
@@ -36,6 +38,34 @@ static constexpr char kBaseSeccompPolicyPath[] =
 static constexpr char kExtSeccompPolicyPath[] =
         "/vendor/etc/seccomp_policy/"
         "android.hardware.media.c2@1.1-extended-seccomp-policy";
+
+
+struct MyComponentStoreUtils : public utils::ComponentStore {
+    using ComponentStore::ComponentStore;
+
+    // Dumps information when lshal is called.
+    android::hardware::Return<void> debug(
+            const android::hardware::hidl_handle& handle,
+            const android::hardware::hidl_vec<android::hardware::hidl_string>& args) override {
+        const native_handle_t *h = handle.getNativeHandle();
+        if (!h || h->numFds != 1) {
+           LOG(ERROR) << "debug -- dumping failed -- "
+                   "invalid file descriptor to dump to";
+           return ::android::hardware::Return<void>();
+        }
+
+        android::Vector<C2String> c2Args;
+        for (size_t i = 0; i < args.size(); i++) {
+            c2Args.push_back(C2String(args[i].c_str()));
+        }
+
+        if (!android::UpdateComponentDump(h->data[0], c2Args)) {
+            LOG(WARNING) << "debug -- dumping failed";
+        }
+
+        return ::android::hardware::Return<void>();
+    }
+};
 
 int main(int /* argc */, char** /* argv */) {
     using namespace ::android;
@@ -54,11 +84,10 @@ int main(int /* argc */, char** /* argv */) {
 
     // Create IComponentStore service.
     {
-        using namespace ::android::hardware::media::c2::V1_1;
         sp<IComponentStore> store;
 
         LOG(INFO) << "Instantiating Codec2's IComponentStore service...";
-        store = new utils::ComponentStore(
+        store = new MyComponentStoreUtils(
                 android::GetCodec2RKComponentStore());
 
         if (store == nullptr) {
