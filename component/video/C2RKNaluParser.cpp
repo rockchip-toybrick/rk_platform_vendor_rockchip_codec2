@@ -313,8 +313,8 @@ bool C2RKNaluParser::searchHEVCNalVPS(
         if (detectFiled == C2_DETECT_FIELD_MAX_REF_COUNT) {
             *outValue += vpsMaxDecPicBuffering[i];
         }
-        SKIP_BITS(gb, 32);  // vps_num_reorder_pics
-        SKIP_BITS(gb, 32);  // vps_max_latency_increase
+        READ_UE(gb, &val);  // vps_num_reorder_pics
+        READ_UE(gb, &val);  // vps_max_latency_increase
 
         if (vpsMaxDecPicBuffering[i] > 17) {
             c2_err("vpsMaxDecPicBuffering_minus1 out of range: %d",
@@ -331,6 +331,7 @@ bool C2RKNaluParser::searchHEVCNalVPS(
 
 __BR_ERR:
 error:
+    *outValue = 0;
     return false;
 }
 
