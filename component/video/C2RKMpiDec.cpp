@@ -2690,7 +2690,7 @@ c2_status_t C2RKMpiDec::getoutframe(WorkEntry *entry) {
         mDumpService->showFrameTiming(this, pts);
     }
 
-    entry->block = mBufferMode ? std::move(mOutBlock) : std::move(outBuffer->getBlock());
+    entry->block = mBufferMode ? std::move(mOutBlock) : outBuffer->takeBlock();
 
 cleanUp:
     entry->flags |= flags;

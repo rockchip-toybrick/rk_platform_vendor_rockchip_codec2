@@ -101,6 +101,7 @@ private:
 
         void updateBlock(std::shared_ptr<C2GraphicBlock> block) { mBlock = block; }
         std::shared_ptr<C2GraphicBlock> getBlock() { return mBlock; }
+        std::shared_ptr<C2GraphicBlock> takeBlock() { return std::move(mBlock); }
         int32_t getSize() { return mSize; }
 
         void submitToDecoder();
