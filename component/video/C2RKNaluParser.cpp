@@ -409,7 +409,7 @@ bool C2RKNaluParser::searchHEVCNaluInfo(
             goto error;
         }
 
-        c2_info("extradata is encoded as hvcC format");
+        c2_trace("extradata is encoded as hvcC format");
 
         nalLenSize = 1 + (buf[14 + 7] & 3);
         buf += 22;
@@ -457,7 +457,7 @@ bool C2RKNaluParser::searchHEVCNaluInfo(
             // find start code
             if (buf[i] == 0x00 && buf[i + 1] == 0x00 &&
                 buf[i + 2] == 0x01 && ((buf[i + 3] & 0x7f) >> 1) == detectNaluType) {
-                c2_info("find h265 start code");
+                c2_trace("find h265 start code");
                 i += 3;
                 if (searchHEVCNalUnit(buf + i, size - i, detectFiled, outValue)) {
                     return true;

@@ -24,11 +24,7 @@
 #include <hardware/hardware_rockchip.h>
 #include <ui/GraphicBufferMapper.h>
 #include <hardware/gralloc.h>
-#include <utils/Errors.h>
-
 #include <android/hardware/graphics/mapper/4.0/IMapper.h>
-
-using namespace android;
 
 using android::hardware::graphics::mapper::V4_0::Error;
 using android::hardware::graphics::mapper::V4_0::IMapper;
@@ -235,6 +231,35 @@ uint64_t C2RKGraphicBufferMapper::getBufferId(buffer_handle_t handle) {
     }
 
     return id;
+}
+
+status_t C2RKGraphicBufferMapper::importBuffer(
+        const C2Handle *const c2Handle, buffer_handle_t *outHandle) {
+    uint32_t bqSlot, width, height, format, stride, generation;
+    uint64_t usage, bqId;
+
+    native_handle_t *gHandle = UnwrapNativeCodec2GrallocHandle(c2Handle);
+
+    android::_UnwrapNativeCodec2GrallocMetadata(
+            c2Handle, &width, &height, &format, &usage,
+            &stride, &generation, &bqId, &bqSlot);
+
+    status_t err = GraphicBufferMapper::get().importBuffer(
+            gHandle, width, height, 1, format, usage,
+            stride, outHandle);
+    if (err != OK) {
+        c2_err("failed to import buffer %p", gHandle);
+    }
+
+    native_handle_delete(gHandle);
+    return err;
+}
+
+status_t C2RKGraphicBufferMapper::freeBuffer(buffer_handle_t handle) {
+    if (handle) {
+        GraphicBufferMapper::get().freeBuffer(handle);
+    }
+    return OK;
 }
 
 int32_t C2RKGraphicBufferMapper::setDynamicHdrMeta(buffer_handle_t handle, int64_t offset) {

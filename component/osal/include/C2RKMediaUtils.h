@@ -17,13 +17,9 @@
 #ifndef ANDROID_C2_RK_MEDIA_UTILS_H_
 #define ANDROID_C2_RK_MEDIA_UTILS_H_
 
-#include <C2Config.h>
-
 #include "rk_mpi.h"
 #include "hardware/hardware_rockchip.h"
 #include "hardware/gralloc_rockchip.h"
-
-using namespace android;
 
 #ifndef HAL_PIXEL_FORMAT_YUV420_8BIT_RFBC
 #define HAL_PIXEL_FORMAT_YUV420_8BIT_RFBC   0x200
@@ -104,11 +100,6 @@ public:
             C2FrameInfo srcInfo, C2FrameInfo dstInfo, bool cacheSync = false);
     static void convertNV12ToNV12(
             C2FrameInfo srcInfo, C2FrameInfo dstInfo, bool cacheSync = false);
-
-    // import c2Handle and get buffer_handle_t, don't forget to free it
-    static c2_status_t importGraphicBuffer(
-            const C2Handle *const c2Handle, buffer_handle_t *outHandle);
-    static void freeGraphicBuffer(buffer_handle_t handle);
 };
 
 #endif  // ANDROID_C2_RK_MEDIA_UTILS_H_

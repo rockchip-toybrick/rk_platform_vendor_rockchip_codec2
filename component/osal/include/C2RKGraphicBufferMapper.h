@@ -20,6 +20,11 @@
 
 #include <stdint.h>
 #include <cutils/native_handle.h>
+#include <utils/Errors.h>
+
+#include <C2AllocatorGralloc.h>
+
+using namespace android;
 
 #ifndef GRALLOC_MODULE_PERFORM_LOCK_RKVDEC_SCALING_METADATA
 typedef struct metadata_for_rkvdec_scaling_t {
@@ -66,6 +71,11 @@ public:
     int32_t  getByteStride(buffer_handle_t handle);
     uint64_t getUsage(buffer_handle_t handle);
     uint64_t getBufferId(buffer_handle_t handle);
+
+    // The imported outHandle must be freed with freeBuffer when no longer
+    // needed. c2Handle is owned by the caller.
+    status_t importBuffer(const C2Handle *const c2Handle, buffer_handle_t *outHandle);
+    status_t freeBuffer(buffer_handle_t handle);
 
     /* rk mapper metadata */
     int32_t  setDynamicHdrMeta(buffer_handle_t handle, int64_t offset);

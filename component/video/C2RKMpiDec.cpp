@@ -903,17 +903,11 @@ void C2RKMpiDec::onNodeSummaryRequest(std::string &summary) {
 
     summary.append(buffer);
 
-    if (mBuffers.size()) {
-        int32_t bufferSize = 0;
-
+    if (!mBuffers.empty()) {
         size_t sizeOwnedByDecoder = std::count_if(
-            mBuffers.begin(), mBuffers.end(),
-            [&bufferSize] (const decltype(mBuffers)::value_type &value) {
-                if (value.second->ownedByDecoder()) {
-                    bufferSize = value.second->getSize();
-                    return true;
-                }
-                return false;
+            mBuffers.begin(),  mBuffers.end(),
+            [](const auto& value) {
+                return value.second->ownedByDecoder();
             });
 
         snprintf(buffer, sizeof(buffer),
@@ -923,7 +917,8 @@ void C2RKMpiDec::onNodeSummaryRequest(std::string &summary) {
             "| Usage       : 0x%llx\n"
             "| Format      : 0x%x\n"
             "| Mode        : %s\n",
-            mBuffers.size(), sizeOwnedByDecoder, bufferSize,
+            mBuffers.size(), sizeOwnedByDecoder,
+            mBuffers.begin()->second->getSize(),
             (long long)mAllocParams.usage, mAllocParams.format,
             mBufferMode ? "BufferMode" : "SurfaceMode");
 
@@ -1165,10 +1160,9 @@ c2_status_t C2RKMpiDec::getSurfaceFeatures(const std::shared_ptr<C2BlockPool> &p
     buffer_handle_t handle = nullptr;
     auto c2Handle = block->handle();
 
-    err = C2RKMediaUtils::importGraphicBuffer(c2Handle, &handle);
-    if (err != C2_OK) {
-        c2_err("failed to import graphic buffer");
-        return err;
+    if (C2RKGraphicBufferMapper::get()->importBuffer(c2Handle, &handle) != OK) {
+        c2_err("failed to import feature buffer");
+        return C2_CORRUPTED;
     }
 
     uint64_t usage = C2RKGraphicBufferMapper::get()->getUsage(handle);
@@ -1197,8 +1191,7 @@ c2_status_t C2RKMpiDec::getSurfaceFeatures(const std::shared_ptr<C2BlockPool> &p
     }
 
 cleanUp:
-    C2RKMediaUtils::freeGraphicBuffer(handle);
-
+    C2RKGraphicBufferMapper::get()->freeBuffer(handle);
     return err;
 }
 
@@ -2185,26 +2178,21 @@ c2_status_t C2RKMpiDec::updateFbcModeIfNeeded() {
 }
 
 c2_status_t C2RKMpiDec::importBufferToDecoder(std::shared_ptr<C2GraphicBlock> block) {
-    c2_status_t err = C2_OK;
     auto c2Handle = block->handle();
-    int32_t fd = c2Handle->data[0];
     buffer_handle_t handle = nullptr;
 
-    err = C2RKMediaUtils::importGraphicBuffer(c2Handle, &handle);
-    if (err != C2_OK) {
-        return err;
+    status_t err = C2RKGraphicBufferMapper::get()->importBuffer(c2Handle, &handle);
+    if (err != OK) {
+        return C2_CORRUPTED;
     }
 
-    /* check use scale meta when chip feature support it */
-    if (C2RKChipCapDef::get()->getScaleMode() == C2_SCALE_MODE_META)
-        checkUseScaleMeta(handle);
-
+    int32_t bufferFd = c2Handle->data[0];
     int32_t bufferId = C2RKGraphicBufferMapper::get()->getBufferId(handle);
 
     std::shared_ptr<OutBuffer> outBuffer = findOutBuffer(bufferId);
     if (outBuffer) {
         /* reuse this buffer */
-        outBuffer->updateBlock(block);
+        outBuffer->updateBlock(std::move(block));
         outBuffer->submitToDecoder();
 
         c2_trace("reuse this buffer, bufferId %d", bufferId);
@@ -2215,7 +2203,7 @@ c2_status_t C2RKMpiDec::importBufferToDecoder(std::shared_ptr<C2GraphicBlock> bl
         MppBufferInfo bufferInfo {
             .type  = MPP_BUFFER_TYPE_ION,
             .size  = (size_t)(C2RKGraphicBufferMapper::get()->getAllocationSize(handle)),
-            .fd    = fd,
+            .fd    = bufferFd,
             .index = bufferId,
             .ptr   = nullptr,
             .hnd   = nullptr
@@ -2246,21 +2234,25 @@ c2_status_t C2RKMpiDec::importBufferToDecoder(std::shared_ptr<C2GraphicBlock> bl
                  bufferId, bufferInfo.size, mBuffers.size());
     }
 
-    C2RKMediaUtils::freeGraphicBuffer(handle);
+    /* check use scale meta when chip feature support it */
+    if (C2RKChipCapDef::get()->getScaleMode() == C2_SCALE_MODE_META)
+        checkUseScaleMeta(handle);
 
-    return err;
+    C2RKGraphicBufferMapper::get()->freeBuffer(handle);
+
+    return C2_OK;
 }
 
 c2_status_t C2RKMpiDec::ensureTunneledState() {
     c2_status_t err = C2_OK;
     std::shared_ptr<OutBuffer> outBuffer = nullptr;
-    int32_t count = mTunneledSession->getNeedDequeueCnt();
+    int32_t fetch = mTunneledSession->getNeedDequeueCnt();
 
-    if (count <= 0) return err;
+    if (fetch <= 0) return err;
 
-    c2_trace("required dequeue %d tunnel buffers", count);
+    c2_trace("required dequeue %d tunnel buffers", fetch);
 
-    for (int32_t i = 0; i < count; i++) {
+    for (int32_t i = 0; i < fetch; i++) {
         int32_t bufferId = -1;
         if (mTunneledSession->dequeueBuffer(&bufferId)) {
             outBuffer = findOutBuffer(bufferId);
@@ -2286,7 +2278,7 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
 
     Mutex::Autolock autoLock(mBufferLock);
 
-    if (mTunneled && mBuffers.size() > 0) {
+    if (mTunneled && !mBuffers.empty()) {
         return ensureTunneledState();
     }
 
@@ -2325,41 +2317,39 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
         }
     }
 
-    auto getCountOwnedByDecoder = [this]() -> int32_t {
-        int32_t count = 0;
-        for (auto &pair : mBuffers) {
-            if (pair.second->ownedByDecoder()) count++;
-        }
-        return count;
-    };
+    size_t sizeOwnedByDecoder = std::count_if(
+        mBuffers.begin(),  mBuffers.end(),
+        [](const auto& value) {
+            return value.second->ownedByDecoder();
+        });
 
-    std::shared_ptr<C2GraphicBlock> outblock;
-    uint32_t count = mNumOutputSlots - getCountOwnedByDecoder() + 1;
+    std::shared_ptr<C2GraphicBlock> block;
+    int32_t fetch = mNumOutputSlots - sizeOwnedByDecoder + 1;
 
     if (mTunneled) {
-        count += mTunneledSession->getSmoothnessFactor();
+        fetch += mTunneledSession->getSmoothnessFactor();
     }
 
-    uint32_t i = 0;
-    for (i = 0; i < count; i++) {
+    int32_t i = 0;
+    for (i = 0; i < fetch; i++) {
         err = mBlockPool->fetchGraphicBlock(width, height, format,
                                             C2AndroidMemoryUsage::FromGrallocUsage(usage),
-                                            &outblock);
+                                            &block);
         if (err != C2_OK) {
             c2_err("failed to fetchGraphicBlock, err %d", err);
             break;
         }
 
-        err = importBufferToDecoder(outblock);
+        err = importBufferToDecoder(std::move(block));
         if (err != C2_OK) {
             c2_err("failed to commit buffer");
             break;
         }
     }
 
-    if (err != C2_OK || count > 2) {
+    if (err != C2_OK || fetch > 2) {
         c2_info("required (%dx%d) usage 0x%llx format 0x%x, fetch %d/%d",
-                width, height, usage, format, i, count);
+                width, height, usage, format, i, fetch);
     }
 
     return err;
@@ -2734,81 +2724,73 @@ std::shared_ptr<C2RKMpiDec::OutBuffer> C2RKMpiDec::findOutBuffer(int32_t bufferI
 
 c2_status_t C2RKMpiDec::configFrameMetaIfNeeded(
         MppFrame frame, std::shared_ptr<C2GraphicBlock> block) {
-    c2_status_t err = C2_OK;
-    MppMeta meta = mpp_frame_get_meta(frame);
-
-    if (!meta || !block || !block->handle()) {
-        c2_trace("unexpected null pointer in configFrameMeta");
-        return err;
+    if (!mScaleMode && !mHdrMetaEnabled) {
+        return C2_OK;
     }
 
-    // scale meta config
-    if (mScaleMode == C2_SCALE_MODE_META && mpp_frame_get_thumbnail_en(frame)) {
-        int32_t yOffset = 0;
-        int32_t uvOffset = 0;
-        int32_t width = 0;
-        int32_t height = 0;
-        MppFrameFormat format;
-        C2PreScaleParam scaleParam;
+    MppMeta meta = mpp_frame_get_meta(frame);
 
+    int32_t scaleYOffset  = 0;
+    int32_t scaleUVOffset = 0;
+    int32_t hdrMetaOffset = 0;
+    int32_t hdrMetaSize   = 0;
+
+    if (mScaleMode && mpp_frame_get_thumbnail_en(frame)) {
+        mpp_meta_get_s32(meta, KEY_DEC_TBN_Y_OFFSET,  &scaleYOffset);
+        mpp_meta_get_s32(meta, KEY_DEC_TBN_UV_OFFSET, &scaleUVOffset);
+
+        if (!scaleYOffset || !scaleUVOffset) {
+            c2_err("unexpected scale offset meta");
+            return C2_CORRUPTED;
+        }
+    }
+
+    if (mHdrMetaEnabled && MPP_FRAME_FMT_IS_HDR(mpp_frame_get_fmt(frame))) {
+        mpp_meta_get_s32(meta, KEY_HDR_META_OFFSET, &hdrMetaOffset);
+        mpp_meta_get_s32(meta, KEY_HDR_META_SIZE,   &hdrMetaSize);
+
+        if (!hdrMetaOffset || !hdrMetaSize) {
+            c2_err("unexpected hdr offset meta");
+            return C2_CORRUPTED;
+        }
+    }
+
+    buffer_handle_t handle = nullptr;
+    auto c2Handle = block->handle();
+
+    status_t err = C2RKGraphicBufferMapper::get()->importBuffer(c2Handle, &handle);
+    if (err != OK) {
+        c2_err("failed to import graphic buffer");
+        return C2_CORRUPTED;
+    }
+
+    if (mScaleMode == C2_SCALE_MODE_META) {
+        C2PreScaleParam scaleParam;
         memset(&scaleParam, 0, sizeof(C2PreScaleParam));
 
-        native_handle_t *nHandle =
-                UnwrapNativeCodec2GrallocHandle(block->handle());
-
-        width  = mpp_frame_get_width(frame);
-        height = mpp_frame_get_height(frame);
-        format = mpp_frame_get_fmt(frame);
-
-        mpp_meta_get_s32(meta, KEY_DEC_TBN_Y_OFFSET, &yOffset);
-        mpp_meta_get_s32(meta, KEY_DEC_TBN_UV_OFFSET, &uvOffset);
-
-        scaleParam.thumbWidth = width >> 1;
-        scaleParam.thumbHeight = height >> 1;
+        scaleParam.thumbWidth     = mpp_frame_get_width(frame) >> 1;
+        scaleParam.thumbHeight    = mpp_frame_get_height(frame) >> 1;
         scaleParam.thumbHorStride = C2_ALIGN(mHorStride >> 1, 16);
-        scaleParam.yOffset = yOffset;
-        scaleParam.uvOffset = uvOffset;
-        if (MPP_FRAME_FMT_IS_YUV_10BIT(format)) {
+        scaleParam.yOffset        = scaleYOffset;
+        scaleParam.uvOffset       = scaleUVOffset;
+
+        if (MPP_FRAME_FMT_IS_YUV_10BIT(mpp_frame_get_fmt(frame))) {
             scaleParam.format = HAL_PIXEL_FORMAT_YCrCb_NV12_10;
         } else {
             scaleParam.format = HAL_PIXEL_FORMAT_YCrCb_NV12;
         }
-        C2RKVdecExtendFeature::configFrameScaleMeta(nHandle, &scaleParam);
-        memcpy((void *)&block->handle()->data,
-               (void *)&nHandle->data,
-               sizeof(int) * (nHandle->numFds + nHandle->numInts));
+        C2RKVdecExtendFeature::configFrameScaleMeta(handle, &scaleParam);
 
-        native_handle_delete(nHandle);
+        memcpy((void *)&c2Handle->data, (void *)&handle->data,
+               sizeof(int) * (handle->numFds + handle->numInts));
     }
 
-
-    // hdr meta config
-    if (mHdrMetaEnabled && MPP_FRAME_FMT_IS_HDR(mpp_frame_get_fmt(frame))) {
-        int32_t hdrMetaOffset = 0;
-        int32_t hdrMetaSize = 0;
-
-        mpp_meta_get_s32(meta, KEY_HDR_META_OFFSET, &hdrMetaOffset);
-        mpp_meta_get_s32(meta, KEY_HDR_META_SIZE, &hdrMetaSize);
-
-        if (hdrMetaOffset && hdrMetaSize) {
-            buffer_handle_t handle = nullptr;
-            auto c2Handle = block->handle();
-
-            err = C2RKMediaUtils::importGraphicBuffer(c2Handle, &handle);
-            if (err != C2_OK) {
-                c2_err("failed to import graphic buffer");
-                return err;
-            }
-
-            if (!C2RKVdecExtendFeature::configFrameHdrDynamicMeta(handle, hdrMetaOffset)) {
-                c2_trace("failed to config HdrDynamicMeta");
-            }
-
-            C2RKMediaUtils::freeGraphicBuffer(handle);
-        }
+    if (mHdrMetaEnabled) {
+        C2RKVdecExtendFeature::configFrameHdrDynamicMeta(handle, hdrMetaOffset);
     }
 
-    return err;
+    C2RKGraphicBufferMapper::get()->freeBuffer(handle);
+    return C2_OK;
 }
 
 class C2RKMpiDecFactory : public C2ComponentFactory {
