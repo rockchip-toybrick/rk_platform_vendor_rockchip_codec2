@@ -29,6 +29,10 @@ namespace android {
 class BitrateCalculator;
 class FrameRateCalculator;
 
+/* =================================================================
+ * DUMP FLAGS - Media processing debug and monitoring control flags
+ * =================================================================*/
+
 /* Log dump flags */
 #define C2_DUMP_LOG_TRACE                   (0x00000001)
 #define C2_DUMP_LOG_DETAIL                  (0x00000002)
@@ -44,6 +48,25 @@ class FrameRateCalculator;
 
 /* Performance monitoring flags */
 #define C2_DUMP_FRAME_TIMING                (0x00000100)
+
+/* ==================================================================
+ * CODEC FEATURE FLAGS - extend feature control flags
+ * ==================================================================*/
+
+#define C2_FEATURE_DEC_ENABLE_LOW_LATENCY   (0x00000001)
+#define C2_FEATURE_DEC_DISABLE_FBC          (0x00000002)
+#define C2_FEATURE_DEC_DISABLE_DEINTERLACE  (0x00000004)
+#define C2_FEATURE_DEC_ENABLE_PARSER_SPLIT  (0x00000008)
+#define C2_FEATURE_DEC_DISABLE_DPB_CHECK    (0x00000010)
+#define C2_FEATURE_DEC_DISABLE_ERROR_MARK   (0x00000020)
+#define C2_FEATURE_DEC_EXCLUDE_PADDING      (0x00000040)
+#define C2_FEATURE_DEC_LOW_MEMORY_MODE      (0x00000080)
+
+#define C2_FEATURE_DISABLE_LOAD_CHECK       (0x00000100)
+
+#define C2_FEATURE_ENC_ASYNC_OUTPUT         (0x00010000)
+
+/* =================================================================*/
 
 enum C2DumpPort {
     kPortIndexInput  = 0,
@@ -112,6 +135,9 @@ public:
     void updateDebugFlags(int32_t flags);
     static bool hasDebugFlags(int32_t flags);
 
+    void updateFeatures(std::string features);
+    bool hasFeatures(int32_t feature);
+
     /* Node management */
     std::shared_ptr<C2NodeInfo> findNodeItem(void *nodeId);
     bool addNode(std::shared_ptr<C2NodeInfo> node);
@@ -142,6 +168,7 @@ private:
 
 private:
     static int32_t mDumpFlags;
+    int32_t mFeatureFlags;
 
     Mutex   mNodeLock;
     int64_t mDecTotalLoading;

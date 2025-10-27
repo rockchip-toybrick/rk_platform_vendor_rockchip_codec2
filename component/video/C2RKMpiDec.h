@@ -122,19 +122,6 @@ private:
         std::shared_ptr<C2GraphicBlock> block;
     };
 
-    /*
-     * low memory mode config from user
-     *
-     * 0x0: default value, normal device mode
-     * 0x1: low memory case, reduce smoothFactor count from frameworks only.
-     * 0x2: low memory case, use protocol delayRef.
-     */
-    enum LowMemoryMode {
-        MODE_NONE             = 0x0,
-        MODE_REDUCE_SMOOTH    = 0x1,
-        MODE_USE_PROTOCOL_REF = 0x2,
-    };
-
     const char* mName;
     const char* mMime;
     std::shared_ptr<IntfImpl> mIntf;

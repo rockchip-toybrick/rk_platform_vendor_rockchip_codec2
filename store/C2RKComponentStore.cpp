@@ -580,51 +580,21 @@ std::shared_ptr<C2ParamReflector> C2RKComponentStore::getParamReflector() const 
 
 // Initialize to listen to all codec states
 bool UpdateComponentDump(int fd, Vector<C2String>& args) {
-    void *libHandle = dlopen(C2_RK_COMPONENT_PATH, RTLD_NOW | RTLD_NODELETE);
+    auto libHandle = std::unique_ptr<void, decltype(&dlclose)>(
+            dlopen(C2_RK_COMPONENT_PATH, RTLD_NOW | RTLD_NODELETE), &dlclose);
     if (!libHandle) {
-        ALOGE("could not dlopen %s: %s", C2_RK_COMPONENT_PATH, dlerror());
+        ALOGE("Failed to load library %s: %s", C2_RK_COMPONENT_PATH, dlerror());
         return false;
     }
 
-    bool result = false;
-    int setFlags = -1;
+     auto updateComponentDump = reinterpret_cast<bool(*)
+            (int, void*, size_t)>(dlsym(libHandle.get(), "UpdateComponentDump"));
+     if (!updateComponentDump) {
+         ALOGE("UpdateComponentDump is null in %s", C2_RK_COMPONENT_PATH);
+         return false;
+     }
 
-    typedef bool (*updateComponentDumpFunc)(int fd, int setFlags);
-
-    updateComponentDumpFunc updateComponentDump =
-            (updateComponentDumpFunc)dlsym(libHandle, "UpdateComponentDump");
-    if (!updateComponentDump) {
-        ALOGE("UpdateComponentDump is null in %s", C2_RK_COMPONENT_PATH);
-        goto cleanUp;
-    }
-
-    if (args.size() >= 2) {
-        C2String arg = args[0];
-
-        // Update dump flags of service
-        if (arg.compare(C2String("-flags")) == 0 ||
-            arg.compare(C2String("--flags")) == 0) {
-            char* endptr;
-            long flags = strtol(args[1].c_str(), &endptr, 0);
-            if (*endptr == '\0') {
-                setFlags = flags;
-            }
-        }
-
-        if (setFlags == -1) {
-            C2String usageWarning("Please specify flags like '-flags 0x1'\n");
-            write(fd, usageWarning.c_str(), usageWarning.size());
-            goto cleanUp;
-        }
-    }
-
-    result = updateComponentDump(fd, setFlags);
-
-cleanUp:
-    if (libHandle) {
-        dlclose(libHandle);
-    }
-    return result;
+    return updateComponentDump(fd, reinterpret_cast<void*>(args.editArray()), args.size());
 }
 
 std::shared_ptr<C2ComponentStore> GetCodec2RKComponentStore() {

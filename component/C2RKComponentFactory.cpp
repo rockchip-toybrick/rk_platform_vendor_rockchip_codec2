@@ -27,13 +27,34 @@
 
 using namespace android;
 
-extern "C" bool UpdateComponentDump(int fd, int setFlags) {
-    if (setFlags >= 0) {
-        C2RKDumpStateService::get()->updateDebugFlags(setFlags);
-    } else {
-        std::string summary = C2RKDumpStateService::get()->dumpNodesSummary(false);
-        write(fd, summary.c_str(), summary.size());
-    }
+extern "C" bool UpdateComponentDump(int fd, void* argsPtr, size_t argsSize) {
+    auto dumpService = C2RKDumpStateService::get();
+    std::string* args = static_cast<std::string*>(argsPtr);
+
+    for (size_t i = 0; i < argsSize; i++) {
+        const auto& arg = args[i];
+
+        if (arg == "-flags" || arg == "--flags") {
+            if (++i < argsSize)  {
+                char* endptr = nullptr;
+                long val = strtol(args[i].c_str(), &endptr, 0);
+                if (*endptr != '\0') {
+                    const char* msg = "Error: Invalid number format for flag.\n";
+                    write(fd, msg, strlen(msg));
+                    return false;
+                }
+                dumpService->updateDebugFlags(static_cast<int32_t>(val));
+            }
+        } else if (arg == "-features" || arg == "--features") {
+            if (++i < argsSize)  {
+                dumpService->updateFeatures(args[i]);
+            }
+        }
+     }
+
+    // dump all nodes summary
+    std::string summary = dumpService->dumpNodesSummary(false);
+    write(fd, summary.c_str(), summary.size());
     return true;
 }
 

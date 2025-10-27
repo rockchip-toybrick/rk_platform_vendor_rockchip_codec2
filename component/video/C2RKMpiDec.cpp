@@ -644,11 +644,11 @@ public:
         return false;
     }
 
-    int32_t getLowMemoryMode() const {
+    bool getIsLowMemoryMode() const {
         if (mLowMemoryMode && mLowMemoryMode->value > 0) {
-            return mLowMemoryMode->value;
+            return true;
         }
-        return C2RKPropsDef::getLowMemoryMode();
+        return (C2RKPropsDef::getLowMemoryMode() > 0);
     }
 
     bool getFbcDisable() const {
@@ -1103,7 +1103,8 @@ int32_t C2RKMpiDec::getFbcOutputMode(const std::unique_ptr<C2Work> &work) {
 
     {
         IntfImpl::Lock lock = mIntf->lock();
-        if (mIntf->getFbcDisable()) {
+        if (mIntf->getFbcDisable() ||
+                mDumpService->hasFeatures(C2_FEATURE_DEC_DISABLE_FBC)) {
             c2_info("got disable fbc request");
             return 0;
         }
@@ -1271,16 +1272,17 @@ c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
     uint32_t dpbBasedRefCnt, protocolRefCnt = 0;
     uint32_t numOutputSlots = 0;
 
-    int32_t lowMemoryMode = 0;
+    bool lowMemoryMode = false;
 
     {
         IntfImpl::Lock lock = mIntf->lock();
         width  = mIntf->getSize_l()->width;
         height = mIntf->getSize_l()->height;
         level  = mIntf->getProfileLevel_l() ? mIntf->getProfileLevel_l()->level : 0;
-        lowMemoryMode = mIntf->getLowMemoryMode();
+        lowMemoryMode |= mIntf->getIsLowMemoryMode();
+        lowMemoryMode |= mDumpService->hasFeatures(C2_FEATURE_DEC_LOW_MEMORY_MODE);
         if (lowMemoryMode) {
-            c2_info("in low memory mode %d, reduce output ref count", lowMemoryMode);
+            c2_info("in low memory mode, reduce output ref count");
         }
     }
 
@@ -1293,8 +1295,7 @@ c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
             rView = work->input.buffers[0]->data().linearBlocks().front().map().get();
             protocolRefCnt = C2RKNaluParser::detectMaxRefCount(
                     const_cast<uint8_t *>(rView.data()), rView.capacity(), mCodingType);
-            if ((lowMemoryMode & LowMemoryMode::MODE_USE_PROTOCOL_REF)
-                    && protocolRefCnt > 0 && protocolRefCnt < dpbBasedRefCnt) {
+            if (lowMemoryMode && protocolRefCnt > 0 && protocolRefCnt < dpbBasedRefCnt) {
                 numOutputSlots = protocolRefCnt;
             } else {
                 numOutputSlots = C2_MAX(dpbBasedRefCnt, protocolRefCnt);
@@ -1314,10 +1315,10 @@ c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
         /*
          * The kSmoothnessFactor on the framework is 4, and the ccodec_rendering-deep is 3.
          * Under low memory conditions, the reported delayRef is reduced by 4, which is
-         * equivalent to occupying 4 buffer blocks of the framework.
+         * equivalent to occupying 3 buffer blocks of the framework.
          */
-        if (lowMemoryMode & LowMemoryMode::MODE_REDUCE_SMOOTH) {
-            slotsToReduce = C2_MIN(numOutputSlots, kRenderSmoothnessFactor);
+        if (lowMemoryMode) {
+            slotsToReduce = C2_MIN(numOutputSlots, kRenderSmoothnessFactor - 1);
         }
 
         C2PortActualDelayTuning::output delay(numOutputSlots - slotsToReduce);
@@ -1414,7 +1415,8 @@ c2_status_t C2RKMpiDec::updateDecoderArgs(const std::shared_ptr<C2BlockPool> &po
 
         // In surfaceTexture case, it is hopes that the component output result
         // without stride since they don't want to deal with crop.
-        if (mIntf->getOutputCropEnable()) {
+        if (mIntf->getOutputCropEnable() ||
+                mDumpService->hasFeatures(C2_FEATURE_DEC_EXCLUDE_PADDING)) {
             c2_info("got request for output crop");
             bufferMode = true;
         }
@@ -1658,42 +1660,62 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
         goto error;
     }
 
-    // TODO: workround: CTS-CodecDecoderTest
-    // testFlushNative[15(c2.rk.mpeg2.decoder_video/mpeg2)
-    if (mCodingType == MPP_VIDEO_CodingMPEG2) {
-        uint32_t mode = 0, split = 1;
-        mMppMpi->control(mMppCtx, MPP_DEC_SET_ENABLE_DEINTERLACE, &mode);
-        mMppMpi->control(mMppCtx, MPP_DEC_SET_PARSER_SPLIT_MODE, &split);
-    } else {
-        // enable deinterlace, but not decting
-        uint32_t mode = 1;
-        mMppMpi->control(mMppCtx, MPP_DEC_SET_ENABLE_DEINTERLACE, &mode);
-    }
-
     {
         IntfImpl::Lock lock = mIntf->lock();
 
+        uint32_t deinterlace = 1; // enable deinterlace, but not decting
+        uint32_t splitMode = 0;
         uint32_t fastParse = C2RKChipCapDef::get()->getFastModeSupport(mCodingType);
-        mMppMpi->control(mMppCtx, MPP_DEC_SET_PARSER_FAST_MODE, &fastParse);
-
         uint32_t fastPlay = 2; // 0: disable, 1: enable, 2: enable_once
-        mMppMpi->control(mMppCtx, MPP_DEC_SET_ENABLE_FAST_PLAY, &fastPlay);
+        uint32_t fastOut = mIntf->getIsLowLatencyMode();
+        uint32_t disableDpbCheck = mIntf->getIsDisableDpbCheck();
+        uint32_t disableErrorMark = mIntf->getIsDisableErrorMark();
 
-        if (mIntf->getIsLowLatencyMode()) {
-            uint32_t fastOut = 1;
-            mMppMpi->control(mMppCtx, MPP_DEC_SET_IMMEDIATE_OUT, &fastOut);
-            c2_info("enable lowLatency, enable mpp fast-out mode");
+        // process feature requests configured via system lshal/dumpsys interface
+        static const std::unordered_map<int32_t, std::function<void()>> featureHandlers = {
+            { C2_FEATURE_DEC_DISABLE_DEINTERLACE, [&]() { deinterlace = 0; } },
+            { C2_FEATURE_DEC_ENABLE_PARSER_SPLIT, [&]() { splitMode = 1; } },
+            { C2_FEATURE_DEC_ENABLE_LOW_LATENCY,  [&]() { fastOut = 1; } },
+            { C2_FEATURE_DEC_DISABLE_DPB_CHECK,   [&]() { disableDpbCheck = 1; } },
+            { C2_FEATURE_DEC_DISABLE_ERROR_MARK,  [&]() { disableErrorMark = 1; } },
+        };
+
+        for (const auto& [flag, handler] : featureHandlers) {
+            if (mDumpService->hasFeatures(flag)) handler();
         }
 
-        if (mIntf->getIsDisableDpbCheck()) {
-            uint32_t disableCheck = 1;
-            mMppMpi->control(mMppCtx, MPP_DEC_SET_DISABLE_DPB_CHECK, &disableCheck);
+        // TODO: workaround: CTS-CodecDecoderTest
+        // testFlushNative[15(c2.rk.mpeg2.decoder_video/mpeg2)
+        if (mCodingType == MPP_VIDEO_CodingMPEG2) {
+            deinterlace = 0;
+            splitMode = 1;
+        }
+
+        mMppMpi->control(mMppCtx, MPP_DEC_SET_PARSER_FAST_MODE, &fastParse);
+        mMppMpi->control(mMppCtx, MPP_DEC_SET_ENABLE_FAST_PLAY, &fastPlay);
+
+        if (!deinterlace) {
+            mMppMpi->control(mMppCtx, MPP_DEC_SET_ENABLE_DEINTERLACE, &deinterlace);
+            c2_info("disable deinterlace mode");
+        }
+
+        if (splitMode) {
+            mMppMpi->control(mMppCtx, MPP_DEC_SET_PARSER_SPLIT_MODE, &splitMode);
+            c2_info("enable parser split mode");
+        }
+
+        if (fastOut) {
+            mMppMpi->control(mMppCtx, MPP_DEC_SET_IMMEDIATE_OUT, &fastOut);
+            c2_info("enable lowLatency fast-out mode");
+        }
+
+        if (disableDpbCheck) {
+            mMppMpi->control(mMppCtx, MPP_DEC_SET_DISABLE_DPB_CHECK, &disableDpbCheck);
             c2_info("disable poc discontinuous check");
         }
 
-        if (mIntf->getIsDisableErrorMark()) {
-            uint32_t disableError = 1;
-            mMppMpi->control(mMppCtx, MPP_DEC_SET_DISABLE_ERROR, &disableError);
+        if (disableErrorMark) {
+            mMppMpi->control(mMppCtx, MPP_DEC_SET_DISABLE_ERROR, &disableErrorMark);
             c2_info("disable error frame mark");
         }
     }

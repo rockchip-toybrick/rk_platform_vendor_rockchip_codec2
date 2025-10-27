@@ -333,6 +333,61 @@ bool C2RKDumpStateService::hasDebugFlags(int32_t flags) {
     return (mDumpFlags & flags);
 }
 
+/*
+ * Updates the debug features configuration
+ *
+ * This function parses a string containing debug feature configurations
+ * and updates the internal debug features map. The input string can be
+ * in two formats:
+ * 1. Feature names separated by '|' delimiter (e.g., "feature1|feature2|feature3")
+ * 2. Hexadecimal value representing the bit mask of enabled features (e.g., "0xb")
+ *
+ * @example
+ * updateDebugFeatures("low-latency|disable-fbc|enable-parser-split")
+ * updateDebugFeatures("0xb")
+ */
+void C2RKDumpStateService::updateFeatures(std::string features) {
+    static const std::map<std::string, int32_t> kFeatureMap = {
+        { "low-latency",            C2_FEATURE_DEC_ENABLE_LOW_LATENCY   },
+        { "disable-fbc",            C2_FEATURE_DEC_DISABLE_FBC          },
+        { "disable-deinterlace",    C2_FEATURE_DEC_DISABLE_DEINTERLACE  },
+        { "enable-parser-split",    C2_FEATURE_DEC_ENABLE_PARSER_SPLIT  },
+        { "disable-dpb-check",      C2_FEATURE_DEC_DISABLE_DPB_CHECK    },
+        { "disable-error-mark",     C2_FEATURE_DEC_DISABLE_ERROR_MARK   },
+        { "exclude-padding",        C2_FEATURE_DEC_EXCLUDE_PADDING      },
+        { "low-memory-mode",        C2_FEATURE_DEC_LOW_MEMORY_MODE      },
+        { "async_output",           C2_FEATURE_ENC_ASYNC_OUTPUT         },
+        { "disable-load-check",     C2_FEATURE_DISABLE_LOAD_CHECK       },
+    };
+
+    // clear features
+    mFeatureFlags = 0;
+
+    char* endptr = nullptr;
+    long val = strtol(features.c_str(), &endptr, 0);
+    if (*endptr == '\0') {
+        mFeatureFlags = static_cast<int32_t>(val);
+    } else {
+        std::istringstream iss(features);
+        std::string feature;
+
+        while (std::getline(iss, feature, '|')) {
+            auto it = kFeatureMap.find(feature);
+            if (it != kFeatureMap.end()) {
+                mFeatureFlags |= it->second;
+                c2_info("Add Feature: %s", it->first.c_str());
+            } else {
+                c2_info("Invalid feature name: %s", feature.c_str());
+            }
+        }
+    }
+    c2_info("Update final Feature flags 0x%x", mFeatureFlags);
+}
+
+bool C2RKDumpStateService::hasFeatures(int32_t feature) {
+    return (mFeatureFlags & feature);
+}
+
 std::shared_ptr<C2NodeInfo> C2RKDumpStateService::findNodeItem(void *nodeId) {
     auto it = mDecNodes.find(nodeId);
     if (it != mDecNodes.end()) {
@@ -360,8 +415,11 @@ bool C2RKDumpStateService::addNode(std::shared_ptr<C2NodeInfo> node) {
     }
 
     bool overload = true;
-    bool disableCapCheck = C2RKPropsDef::getLoadingCheckDisable();
+    bool disableCapCheck = false;
     int loading = 0;
+
+    disableCapCheck |= C2RKPropsDef::getLoadingCheckDisable();
+    disableCapCheck |= (mFeatureFlags & C2_FEATURE_DISABLE_LOAD_CHECK);
 
     node->mPid = syscall(SYS_gettid);
     node->mBpsCalculator =
@@ -670,6 +728,12 @@ std::string C2RKDumpStateService::dumpNodesSummary(bool logging) {
     std::string result;
 
     result.append("========================================\n");
+
+    if (mFeatureFlags > 0) {
+        snprintf(buffer, SIZE - 1, "Feature-Flags: 0x%x\n", mFeatureFlags);
+        result.append(buffer);
+    }
+
     result.append("Hardware Codec2 Memory Summary\n");
 
     snprintf(buffer, SIZE - 1, "Total: %zu dec nodes / %zu enc nodes\n",

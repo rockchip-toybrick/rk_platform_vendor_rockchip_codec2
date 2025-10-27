@@ -1437,7 +1437,8 @@ c2_status_t C2RKMpiEnc::onInit() {
     }
 
     if (C2RKChipCapDef::get()->preferDureCoreEncoding(width * height * frameRate) ||
-        C2RKPropsDef::getEncAsncOutputMode()) {
+        C2RKPropsDef::getEncAsncOutputMode() ||
+        mDumpService->hasFeatures(C2_FEATURE_ENC_ASYNC_OUTPUT)) {
         c2_info("use async output mode");
         c2_status_t err = setupAndStartLooper();
         if (err != C2_OK) {
