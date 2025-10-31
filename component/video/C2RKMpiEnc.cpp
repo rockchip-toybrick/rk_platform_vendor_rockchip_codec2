@@ -370,6 +370,13 @@ public:
                 .withSetter(MinQualitySetter)
                 .build());
 
+        addParameter(
+                DefineParam(mTimeStretch, C2_PARAMKEY_INPUT_TIME_STRETCH)
+                .withDefault(new C2PortTimeStretchInfo::output(1.))
+                .withFields({C2F(mTimeStretch, value).any()})
+                .withSetter(Setter<decltype(*mTimeStretch)>::StrictValueWithNoDeps)
+                .build());
+
         /* extend parameter definition */
         addParameter(
                 DefineParam(mSceneMode, C2_PARAMKEY_ENC_SCENE_MODE)
@@ -1118,6 +1125,8 @@ public:
     { return mPrependHeaderMode; }
     std::shared_ptr<C2EncodingQualityLevel> getQualityLevel_l() const
     { return mMinQuality; }
+    std::shared_ptr<C2PortTimeStretchInfo::output> getTimeStretch_l() const
+    { return mTimeStretch; }
     std::shared_ptr<C2StreamEncSceneModeInfo::input> getSceneMode_l() const
     { return mSceneMode; }
     std::shared_ptr<C2StreamEncSliceSizeInfo::input> getSliceSize_l() const
@@ -1151,6 +1160,7 @@ private:
     std::shared_ptr<C2StreamTemporalLayeringTuning::output> mLayering;
     std::shared_ptr<C2PrependHeaderModeSetting> mPrependHeaderMode;
     std::shared_ptr<C2EncodingQualityLevel> mMinQuality;
+    std::shared_ptr<C2PortTimeStretchInfo::output> mTimeStretch;
 
     /* extend parameter definition */
     std::shared_ptr<C2StreamEncSceneModeInfo::input> mSceneMode;
@@ -1684,22 +1694,27 @@ c2_status_t C2RKMpiEnc::setupSliceSize() {
 }
 
 c2_status_t C2RKMpiEnc::setupFrameRate() {
-    float frameRate = 0.0f;
-    uint32_t idrInterval = 0;
-    int32_t gop = 0;
-
     IntfImpl::Lock lock = mIntf->lock();
 
     std::shared_ptr<C2StreamGopTuning::output> c2Gop = mIntf->getGop_l();
-    std::shared_ptr<C2StreamFrameRateInfo::output> c2FrameRate
-            = mIntf->getFrameRate_l();
+    std::shared_ptr<C2StreamFrameRateInfo::output> c2FrameRate = mIntf->getFrameRate_l();
+    std::shared_ptr<C2PortTimeStretchInfo::output> c2Stretch = mIntf->getTimeStretch_l();
+    uint32_t gop = mIntf->getSyncFramePeriod_l();
 
-    idrInterval = mIntf->getSyncFramePeriod_l();
-    frameRate = c2FrameRate->value;
+    // set default frameRate 30
+    float frameRate = c2FrameRate->value > 1.0f ? c2FrameRate->value : 30.0f;
 
-    if (frameRate == 1) {
-        // set default frameRate 30
-        frameRate = 30;
+    // When capture rate is different than the frame rate, it means that
+    // the video is acquired at a different rate than the playback, which
+    // produces slow motion or timelapse effect during playback.
+    //
+    // FIXME: Is it more efficient to implement frame dropping for Time-lapse
+    // Photography/Video at the ISP level?
+    float captureRate = frameRate * c2Stretch->value;
+
+    if (captureRate > frameRate) {
+        c2Stretch->value = 1;
+        c2_info("setupFrameRate: unexpected captureRate %.1f", captureRate);
     }
 
     if (c2Gop && c2Gop->flexCount() > 0) {
@@ -1709,24 +1724,25 @@ c2_status_t C2RKMpiEnc::setupFrameRate() {
 
         ParseGop(*c2Gop, &syncInterval, &iInterval, &maxBframes);
         if (syncInterval > 0) {
-            c2_info("updating IDR interval: %d -> %d", idrInterval, syncInterval);
-            idrInterval = syncInterval;
+            c2_info("updating IDR interval: %d -> %d", gop, syncInterval);
+            gop = syncInterval;
         }
     }
 
-    c2_info("setupFrameRate: framerate %.2f gop %u", frameRate, idrInterval);
+    c2_info("setupFrameRate: frameRate %.1f captureRate %.1f gop %d",
+             frameRate, captureRate, gop);
 
-    gop = (idrInterval < 0xFFFFFF) ? idrInterval : 0;
-    if (gop == 0) {
-        // disable IDR encoding when fps changed
+    if (gop >= 0xFFFFFF) {
+        // Disable IDR in Infinite GOP Mode
         mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_chg_no_idr", 1);
+        gop = 0;
     }
 
     mpp_enc_cfg_set_s32(mEncCfg, "rc:gop", gop);
 
     /* fix input / output frame rate */
     mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_in_flex", 0);
-    mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_in_num", frameRate);
+    mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_in_num", frameRate / c2Stretch->value);
     mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_in_denorm", 1);
     mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_out_flex", 0);
     mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_out_num", frameRate);
@@ -2874,11 +2890,6 @@ void C2RKMpiEnc::process(
             free(hdrBuf);
             hdrBuf = nullptr;
         }
-
-        if (work->input.buffers.empty()) {
-            work->workletsProcessed = 1u;
-            return;
-        }
     }
 
     // handle common dynamic config change
@@ -3606,7 +3617,7 @@ c2_status_t C2RKMpiEnc::getoutpacket(MppPacket *entry) {
         }
 
         if (!len) {
-            c2_warn("ignore empty output with pts %lld", pts);
+            c2_trace("ignore empty output with pts %lld", pts);
             mpp_packet_deinit(&packet);
             return C2_NOT_FOUND;
         }
