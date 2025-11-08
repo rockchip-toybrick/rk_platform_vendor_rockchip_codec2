@@ -57,7 +57,6 @@ static C2ChipCapInfo sChipCapDefault = {
     .fbcCaps        = nullptr,
     .scaleMode      = 0,
     .cap10bit       = C2_CAP_10BIT_NONE,
-    .grallocVersion = 3,
     .reserved       = 0,
 };
 
@@ -70,7 +69,6 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .hdrMetaCap     = 0,
         .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_NONE,
-        .grallocVersion = 4,
         .reserved       = 0,
     },
     {
@@ -81,7 +79,6 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .hdrMetaCap     = 0,
         .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
-        .grallocVersion = 3,
         .reserved       = 0,
     },
     {
@@ -92,7 +89,6 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .hdrMetaCap     = 0,
         .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC,
-        .grallocVersion = 4,
         .reserved       = 0,
     },
     {
@@ -103,7 +99,6 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .hdrMetaCap     = 0,
         .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_HEVC,
-        .grallocVersion = 4,
         .reserved       = 0,
     },
     {
@@ -114,7 +109,6 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .hdrMetaCap     = 0,
         .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_NONE,
-        .grallocVersion = 4,
         .reserved       = 0,
     },
     {
@@ -125,7 +119,6 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .hdrMetaCap     = 0,
         .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_NONE,
-        .grallocVersion = 4,
         .reserved       = 0,
     },
     {
@@ -136,7 +129,6 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .hdrMetaCap     = 0,
         .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
-        .grallocVersion = 4,
         .reserved       = 0,
     },
     {
@@ -147,7 +139,6 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .hdrMetaCap     = 0,
         .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
-        .grallocVersion = 4,
         .reserved       = 0,
     },
     {
@@ -158,7 +149,6 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .hdrMetaCap     = 0,
         .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
-        .grallocVersion = 4,
         .reserved       = 0,
     },
     {
@@ -169,7 +159,6 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .hdrMetaCap     = 1,
         .scaleMode      = C2_SCALE_MODE_META,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
-        .grallocVersion = 3,
         .reserved       = 0,
     },
     {
@@ -180,7 +169,6 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .hdrMetaCap     = 0,
         .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
-        .grallocVersion = 4,
         .reserved       = 0,
     },
     {
@@ -191,7 +179,6 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .hdrMetaCap     = 0,
         .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_NONE,
-        .grallocVersion = 4,
         .reserved       = 0,
     },
     {
@@ -202,7 +189,6 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .hdrMetaCap     = 1,
         .scaleMode      = C2_SCALE_MODE_DOWN_SCALE,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
-        .grallocVersion = 4,
         .reserved       = 0,
     },
 };
@@ -277,10 +263,6 @@ uint32_t C2RKChipCapDef::getHdrMetaCap() {
 
 uint32_t C2RKChipCapDef::getScaleMode() {
     return mChipCapInfo->scaleMode;
-}
-
-uint32_t C2RKChipCapDef::getGrallocVersion() {
-    return mChipCapInfo->grallocVersion;
 }
 
 uint32_t C2RKChipCapDef::getFastModeSupport(MppCodingType codecId) {

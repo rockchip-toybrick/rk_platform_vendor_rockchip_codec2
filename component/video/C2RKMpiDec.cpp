@@ -1466,10 +1466,10 @@ c2_status_t C2RKMpiDec::updateAllocParams() {
     int32_t frameHeight = mVerStride;
     int32_t colorFormat = mColorFormat;
 
+    // In down-scaling mode, update surface info using down-scaling config
     if (mScaleMode == C2_SCALE_MODE_DOWN_SCALE) {
         MppFrame frame  = nullptr;
 
-        // In down-scaling mode, update surface info using down-scaling config
         mpp_frame_init(&frame);
         mpp_frame_set_width(frame, mWidth);
         mpp_frame_set_height(frame, mHeight);
@@ -1509,11 +1509,11 @@ c2_status_t C2RKMpiDec::updateAllocParams() {
             allocWidth = C2_ALIGN(videoWidth, 64);
         }
     } else {
-        int32_t grallocVersion = C2RKChipCapDef::get()->getGrallocVersion();
+        int32_t grallocVersion = C2RKGraphicBufferMapper::get()->getMapperVersion();
 
         // NOTE: private gralloc stride usage only support in 4.0.
         // Update use stride usage if we are able config available stride.
-        if (grallocVersion == 4 && !mGraphicSourceMode) {
+        if (!mGraphicSourceMode && grallocVersion >= 4) {
             uint64_t horUsage = 0, verUsage = 0;
 
             // 10bit video calculate stride base on (width * 10 / 8)
@@ -1565,7 +1565,7 @@ c2_status_t C2RKMpiDec::updateAllocParams() {
     // otherwise, gralloc 3 will check high 32bit is empty,
     // if not empty, will alloc buffer failed and return
     // error. So we need clear high 32 bit.
-    if (C2RKChipCapDef::get()->getGrallocVersion() < 4) {
+    if (C2RKGraphicBufferMapper::get()->getMapperVersion() < 4) {
         allocUsage &= 0xffffffff;
     }
 
@@ -1601,7 +1601,7 @@ c2_status_t C2RKMpiDec::updateAllocParams() {
 
     mUseRgaBlit = true;
 
-    c2_trace("update alloc attrs, width %d height %d usage 0x%llx format %d",
+    c2_trace("update alloc attrs, size %dx%d usage 0x%llx format %d",
               allocWidth, allocHeight, allocUsage, allocFormat);
 
     return C2_OK;

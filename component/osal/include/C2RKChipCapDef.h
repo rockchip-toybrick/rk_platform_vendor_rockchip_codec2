@@ -107,9 +107,8 @@ typedef struct {
     C2FbcCaps    *fbcCaps;
     uint32_t      scaleMode        : 2;
     uint32_t      cap10bit         : 3;
-    uint32_t      grallocVersion   : 4;
     uint32_t      hdrMetaCap       : 1;
-    uint32_t      reserved         : 22;
+    uint32_t      reserved         : 26;
 } C2ChipCapInfo;
 
 class C2RKChipCapDef {
@@ -123,7 +122,6 @@ public:
     C2ChipType  getChipType();
     uint32_t    getHdrMetaCap();
     uint32_t    getScaleMode();
-    uint32_t    getGrallocVersion();
     uint32_t    getFastModeSupport(MppCodingType codecId);
 
     int32_t getFbcOutputMode(MppCodingType codecId = MPP_VIDEO_CodingUnused);

@@ -62,6 +62,7 @@ public:
         return &_gInstance;
     }
 
+    int32_t  getMapperVersion();
     int32_t  getShareFd(buffer_handle_t handle);
     int32_t  getWidth(buffer_handle_t handle);
     int32_t  getHeight(buffer_handle_t handle);

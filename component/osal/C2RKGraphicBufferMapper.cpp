@@ -87,6 +87,10 @@ C2RKGraphicBufferMapper::C2RKGraphicBufferMapper() {
     c2_info("init with mapper version %d", mMapperVersion);
 }
 
+int32_t C2RKGraphicBufferMapper::getMapperVersion() {
+    return mMapperVersion;
+}
+
 int32_t C2RKGraphicBufferMapper::getShareFd(buffer_handle_t handle) {
     if (handle && handle->numFds > 0) {
         return handle->data[0];
