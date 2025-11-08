@@ -57,6 +57,8 @@ static C2ChipCapInfo sChipCapDefault = {
     .fbcCaps        = nullptr,
     .scaleMode      = 0,
     .cap10bit       = C2_CAP_10BIT_NONE,
+    .hasRga2        = 0,
+    .freeAlignEnc   = 0,
     .reserved       = 0,
 };
 
@@ -69,6 +71,8 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .hdrMetaCap     = 0,
         .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_NONE,
+        .hasRga2        = 0,
+        .freeAlignEnc   = 0,
         .reserved       = 0,
     },
     {
@@ -79,6 +83,8 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .hdrMetaCap     = 0,
         .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
+        .hasRga2        = 0,
+        .freeAlignEnc   = 0,
         .reserved       = 0,
     },
     {
@@ -89,6 +95,8 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .hdrMetaCap     = 0,
         .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC,
+        .hasRga2        = 0,
+        .freeAlignEnc   = 0,
         .reserved       = 0,
     },
     {
@@ -99,6 +107,8 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .hdrMetaCap     = 0,
         .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_HEVC,
+        .hasRga2        = 0,
+        .freeAlignEnc   = 0,
         .reserved       = 0,
     },
     {
@@ -109,6 +119,8 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .hdrMetaCap     = 0,
         .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_NONE,
+        .hasRga2        = 0,
+        .freeAlignEnc   = 0,
         .reserved       = 0,
     },
     {
@@ -119,6 +131,8 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .hdrMetaCap     = 0,
         .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_NONE,
+        .hasRga2        = 0,
+        .freeAlignEnc   = 0,
         .reserved       = 0,
     },
     {
@@ -129,6 +143,8 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .hdrMetaCap     = 0,
         .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
+        .hasRga2        = 1,
+        .freeAlignEnc   = 0,
         .reserved       = 0,
     },
     {
@@ -139,6 +155,8 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .hdrMetaCap     = 0,
         .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
+        .hasRga2        = 1,
+        .freeAlignEnc   = 0,
         .reserved       = 0,
     },
     {
@@ -149,6 +167,8 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .hdrMetaCap     = 0,
         .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
+        .hasRga2        = 1,
+        .freeAlignEnc   = 0,
         .reserved       = 0,
     },
     {
@@ -159,6 +179,8 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .hdrMetaCap     = 1,
         .scaleMode      = C2_SCALE_MODE_META,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
+        .hasRga2        = 1,
+        .freeAlignEnc   = 1,
         .reserved       = 0,
     },
     {
@@ -169,6 +191,8 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .hdrMetaCap     = 0,
         .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
+        .hasRga2        = 1,
+        .freeAlignEnc   = 1,
         .reserved       = 0,
     },
     {
@@ -179,6 +203,8 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .hdrMetaCap     = 0,
         .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_NONE,
+        .hasRga2        = 1,
+        .freeAlignEnc   = 1,
         .reserved       = 0,
     },
     {
@@ -189,6 +215,8 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .hdrMetaCap     = 1,
         .scaleMode      = C2_SCALE_MODE_DOWN_SCALE,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
+        .hasRga2        = 0,
+        .freeAlignEnc   = 1,
         .reserved       = 0,
     },
 };
@@ -330,8 +358,8 @@ int32_t C2RKChipCapDef::getFbcOutputOffset(
 
 bool C2RKChipCapDef::preferDureCoreEncoding(int64_t load) {
     // enable dual-core encoding if load > 50% of threshold
-    if ((getChipType() == RK_CHIP_3588 && load > (7680 * 4320 * 15)) ||
-        (getChipType() == RK_CHIP_3576 && load > (4096 * 2160 * 30))) {
+    if ((mChipCapInfo->chipType == RK_CHIP_3588 && load > (7680 * 4320 * 15)) ||
+        (mChipCapInfo->chipType == RK_CHIP_3576 && load > (4096 * 2160 * 30))) {
         return true;
     }
 
@@ -367,6 +395,14 @@ bool C2RKChipCapDef::is10bitSupport(MppCodingType codecId) {
     }
 
     return ret;
+}
+
+bool C2RKChipCapDef::isFreeAlignEncoder() {
+    return mChipCapInfo->freeAlignEnc;
+}
+
+bool C2RKChipCapDef::hasRga2() {
+    return mChipCapInfo->hasRga2;
 }
 
 bool C2RKChipCapDef::hasRkVenc() {

@@ -97,13 +97,13 @@ bool c2_postprocess_output_model_image(
  * @brief process od result to class map
  *
  * @param ctx [in] post-process context
- * @param isHevc [in] Input is hevc
+ * @param ctuSize [in] ctu size
  * @param odResults [in] Model odResults
  * @param omResults [out] cleass map
  * @return bool
  */
 bool c2_postprocess_seg_mask_to_class_map(
-        PostProcessContext ctx, bool isHevc,
+        PostProcessContext ctx, int32_t ctuSize,
         objectDetectResultList *odResults, objectMapResultList *omResults);
 
 /**

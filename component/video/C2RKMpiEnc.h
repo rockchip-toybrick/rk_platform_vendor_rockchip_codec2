@@ -136,7 +136,6 @@ private:
     MppEncCfg        mEncCfg;
     MppCodingType    mCodingType;
     MppFrameFormat   mInputMppFmt;
-    int32_t          mChipType;
 
     bool             mStarted;
     bool             mInputScalar;
@@ -197,6 +196,7 @@ private:
     bool needRgaConvert(uint32_t width, uint32_t height, MppFrameFormat fmt);
     // get RGA color space mode for rgba->yuv conversion
     int32_t getRgaColorSpaceMode();
+    int32_t getCtuSize();
 
     c2_status_t getInBufferFromWork(
             const std::unique_ptr<C2Work> &work, MyDmaBuffer_t *outBuffer);

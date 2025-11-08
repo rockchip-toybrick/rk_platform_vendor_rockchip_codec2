@@ -619,7 +619,7 @@ ImageBuffer* _alloc_seg_buffer(int32_t width, int32_t height) {
     uint32_t stride = 0;
     uint64_t usage  = (GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN);
 
-    if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_3588) {
+    if (C2RKChipCapDef::get()->hasRga2()) {
         usage |= RK_GRALLOC_USAGE_WITHIN_4G;
     }
 
@@ -1150,7 +1150,7 @@ bool c2_postprocess_output_model_image(
 }
 
 bool c2_postprocess_seg_mask_to_class_map(
-        PostProcessContext ctx, bool isHevc,
+        PostProcessContext ctx, int32_t ctuSize,
         objectDetectResultList *odResults, objectMapResultList *omResults) {
     PostProcessContextImpl *impl = (PostProcessContextImpl*)ctx;
     if (!impl) {
@@ -1166,14 +1166,9 @@ bool c2_postprocess_seg_mask_to_class_map(
 
     int blockNum = 0;
     int blkPosX, blkPosY;
-    int ctuSize = 16;
     uint8_t *objectMap = impl->omResultMap;
     uint8_t *segMask = odResults->resultsSeg[0].segMask;
     bool classMapValid = false;
-
-    if (isHevc) {
-        ctuSize = C2RKChipCapDef::get()->getChipType() == RK_CHIP_3588 ? 64 : 32;
-    }
 
     // output seg mask dump
     static std::string dumpResult;

@@ -105,10 +105,12 @@ typedef struct {
     C2ChipType    chipType;
     int32_t       fbcCapNum;
     C2FbcCaps    *fbcCaps;
-    uint32_t      scaleMode        : 2;
-    uint32_t      cap10bit         : 3;
-    uint32_t      hdrMetaCap       : 1;
-    uint32_t      reserved         : 26;
+    uint32_t      scaleMode     : 2;
+    uint32_t      cap10bit      : 3;
+    uint32_t      hdrMetaCap    : 1;
+    uint32_t      hasRga2       : 1;
+    uint32_t      freeAlignEnc  : 1;   /* encoder supports unlimited input resolution */
+    uint32_t      reserved      : 24;
 } C2ChipCapInfo;
 
 class C2RKChipCapDef {
@@ -130,6 +132,8 @@ public:
 
     bool preferDureCoreEncoding(int64_t load);
     bool is10bitSupport(MppCodingType codecId);
+    bool isFreeAlignEncoder();
+    bool hasRga2();
     bool hasRkVenc();
 
 private:

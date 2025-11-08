@@ -131,14 +131,10 @@ public:
         auto getRgaCompatibilityUsage = []() -> int64_t {
             int64_t usage = 0;
 
-            if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_3588 ||
-                C2RKChipCapDef::get()->getChipType() == RK_CHIP_356X) {
+            if (C2RKChipCapDef::get()->hasRga2()) {
                 usage |= RK_GRALLOC_USAGE_WITHIN_4G;
             }
-            if (C2RKChipCapDef::get()->getChipType() != RK_CHIP_3588 &&
-                C2RKChipCapDef::get()->getChipType() != RK_CHIP_3562 &&
-                C2RKChipCapDef::get()->getChipType() != RK_CHIP_3576 &&
-                C2RKChipCapDef::get()->getChipType() != RK_CHIP_3528) {
+            if (!C2RKChipCapDef::get()->isFreeAlignEncoder()) {
                 usage |= RK_GRALLOC_USAGE_STRIDE_ALIGN_16;
             }
             return usage;
@@ -1287,7 +1283,6 @@ C2RKMpiEnc::C2RKMpiEnc(
       mEncCfg(nullptr),
       mCodingType(MPP_VIDEO_CodingUnused),
       mInputMppFmt(MPP_FMT_YUV420SP),
-      mChipType(C2RKChipCapDef::get()->getChipType()),
       mStarted(false),
       mInputScalar(false),
       mSpsPpsHeaderReceived(false),
@@ -2238,24 +2233,7 @@ c2_status_t C2RKMpiEnc::setupIntraRefresh() {
     }
 
     if (intraRefresh->period > 1.0f) {
-        int32_t ctuSize = 16;
-
-        if (mCodingType == MPP_VIDEO_CodingHEVC) {
-            int32_t hevcLcuSize = 0;
-            mpp_enc_cfg_get_s32(mEncCfg, "h265:lcu_size", &hevcLcuSize);
-            if (hevcLcuSize > 0) {
-                ctuSize = hevcLcuSize;
-            } else {
-                if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_3528 ||
-                    C2RKChipCapDef::get()->getChipType() == RK_CHIP_3576) {
-                    ctuSize = 32;
-                } else {
-                    ctuSize = 64;
-                }
-            }
-        }
-
-        int32_t mbs = std::ceil(mSize->height / ctuSize);
+        int32_t mbs = std::ceil(mSize->height / this->getCtuSize());
         int32_t refreshRowsPerFrame = std::ceil(mbs / intraRefresh->period);
 
         mpp_enc_cfg_set_s32(mEncCfg, "rc:refresh_en", 1);
@@ -2294,7 +2272,8 @@ c2_status_t C2RKMpiEnc::setupSuperModeIfNeeded() {
         }
     }
 
-    if (mChipType != RK_CHIP_3588 && mChipType != RK_CHIP_3576) {
+    if (C2RKChipCapDef::get()->getChipType() != RK_CHIP_3588 &&
+        C2RKChipCapDef::get()->getChipType() != RK_CHIP_3576) {
         c2_warn("only RK3576/RK3588 support super encoding mode");
         return C2_OK;
     }
@@ -2316,9 +2295,10 @@ c2_status_t C2RKMpiEnc::setupSuperModeIfNeeded() {
 
     if (isV3Mode && !mRknnSession) {
         mRknnSession = std::make_shared<C2RKYolov5Session>();
-        bool isHEVC = (mCodingType == MPP_VIDEO_CodingHEVC);
+
         if (!mRknnSession->createSession(
-                    std::make_shared<C2RKSessionCallbackImpl>(this), isHEVC)) {
+                    std::make_shared<C2RKSessionCallbackImpl>(this),
+                    this->getCtuSize())) {
             c2_err("failed to create rknn session, fallback..");
             mRknnSession.reset();
             return C2_NO_INIT;
@@ -2601,7 +2581,7 @@ c2_status_t C2RKMpiEnc::initEncoder() {
     buffer_handle_t bufferHandle;
 
     // allocate buffer within 4G to avoid rga2 error.
-    if (mChipType == RK_CHIP_3588 || mChipType == RK_CHIP_356X) {
+    if (C2RKChipCapDef::get()->hasRga2()) {
         usage = RK_GRALLOC_USAGE_WITHIN_4G;
     }
 
@@ -3231,10 +3211,7 @@ bool C2RKMpiEnc::needRgaConvert(uint32_t width, uint32_t height, MppFrameFormat 
         }
     }
 
-    if (mChipType == RK_CHIP_3588 ||
-        mChipType == RK_CHIP_3562 ||
-        mChipType == RK_CHIP_3576 ||
-        mChipType == RK_CHIP_3528) {
+    if (C2RKChipCapDef::get()->isFreeAlignEncoder()) {
         needsRga = (mCodingType == MPP_VIDEO_CodingVP8);
     }
 
@@ -3248,6 +3225,21 @@ cleanUp:
                 width, height, toStr_Format(fmt), needsRga ? "need" : "no need");
     }
     return needsRga;
+}
+
+int32_t C2RKMpiEnc::getCtuSize() {
+    int32_t ctuSize = 16;
+
+    if (mCodingType == MPP_VIDEO_CodingHEVC) {
+        int32_t hevcLcuSize = 0;
+        mpp_enc_cfg_get_s32(mEncCfg, "h265:lcu_size", &hevcLcuSize);
+        if (hevcLcuSize > 0) {
+            ctuSize = hevcLcuSize;
+        } else {
+            c2_warn("unexpected hevc lcu size %d", hevcLcuSize);
+        }
+    }
+    return ctuSize;
 }
 
 int32_t C2RKMpiEnc::getRgaColorSpaceMode() {

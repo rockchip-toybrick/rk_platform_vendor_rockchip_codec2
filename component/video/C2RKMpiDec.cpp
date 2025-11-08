@@ -1586,12 +1586,6 @@ c2_status_t C2RKMpiDec::updateAllocParams() {
             C2RKChipCapDef::get()->getChipType() == RK_CHIP_3288) {
             allocUsage |= kCpuReadWriteUsage;
         }
-
-        // For rk356x, RGA rotation and scaling maybe used for render, so
-        // allocate output buffer within 4G to avoid rga2 error.
-        if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_356X) {
-            allocUsage |= RK_GRALLOC_USAGE_WITHIN_4G;
-        }
     }
 
     mAllocParams.width  = allocWidth;
@@ -2319,8 +2313,7 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
         usage |= kCpuReadWriteUsage;
 
         // allocate buffer within 4G to avoid rga2 error.
-        if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_3588 ||
-            C2RKChipCapDef::get()->getChipType() == RK_CHIP_356X) {
+        if (C2RKChipCapDef::get()->hasRga2()) {
             bUsage |= RK_GRALLOC_USAGE_WITHIN_4G;
         }
 

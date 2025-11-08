@@ -161,7 +161,7 @@ ImageBuffer* allocImageBuffer(int32_t width, int32_t height, ImageFormat format)
     }
 
     // allocate buffer within 4G to avoid rga2 error
-    if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_3588) {
+    if (C2RKChipCapDef::get()->hasRga2() == RK_CHIP_3588) {
         usage |= RK_GRALLOC_USAGE_WITHIN_4G;
     }
 
@@ -248,7 +248,7 @@ C2RKYolov5Session::C2RKYolov5Session() :
     mInputAttrs(nullptr),
     mOutputAttrs(nullptr),
     mPostProcessContext(nullptr),
-    mIsHEVC(false),
+    mCtuSize(16),
     mCallback(nullptr) {
     mDrawRect = (bool)property_get_bool(PROPERTY_NAME_ENABLE_RECT, 0);
     mResultProtoMask = (bool)property_get_bool(PROPERTY_NAME_OUTPUT_PROTO_MASK, 1);
@@ -434,16 +434,10 @@ C2RKYolov5Session::RknnOutput* C2RKYolov5Session::getIdleRknnOutput() {
 }
 
 bool C2RKYolov5Session::createSession(
-        const std::shared_ptr<C2RKSessionCallback> &cb, bool isHEVC) {
+        const std::shared_ptr<C2RKSessionCallback> &cb, int32_t ctuSize) {
     int32_t err = 0;
     int32_t modelSize = 0;
     void *modelData = nullptr;
-
-    if (C2RKChipCapDef::get()->getChipType() != RK_CHIP_3588 &&
-        C2RKChipCapDef::get()->getChipType() != RK_CHIP_3576) {
-        c2_err("only rk3576/rk3588 support rknn yolov5");
-        return false;
-    }
 
     // rknn api ops wrapper
     if (!mOps->initCheck()) {
@@ -517,7 +511,7 @@ bool C2RKYolov5Session::createSession(
     // NOTE: core_1 ..
     mOps->rknnSetCoreMask(mRknnCtx, RKNN_NPU_CORE_1);
 
-    mIsHEVC = isHEVC;
+    mCtuSize = ctuSize;
 
     if (cb != nullptr) {
         // In asynchronous mode, start post-process looper
@@ -559,7 +553,7 @@ bool C2RKYolov5Session::onPostResult(RknnOutput *nnOutput) {
     if (mResultProtoMask && odResults->count > 0) {
         // postprocess od result to class map
         c2_postprocess_seg_mask_to_class_map(
-                mPostProcessContext, mIsHEVC, odResults, &omResults);
+                mPostProcessContext, mCtuSize, odResults, &omResults);
     }
 
     timer.stopRecord("seg_mask_to_class_map");

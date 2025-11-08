@@ -117,7 +117,7 @@ public:
     C2RKYolov5Session();
     ~C2RKYolov5Session();
 
-    bool createSession(const std::shared_ptr<C2RKSessionCallback> &cb, bool isHEVC = false);
+    bool createSession(const std::shared_ptr<C2RKSessionCallback> &cb, int32_t ctuSize);
     bool disconnect();
 
     bool startDetect(ImageBuffer *srcImage);
@@ -220,8 +220,8 @@ private:
     /* post process context */
     PostProcessContext     mPostProcessContext;
 
-    /* ctu size calculation */
-    bool                   mIsHEVC;
+    /* ctu size */
+    int32_t                mCtuSize;
 
     /* draw detecton rect */
     bool                   mDrawRect;
