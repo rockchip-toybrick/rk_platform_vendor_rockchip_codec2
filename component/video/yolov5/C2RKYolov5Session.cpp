@@ -161,7 +161,7 @@ ImageBuffer* allocImageBuffer(int32_t width, int32_t height, ImageFormat format)
     }
 
     // allocate buffer within 4G to avoid rga2 error
-    if (C2RKChipCapDef::get()->hasRga2() == RK_CHIP_3588) {
+    if (C2RKChipCapDef::get()->hasRga2()) {
         usage |= RK_GRALLOC_USAGE_WITHIN_4G;
     }
 

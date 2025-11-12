@@ -267,10 +267,10 @@ status_t C2RKGraphicBufferMapper::freeBuffer(buffer_handle_t handle) {
 }
 
 int32_t C2RKGraphicBufferMapper::setDynamicHdrMeta(buffer_handle_t handle, int64_t offset) {
-    int err = -1;
+    int err = 0;
 
     if (mMapperVersion == 5) {
-        c2_err("not implement");
+        c2_trace("not implement");
     } else if (mMapperVersion == 4) {
         auto &mapper = getGralloc4Mapper();
         hidl_vec<uint8_t> encodedOffset;
@@ -322,7 +322,7 @@ int64_t C2RKGraphicBufferMapper::getDynamicHdrMeta(buffer_handle_t handle) {
     int64_t offset = -1;
 
     if (mMapperVersion == 5) {
-        c2_err("not implement");
+        c2_trace("not implement");
     } else if (mMapperVersion == 4) {
         auto &mapper = getGralloc4Mapper();
 
@@ -353,12 +353,12 @@ int64_t C2RKGraphicBufferMapper::getDynamicHdrMeta(buffer_handle_t handle) {
 
 int32_t C2RKGraphicBufferMapper::mapScaleMeta(
         buffer_handle_t handle, metadata_for_rkvdec_scaling_t** metadata) {
-    int32_t err = -1;
+    int32_t err = 0;
 
     if (mMapperVersion == 5) {
-        c2_err("not implement");
+        c2_trace("not implement");
     } else if (mMapperVersion == 4) {
-        c2_err("not implement");
+        c2_trace("not implement");
     } else {
         const gralloc_module_t* module = getGralloc2Module();
         err = module->perform(module,
@@ -372,12 +372,12 @@ int32_t C2RKGraphicBufferMapper::mapScaleMeta(
 }
 
 int32_t C2RKGraphicBufferMapper::unmapScaleMeta(buffer_handle_t handle) {
-    int32_t err = -1;
+    int32_t err = 0;
 
     if (mMapperVersion == 5) {
-        c2_err("not implement");
+        c2_trace("not implement");
     } else if (mMapperVersion == 4) {
-        c2_err("not implement");
+        c2_trace("not implement");
     } else {
         const gralloc_module_t* module = getGralloc2Module();
         err = module->perform(module, PERFORM_UNLOCK_RKVDEC_SCALING_METADATA, handle);

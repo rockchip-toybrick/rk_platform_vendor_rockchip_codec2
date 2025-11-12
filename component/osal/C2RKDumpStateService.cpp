@@ -348,16 +348,17 @@ bool C2RKDumpStateService::hasDebugFlags(int32_t flags) {
  */
 void C2RKDumpStateService::updateFeatures(std::string features) {
     static const std::map<std::string, int32_t> kFeatureMap = {
-        { "low-latency",            C2_FEATURE_DEC_ENABLE_LOW_LATENCY   },
-        { "disable-fbc",            C2_FEATURE_DEC_DISABLE_FBC          },
-        { "disable-deinterlace",    C2_FEATURE_DEC_DISABLE_DEINTERLACE  },
-        { "enable-parser-split",    C2_FEATURE_DEC_ENABLE_PARSER_SPLIT  },
-        { "disable-dpb-check",      C2_FEATURE_DEC_DISABLE_DPB_CHECK    },
-        { "disable-error-mark",     C2_FEATURE_DEC_DISABLE_ERROR_MARK   },
-        { "exclude-padding",        C2_FEATURE_DEC_EXCLUDE_PADDING      },
-        { "low-memory-mode",        C2_FEATURE_DEC_LOW_MEMORY_MODE      },
-        { "async_output",           C2_FEATURE_ENC_ASYNC_OUTPUT         },
-        { "disable-load-check",     C2_FEATURE_DISABLE_LOAD_CHECK       },
+        { "low-latency",            C2_FEATURE_DEC_ENABLE_LOW_LATENCY    },
+        { "disable-fbc",            C2_FEATURE_DEC_DISABLE_FBC           },
+        { "disable-deinterlace",    C2_FEATURE_DEC_DISABLE_DEINTERLACE   },
+        { "enable-parser-split",    C2_FEATURE_DEC_ENABLE_PARSER_SPLIT   },
+        { "disable-dpb-check",      C2_FEATURE_DEC_DISABLE_DPB_CHECK     },
+        { "disable-error-mark",     C2_FEATURE_DEC_DISABLE_ERROR_MARK    },
+        { "exclude-padding",        C2_FEATURE_DEC_EXCLUDE_PADDING       },
+        { "low-memory-mode",        C2_FEATURE_DEC_LOW_MEMORY_MODE       },
+        { "internal-buffer-group",  C2_FEATURE_DEC_INTERNAL_BUFFER_GROUP },
+        { "async_output",           C2_FEATURE_ENC_ASYNC_OUTPUT          },
+        { "disable-load-check",     C2_FEATURE_DISABLE_LOAD_CHECK        },
     };
 
     // clear features

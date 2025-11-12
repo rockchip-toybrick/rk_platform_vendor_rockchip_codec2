@@ -1112,7 +1112,7 @@ int32_t C2RKMpiDec::getFbcOutputMode(const std::unique_ptr<C2Work> &work) {
 
     if (fbcMode == C2_COMPRESS_AFBC_16x16) {
         if (MPP_FRAME_FMT_IS_YUV_10BIT(mColorFormat)) {
-            c2_info("10bit video source, perfer afbc output mode");
+            c2_trace("10bit video source, perfer afbc output mode");
             return fbcMode;
         }
 
@@ -1124,7 +1124,7 @@ int32_t C2RKMpiDec::getFbcOutputMode(const std::unique_ptr<C2Work> &work) {
                 int32_t depth = C2RKNaluParser::detectBitDepth(
                         const_cast<uint8_t *>(rView.data()), rView.capacity(), mCodingType);
                 if (depth == 10) {
-                    c2_info("10bit video profile detached, prefer afbc output mode");
+                    c2_trace("10bit video profile detached, prefer afbc output mode");
                     return fbcMode;
                 }
             }
@@ -1325,11 +1325,12 @@ c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
         err = mIntf->config({&delay}, C2_MAY_BLOCK, &failures);
         if (err != C2_OK) {
             c2_err("failed to config delay tuning, err %d", err);
-        } else if (work != nullptr) {
-            // update outputDelay config to framework
-            work->worklets.front()->output.configUpdate.push_back(C2Param::Copy(delay));
+        } else {
+            if (work != nullptr) {
+                work->worklets.front()->output.configUpdate.push_back(C2Param::Copy(delay));
+            }
 
-            mSlotsToReduce  = slotsToReduce;
+            mSlotsToReduce = slotsToReduce;
             mNumOutputSlots = numOutputSlots;
         }
     }
@@ -1417,7 +1418,12 @@ c2_status_t C2RKMpiDec::updateDecoderArgs(const std::shared_ptr<C2BlockPool> &po
         // without stride since they don't want to deal with crop.
         if (mIntf->getOutputCropEnable() ||
                 mDumpService->hasFeatures(C2_FEATURE_DEC_EXCLUDE_PADDING)) {
-            c2_info("got request for output crop");
+            c2_info("get request for output crop");
+            bufferMode = true;
+        }
+
+        if (mDumpService->hasFeatures(C2_FEATURE_DEC_INTERNAL_BUFFER_GROUP)) {
+            c2_info("get request for use internal buffer group");
             bufferMode = true;
         }
 
@@ -1615,7 +1621,7 @@ c2_status_t C2RKMpiDec::updateMppFrameInfo(int32_t fbcMode) {
         format |= MPP_FRAME_FBC_AFBC_V2;
         /* fbc decode output has padding inside, set crop before display */
         C2RKChipCapDef::get()->getFbcOutputOffset(mCodingType, &leftCorner, &topCorner);
-        c2_info("use mpp fbc output mode, padding offset(%d, %d)", leftCorner, topCorner);
+        c2_info("use fbc output mode, padding offset(%d, %d)", leftCorner, topCorner);
     } else {
         format &= ~MPP_FRAME_FBC_AFBC_V2;
     }
@@ -1725,16 +1731,18 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
         goto error;
     }
 
-    err = mpp_buffer_group_get_external(&mBufferGroup, MPP_BUFFER_TYPE_ION);
-    if (err != MPP_OK) {
-        c2_err("failed to get buffer_group, err %d", err);
-        goto error;
-    }
+    if (!mDumpService->hasFeatures(C2_FEATURE_DEC_INTERNAL_BUFFER_GROUP)) {
+        err = mpp_buffer_group_get_external(&mBufferGroup, MPP_BUFFER_TYPE_ION);
+        if (err != MPP_OK) {
+            c2_err("failed to get buffer_group, err %d", err);
+            goto error;
+        }
 
-    err = mMppMpi->control(mMppCtx, MPP_DEC_SET_EXT_BUF_GROUP, mBufferGroup);
-    if (err != MPP_OK) {
-        c2_err("failed to set buffer group, err %d", err);
-        goto error;
+        err = mMppMpi->control(mMppCtx, MPP_DEC_SET_EXT_BUF_GROUP, mBufferGroup);
+        if (err != MPP_OK) {
+            c2_err("failed to set buffer group, err %d", err);
+            goto error;
+        }
     }
 
     {
@@ -2332,39 +2340,41 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
         }
     }
 
-    size_t sizeOwnedByDecoder = std::count_if(
-        mBuffers.begin(),  mBuffers.end(),
-        [](const auto& value) {
-            return value.second->ownedByDecoder();
-        });
+    if (mBufferGroup) {
+        size_t sizeOwnedByDecoder = std::count_if(
+            mBuffers.begin(),  mBuffers.end(),
+            [](const auto& value) {
+                return value.second->ownedByDecoder();
+            });
 
-    std::shared_ptr<C2GraphicBlock> block;
-    int32_t fetch = mNumOutputSlots - sizeOwnedByDecoder + 1;
+        std::shared_ptr<C2GraphicBlock> block;
+        int32_t fetch = mNumOutputSlots - sizeOwnedByDecoder + 1;
 
-    if (mTunneled) {
-        fetch += mTunneledSession->getSmoothnessFactor();
-    }
-
-    int32_t i = 0;
-    for (i = 0; i < fetch; i++) {
-        err = mBlockPool->fetchGraphicBlock(width, height, format,
-                                            C2AndroidMemoryUsage::FromGrallocUsage(usage),
-                                            &block);
-        if (err != C2_OK) {
-            c2_err("failed to fetchGraphicBlock, err %d", err);
-            break;
+        if (mTunneled) {
+            fetch += mTunneledSession->getSmoothnessFactor();
         }
 
-        err = importBufferToDecoder(std::move(block));
-        if (err != C2_OK) {
-            c2_err("failed to commit buffer");
-            break;
-        }
-    }
+        int32_t i = 0;
+        for (i = 0; i < fetch; i++) {
+            err = mBlockPool->fetchGraphicBlock(width, height, format,
+                                                C2AndroidMemoryUsage::FromGrallocUsage(usage),
+                                                &block);
+            if (err != C2_OK) {
+                c2_err("failed to fetchGraphicBlock, err %d", err);
+                break;
+            }
 
-    if (err != C2_OK || fetch > 2) {
-        c2_info("required (%dx%d) usage 0x%llx format 0x%x, fetch %d/%d",
-                width, height, usage, format, i, fetch);
+            err = importBufferToDecoder(std::move(block));
+            if (err != C2_OK) {
+                c2_err("failed to commit buffer");
+                break;
+            }
+        }
+
+        if (err != C2_OK || fetch > 2) {
+            c2_info("required (%dx%d) usage 0x%llx format 0x%x, fetch %d/%d",
+                    width, height, usage, format, i, fetch);
+        }
     }
 
     return err;
@@ -2513,7 +2523,6 @@ c2_status_t C2RKMpiDec::getoutframe(WorkEntry *entry) {
 
     MppFrameFormat format = mpp_frame_get_fmt(frame);
     MppBuffer mppBuffer = mpp_frame_get_buffer(frame);
-    std::shared_ptr<OutBuffer> outBuffer = nullptr;
 
     if (mStandardWorkFlow) {
         if ((mode & MPP_FRAME_FLAG_IEP_DEI_MASK) || (!eos && !dts)) {
@@ -2609,13 +2618,6 @@ c2_status_t C2RKMpiDec::getoutframe(WorkEntry *entry) {
 
     bufferId = mpp_buffer_get_index(mppBuffer);
 
-    outBuffer = findOutBuffer(bufferId);
-    if (!outBuffer) {
-        ret = C2_CORRUPTED;
-        c2_err("get outdated mppBuffer %p", mppBuffer);
-        goto cleanUp;
-    }
-
     c2_trace("get one frame [%d:%d] stride [%d:%d] pts %lld err %d bufferId %d",
              width, height, hstride, vstride, pts, error, bufferId);
 
@@ -2666,7 +2668,16 @@ c2_status_t C2RKMpiDec::getoutframe(WorkEntry *entry) {
                     { dstPtr, dstFd, dstFmt, width, height, dstStride, dstVStride },
                     true /* cache sync */);
         }
+
+        entry->block = std::move(mOutBlock);
     } else {
+        std::shared_ptr<OutBuffer> outBuffer = findOutBuffer(bufferId);
+        if (!outBuffer) {
+            ret = C2_CORRUPTED;
+            c2_err("get outdated mppBuffer %p", mppBuffer);
+            goto cleanUp;
+        }
+
         // scale/hdr frame meta config
         configFrameMetaIfNeeded(frame, outBuffer->getBlock());
 
@@ -2676,6 +2687,8 @@ c2_status_t C2RKMpiDec::getoutframe(WorkEntry *entry) {
         if (mTunneled) {
             mTunneledSession->renderBuffer(bufferId);
         }
+
+        entry->block = outBuffer->takeBlock();
     }
 
     if (mCodingType == MPP_VIDEO_CodingAVC ||
@@ -2694,8 +2707,6 @@ c2_status_t C2RKMpiDec::getoutframe(WorkEntry *entry) {
         mDumpService->recordFrame(this, dumpData, hstride, vstride, format);
         mDumpService->showFrameTiming(this, pts);
     }
-
-    entry->block = mBufferMode ? std::move(mOutBlock) : outBuffer->takeBlock();
 
 cleanUp:
     entry->flags |= flags;

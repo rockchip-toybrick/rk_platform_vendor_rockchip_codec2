@@ -285,7 +285,7 @@ uint32_t C2RKMediaUtils::calculateVideoRefCount(
         refCount = gAV1DefRefCount;
         break;
       default: {
-        c2_err("use default ref frame count(%d)", C2_DEFAULT_REF_FRAME_COUNT);
+        c2_trace("use default ref frame count(%d)", C2_DEFAULT_REF_FRAME_COUNT);
         refCount = C2_DEFAULT_REF_FRAME_COUNT;
       }
     }
