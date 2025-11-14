@@ -451,7 +451,7 @@ bool C2RKComponent::isPendingWorkExist(uint64_t frameIndex) {
     return (queue->pending().count(frameIndex) > 0);
 }
 
-void C2RKComponent::flushPeddingWorks() {
+void C2RKComponent::finishAllPendingWorks() {
     Mutexed<WorkQueue>::Locked queue(mWorkQueue);
     while (!queue->pending().empty()) {
         std::unique_ptr<C2Work> work = std::move(queue->pending().begin()->second);

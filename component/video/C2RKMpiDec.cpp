@@ -985,12 +985,7 @@ c2_status_t C2RKMpiDec::onInit() {
 }
 
 c2_status_t C2RKMpiDec::onStop() {
-    c2_log_func_enter();
-    if (!mFlushed) {
-        return onFlush_sm();
-    }
-
-    return C2_OK;
+    return onFlush_sm();
 }
 
 void C2RKMpiDec::onReset() {
@@ -1007,9 +1002,7 @@ void C2RKMpiDec::onRelease() {
     /* set flushing state to discard all work output */
     setFlushingState();
 
-    if (!mFlushed) {
-        onFlush_sm();
-    }
+    onFlush_sm();
 
     stopAndReleaseLooper();
 
@@ -1391,6 +1384,8 @@ c2_status_t C2RKMpiDec::configTunneledPlayback(const std::unique_ptr<C2Work> &wo
 c2_status_t C2RKMpiDec::updateDecoderArgs(const std::shared_ptr<C2BlockPool> &pool) {
     c2_status_t err  = C2_OK;
     bool needsUpdate = false;
+
+    c2_trace_func_enter();
 
     {
         IntfImpl::Lock lock = mIntf->lock();
@@ -1897,6 +1892,7 @@ void C2RKMpiDec::finishWork(
     };
 
     if (work && (flags & WorkEntry::FLAGS_EOS)) {
+        finishAllPendingWorks();
         fillWork(work);
     } else {
         if (isPendingWorkExist(frameIndex)) {
@@ -1970,15 +1966,17 @@ void C2RKMpiDec::process(
     work->workletsProcessed = 0u;
     work->worklets.front()->output.flags = work->input.flags;
 
-    // Initialize decoder if not already initialized
-    if (!mStarted) {
+    if (mBlockPool != pool) {
         err = updateDecoderArgs(pool);
         if (err != C2_OK) {
             work->result = C2_BAD_VALUE;
             c2_info("failed to update args, signalled Error");
             return;
         }
+    }
 
+    // Initialize decoder if not already initialized
+    if (!mStarted) {
         err = initDecoder(work);
         if (err != C2_OK) {
             work->result = C2_BAD_VALUE;
@@ -2045,15 +2043,6 @@ void C2RKMpiDec::process(
              inSize, timestamp, frameIndex, flags);
 
     if (mFlushed) {
-        if (mBlockPool != pool) {
-            err = updateDecoderArgs(pool);
-            if (err != C2_OK) {
-                mSignalledError = true;
-                work->result = C2_CORRUPTED;
-                return;
-            }
-        }
-
         err = ensureDecoderState();
         if (err != C2_OK) {
             mSignalledError = true;
@@ -2072,7 +2061,9 @@ void C2RKMpiDec::process(
 
     if (mInputEOS) {
         drainEOS(work);
-    } else if (!mStandardWorkFlow || (flags & C2FrameData::FLAG_CODEC_CONFIG)) {
+    } else if ((flags & C2FrameData::FLAG_CODEC_CONFIG) || !inSize) {
+        fillEmptyWork(work);
+    } else if (!mStandardWorkFlow) {
         fillEmptyWork(work);
     }
 
@@ -2524,7 +2515,7 @@ c2_status_t C2RKMpiDec::getoutframe(WorkEntry *entry) {
         if ((mode & MPP_FRAME_FLAG_IEP_DEI_MASK) || (!eos && !dts)) {
             c2_info("fallback non-standard workflow");
             mStandardWorkFlow = false;
-            flushPeddingWorks();
+            finishAllPendingWorks();
         }
     }
 

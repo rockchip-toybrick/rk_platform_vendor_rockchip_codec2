@@ -121,9 +121,9 @@ protected:
     bool isPendingWorkExist(uint64_t frameIndex);
 
     /**
-     * finish all pedding works
+     * finish all pending works
      */
-    void flushPeddingWorks();
+    void finishAllPendingWorks();
 
     // for derived classes
     /**
