@@ -78,3 +78,4 @@ getegid: 1
 getgroups: 1
 mmap: 1
 mmap2: 1
+sysinfo: 1
