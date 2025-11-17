@@ -750,9 +750,11 @@ void C2RKMpiDec::WorkHandler::flushAllMessages() {
 }
 
 void C2RKMpiDec::WorkHandler::stop() {
-    flushAllMessages();
-
     mRunning = false;
+
+    sp<AMessage> msg = new AMessage(WorkHandler::kWhatFlushMessage, this);
+    sp<AMessage> response;
+    msg->postAndAwaitResponse(&response);
 }
 
 void C2RKMpiDec::WorkHandler::onMessageReceived(const sp<AMessage> &msg) {
@@ -2616,8 +2618,6 @@ c2_status_t C2RKMpiDec::getoutframe(WorkEntry *entry) {
              width, height, hstride, vstride, pts, error, bufferId);
 
     if (mBufferMode) {
-        Mutex::Autolock autoLock(mBufferLock);
-
         auto c2Handle = mOutBlock->handle();
         int32_t srcFd = mpp_buffer_get_fd(mppBuffer);
         int32_t dstFd = c2Handle->data[0];
