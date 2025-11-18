@@ -1691,6 +1691,7 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
         }
 
         if (splitMode) {
+            mStandardWorkFlow = false;
             mMppMpi->control(mMppCtx, MPP_DEC_SET_PARSER_SPLIT_MODE, &splitMode);
             c2_info("enable parser split mode");
         }
@@ -2511,9 +2512,25 @@ c2_status_t C2RKMpiDec::getoutframe(WorkEntry *entry) {
     MppFrameFormat format = mpp_frame_get_fmt(frame);
     MppBuffer mppBuffer = mpp_frame_get_buffer(frame);
 
-    if (mStandardWorkFlow) {
-        if ((mode & MPP_FRAME_FLAG_IEP_DEI_MASK) || (!eos && !dts)) {
-            c2_info("fallback non-standard workflow");
+    // In standard workFlow mode, each input frame is expected to yield a
+    // corresponding output. Therefore, when the decoder is in interlace/split
+    // mode or encounters too many unparseable frames, it should switch back
+    // to non-standard workFlow mode.
+    if (mStandardWorkFlow && !eos) {
+        bool needsFallback = false;
+
+        if (!dts) {
+            c2_info("dts disorder, fallback non-standard workflow");
+            needsFallback = true;
+        } else if (mode & MPP_FRAME_FLAG_IEP_DEI_MASK) {
+            c2_info("interlace source, fallback non-standard workflow");
+            needsFallback = true;
+        } else if (getPendingWorkCountBeforeFrame(frameIdx) > 5) {
+            c2_info("too many stuck frames, fallback non-standard workflow");
+            needsFallback = true;
+        }
+
+        if (needsFallback) {
             mStandardWorkFlow = false;
             finishAllPendingWorks();
         }

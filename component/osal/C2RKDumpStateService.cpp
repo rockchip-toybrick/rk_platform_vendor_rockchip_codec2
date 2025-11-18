@@ -428,6 +428,7 @@ bool C2RKDumpStateService::addNode(std::shared_ptr<C2NodeInfo> node) {
                     toStr_Node(node), node->mFrameRate, 3 /* stateTime */);
     node->mFpsCalculator =
             std::make_shared<FrameRateCalculator>(toStr_Node(node), 1 /* windowSeconds */);
+    node->mErrorFrameCnt = 0;
 
     if (node->mFrameRate <= 1.0f) {
         node->mFrameRate = 30.0f;

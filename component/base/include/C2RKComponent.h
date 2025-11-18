@@ -121,6 +121,11 @@ protected:
     bool isPendingWorkExist(uint64_t frameIndex);
 
     /**
+     * Retrieves the number of pending work items scheduled before frameIndex
+     */
+    int getPendingWorkCountBeforeFrame(uint64_t frameIndex);
+
+    /**
      * finish all pending works
      */
     void finishAllPendingWorks();

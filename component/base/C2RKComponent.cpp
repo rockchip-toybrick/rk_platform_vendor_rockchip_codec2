@@ -451,6 +451,15 @@ bool C2RKComponent::isPendingWorkExist(uint64_t frameIndex) {
     return (queue->pending().count(frameIndex) > 0);
 }
 
+int C2RKComponent::getPendingWorkCountBeforeFrame(uint64_t frameIndex) {
+    Mutexed<WorkQueue>::Locked queue(mWorkQueue);
+    return std::count_if(
+                queue->pending().begin(),  queue->pending().end(),
+                [frameIndex](const auto& value) {
+                    return (value.second->input.ordinal.frameIndex < frameIndex);
+                });
+}
+
 void C2RKComponent::finishAllPendingWorks() {
     Mutexed<WorkQueue>::Locked queue(mWorkQueue);
     while (!queue->pending().empty()) {
