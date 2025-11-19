@@ -1835,8 +1835,11 @@ void C2RKMpiDec::finishWork(
     uint64_t timestamp = entry.timestamp;
     uint64_t frameIndex = entry.frameIndex;
 
-    // stop work output in tunnel mode
-    if (mTunneled) {
+    if (flags & WorkEntry::FLAGS_EOS) {
+        mOutputEOS = true;
+    }
+
+    if (flags & WorkEntry::FLAGS_CANCEL_FINISH) {
         return;
     }
 
@@ -1861,9 +1864,6 @@ void C2RKMpiDec::finishWork(
         if (c2Buffer) {
             work->worklets.front()->output.buffers.push_back(c2Buffer);
         }
-        if (flags & WorkEntry::FLAGS_ERROR_FRAME) {
-            c2_trace("finish empty error work, pts %lld", timestamp);
-        }
         if (flags & WorkEntry::FLAGS_DROP_FRAME) {
             work->input.flags = C2FrameData::flags_t(
                     work->input.flags | C2FrameData::FLAG_DROP_FRAME);
@@ -1884,7 +1884,6 @@ void C2RKMpiDec::finishWork(
         }
         if (flags & WorkEntry::FLAGS_EOS) {
             c2_info("signalling eos");
-            mOutputEOS = true;
             work->worklets.front()->output.flags = C2FrameData::FLAG_END_OF_STREAM;
         }
 
@@ -2284,7 +2283,6 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
     c2_status_t err = C2_OK;
 
     if (isPendingFlushing()) {
-        c2_trace("NO NEED ensure, in pending flush");
         return err;
     }
 
@@ -2616,14 +2614,15 @@ c2_status_t C2RKMpiDec::getoutframe(WorkEntry *entry) {
     }
 
     if (isPendingFlushing()) {
-        c2_trace("ignore frame output since pending flush");
+        c2_trace("ignore frame(pts=%lld) output since pending flush", pts);
+        flags |= WorkEntry::FLAGS_CANCEL_FINISH;
         goto cleanUp;
     }
 
     bufferId = mpp_buffer_get_index(mppBuffer);
 
-    c2_trace("get one frame [%d:%d] stride [%d:%d] pts %lld err %d bufferId %d",
-             width, height, hstride, vstride, pts, error, bufferId);
+    c2_trace("get frame [%d:%d] stride [%d:%d] pts %lld bufferId %d idx %lld",
+             width, height, hstride, vstride, pts, bufferId, frameIdx);
 
     if (mBufferMode) {
         auto c2Handle = mOutBlock->handle();
@@ -2688,6 +2687,8 @@ c2_status_t C2RKMpiDec::getoutframe(WorkEntry *entry) {
 
         if (mTunneled) {
             mTunneledSession->renderBuffer(bufferId);
+            // cancel work output in tunnel mode
+            flags |= WorkEntry::FLAGS_CANCEL_FINISH;
         }
 
         entry->block = outBuffer->takeBlock();

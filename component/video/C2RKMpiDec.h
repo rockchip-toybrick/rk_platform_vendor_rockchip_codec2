@@ -110,10 +110,11 @@ private:
 
     struct WorkEntry {
         enum Flags {
-            FLAGS_EOS         = 0x1,
-            FLAGS_INFO_CHANGE = 0x2,
-            FLAGS_DROP_FRAME  = 0x4,
-            FLAGS_ERROR_FRAME = 0x8,
+            FLAGS_EOS           = 0x1,
+            FLAGS_INFO_CHANGE   = 0x2,
+            FLAGS_DROP_FRAME    = 0x4,
+            FLAGS_ERROR_FRAME   = 0x8,
+            FLAGS_CANCEL_FINISH = 0x10,
         };
 
         int64_t frameIndex;

@@ -273,11 +273,12 @@ c2_status_t C2RKComponent::flush_sm(
         }
     }
     {
+        Mutexed<WorkQueue>::Locked queue(mWorkQueue);
+
         // since flush process is time-consuming, set flushing state
         // to discard all work output during process.
         setFlushingState();
 
-        Mutexed<WorkQueue>::Locked queue(mWorkQueue);
         queue->incGeneration();
         // TODO: queue->splicedBy(flushedWork, flushedWork->end());
         while (!queue->empty()) {
@@ -481,10 +482,18 @@ void C2RKComponent::finishAllPendingWorks() {
 void C2RKComponent::finish(
         uint64_t frameIndex,
         std::function<void(const std::unique_ptr<C2Work> &)> fillWork) {
+
     std::unique_ptr<C2Work> work;
 
     {
         Mutexed<WorkQueue>::Locked queue(mWorkQueue);
+
+        // ensure normal output of work with configUpdate
+        if (isPendingFlushing()) {
+            c2_trace("ignore frame output since pending flush");
+            return;
+        }
+
         if (queue->pending().count(frameIndex) == 0) {
             c2_warn("unknown frame index: %" PRIu64, frameIndex);
             return;
