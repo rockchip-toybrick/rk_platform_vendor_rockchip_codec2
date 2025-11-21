@@ -30,11 +30,20 @@ using android::hardware::graphics::mapper::V4_0::Error;
 using android::hardware::graphics::mapper::V4_0::IMapper;
 using android::hardware::hidl_vec;
 
-/* Gralloc2 rk mapper metadata  */
+/* Gralloc rk mapper metadata  */
 #define PERFORM_SET_OFFSET_OF_DYNAMIC_HDR_METADATA           0x08100017
 #define PERFORM_GET_OFFSET_OF_DYNAMIC_HDR_METADATA           0x08100018
 #define PERFORM_LOCK_RKVDEC_SCALING_METADATA                 0x08100019
 #define PERFORM_UNLOCK_RKVDEC_SCALING_METADATA               0x0810001A
+
+#define PERFORM_GET_HADNLE_WIDTH                             0x08100008
+#define PERFORM_GET_HADNLE_HEIGHT                            0x0810000A
+#define PERFORM_GET_HADNLE_STRIDE                            0x0810000C
+#define PERFORM_GET_HADNLE_BYTE_STRIDE                       0x0810000E
+#define PERFORM_GET_HADNLE_FORMAT                            0x08100010
+#define PERFORM_GET_SIZE                                     0x08100012
+#define PERFORM_GET_BUFFER_ID                                0x0810001B
+#define PERFORM_GET_USAGE                                    0x0feeff03
 
 /* Gralloc4 rk mapper metadata  */
 #define OFFSET_OF_DYNAMIC_HDR_METADATA      (1)
@@ -45,7 +54,7 @@ const static IMapper::MetadataType RkMetadataType_OFFSET_OF_DYNAMIC_HDR_METADATA
 };
 
 
-static const gralloc_module_t* getGralloc2Module() {
+static const gralloc_module_t* getGrallocModule() {
     static const gralloc_module_t *cachedModule = NULL;
     if (cachedModule == NULL) {
         const hw_module_t* module = NULL;
@@ -103,6 +112,11 @@ int32_t C2RKGraphicBufferMapper::getWidth(buffer_handle_t handle) {
     uint64_t width = 0;
 
     status_t err = GraphicBufferMapper::get().getWidth(handle, &width);
+    if (err != OK && mMapperVersion == 2) {
+        const gralloc_module_t* module = getGrallocModule();
+        err = module->perform(module, PERFORM_GET_HADNLE_WIDTH, handle, &width);
+    }
+
     if (err != OK) {
         c2_err("Failed to get width. err : %d", err);
         return -1;
@@ -115,6 +129,11 @@ int32_t C2RKGraphicBufferMapper::getHeight(buffer_handle_t handle) {
     uint64_t height = 0;
 
     int err = GraphicBufferMapper::get().getHeight(handle, &height);
+    if (err != OK && mMapperVersion == 2) {
+        const gralloc_module_t* module = getGrallocModule();
+        err = module->perform(module, PERFORM_GET_HADNLE_HEIGHT, handle, &height);
+    }
+
     if (err != OK) {
         c2_err("Failed to get height. err : %d", err);
         return -1;
@@ -127,6 +146,11 @@ int32_t C2RKGraphicBufferMapper::getFormatRequested(buffer_handle_t handle) {
     android::ui::PixelFormat format;
 
     int err = GraphicBufferMapper::get().getPixelFormatRequested(handle, &format);
+    if (err != OK && mMapperVersion == 2) {
+        const gralloc_module_t* module = getGrallocModule();
+        err = module->perform(module, PERFORM_GET_HADNLE_FORMAT, handle, &format);
+    }
+
     if (err != OK) {
         c2_err("Failed to get pixel_format_requested. err : %d", err);
         return -1;
@@ -139,6 +163,11 @@ int32_t C2RKGraphicBufferMapper::getAllocationSize(buffer_handle_t handle) {
     uint64_t size = 0;
 
     int err = GraphicBufferMapper::get().getAllocationSize(handle, &size);
+    if (err != OK && mMapperVersion == 2) {
+        const gralloc_module_t* module = getGrallocModule();
+        err = module->perform(module, PERFORM_GET_SIZE, handle, &size);
+    }
+
     if (err != OK) {
         c2_err("Failed to get allocation_size. err : %d", err);
         return -1;
@@ -217,6 +246,11 @@ uint64_t C2RKGraphicBufferMapper::getUsage(buffer_handle_t handle) {
     uint64_t usage = 0;
 
     int err = GraphicBufferMapper::get().getUsage(handle, &usage);
+    if (err != OK && mMapperVersion == 2) {
+        const gralloc_module_t* module = getGrallocModule();
+        err = module->perform(module, PERFORM_GET_USAGE, handle, &usage);
+    }
+
     if (err != OK) {
         c2_err("Failed to get usage. err : %d", err);
         return 0;
@@ -229,6 +263,11 @@ uint64_t C2RKGraphicBufferMapper::getBufferId(buffer_handle_t handle) {
     uint64_t id = 0;
 
     int err = GraphicBufferMapper::get().getBufferId(handle, &id);
+    if (err != OK && mMapperVersion == 2) {
+        const gralloc_module_t* module = getGrallocModule();
+        err = module->perform(module, PERFORM_GET_BUFFER_ID, handle, &id);
+    }
+
     if (err != OK) {
         c2_err("Failed to get buffer id. err : %d", err);
         return 0;
@@ -306,7 +345,7 @@ int32_t C2RKGraphicBufferMapper::setDynamicHdrMeta(buffer_handle_t handle, int64
             }
         }
     } else {
-        const gralloc_module_t* module = getGralloc2Module();
+        const gralloc_module_t* module = getGrallocModule();
         err = module->perform(module,
                     PERFORM_SET_OFFSET_OF_DYNAMIC_HDR_METADATA, handle, offset);
     }
@@ -337,7 +376,7 @@ int64_t C2RKGraphicBufferMapper::getDynamicHdrMeta(buffer_handle_t handle) {
                         err = decodeRkOffsetOfVideoMetadata(metadata, &offset);
                     });
     } else {
-        const gralloc_module_t* module = getGralloc2Module();
+        const gralloc_module_t* module = getGrallocModule();
 
         err = module->perform(module,
                     PERFORM_GET_OFFSET_OF_DYNAMIC_HDR_METADATA, handle, &offset);
@@ -360,7 +399,7 @@ int32_t C2RKGraphicBufferMapper::mapScaleMeta(
     } else if (mMapperVersion == 4) {
         c2_trace("not implement");
     } else {
-        const gralloc_module_t* module = getGralloc2Module();
+        const gralloc_module_t* module = getGrallocModule();
         err = module->perform(module,
                     PERFORM_LOCK_RKVDEC_SCALING_METADATA, handle, metadata);
         if (err != 0) {
@@ -379,7 +418,7 @@ int32_t C2RKGraphicBufferMapper::unmapScaleMeta(buffer_handle_t handle) {
     } else if (mMapperVersion == 4) {
         c2_trace("not implement");
     } else {
-        const gralloc_module_t* module = getGralloc2Module();
+        const gralloc_module_t* module = getGrallocModule();
         err = module->perform(module, PERFORM_UNLOCK_RKVDEC_SCALING_METADATA, handle);
         if (err != 0) {
             c2_err("Failed to unlock rkdevc_scaling_metadata, err %d", err);
