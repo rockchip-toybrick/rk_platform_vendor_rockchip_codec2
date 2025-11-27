@@ -14,13 +14,10 @@
  * limitations under the License.
  */
 
-#undef  ROCKCHIP_LOG_TAG
-#define ROCKCHIP_LOG_TAG    "C2RKTunneledSession"
-
 #include <dlfcn.h>
 #include <string.h>
 
-#include "C2RKLog.h"
+#include "C2RKLogger.h"
 #include "C2RKTunneledSession.h"
 
 
@@ -28,6 +25,8 @@
 
 
 namespace android {
+
+C2_LOGGER_ENABLE("C2RKTunneledSession");
 
 typedef int OpenTunnelFunc();
 typedef int CloseTunnelFunc(int32_t fd);
@@ -58,7 +57,7 @@ public:
     int openConnection() {
         mLibFd = dlopen("librkvt.so", RTLD_LAZY);
         if (mLibFd == nullptr) {
-            c2_err("failed to open librkvt, %s", dlerror());
+            Log.E("failed to open librkvt, %s", dlerror());
             return 0;
         }
 
@@ -80,7 +79,7 @@ public:
             !mResetFunc || !mConnectFunc || !mDisconnectFunc || !mDequeueBufferFunc ||
             !mQueueBufferFunc || !mCancelBufferFunc ||
             !mMallocVTBufferFunc || !mFreeVTBufferFunc) {
-            c2_err("could not find symbol, %s", dlerror());
+            Log.E("could not find symbol, %s", dlerror());
             mDevFd = 0;
             mTunnelId = 0;
             goto error;
@@ -89,20 +88,20 @@ public:
         if (mDevFd <= 0) {
             mDevFd = mCreateFunc();
             if (mDevFd <= 0) {
-                c2_err("open error");
+                Log.E("open error");
                 goto error;
             }
             if (mAllocIdFunc(mDevFd, &mTunnelId)) {
-                c2_err("alloc error");
+                Log.E("alloc error");
                 goto error;
             }
             if (mConnectFunc(mDevFd, mTunnelId, RKVT_ROLE_PRODUCER)) {
-                c2_err("connect error");
+                Log.E("connect error");
                 goto error;
             }
         }
 
-        c2_trace("open tunnel sesion: devFd %d tunnleId %d", mDevFd, mTunnelId);
+        Log.D("open tunnel sesion: devFd %d tunnleId %d", mDevFd, mTunnelId);
         return mTunnelId;
 
     error:
@@ -213,30 +212,28 @@ bool C2RKTunneledSession::configure(TunnelParams_t params) {
     mSideband.dataSpace = params.dataSpace;
     mSideband.compressMode = params.compressMode;
 
-    c2_info("sideband config: w %d h %d crop[%d %d %d %d] fmt 0x%x compress %d id %d",
-            mSideband.width, mSideband.height, mSideband.crop.left,
-            mSideband.crop.top, mSideband.crop.right, mSideband.crop.bottom,
-            mSideband.format, mSideband.compressMode, mSideband.tunnelId);
+    Log.I("sideband config: w %d h %d crop[%d %d %d %d] fmt 0x%x compress %d id %d",
+           mSideband.width, mSideband.height, mSideband.crop.left,
+           mSideband.crop.top, mSideband.crop.right, mSideband.crop.bottom,
+           mSideband.format, mSideband.compressMode, mSideband.tunnelId);
 
     return true;
 }
 
 bool C2RKTunneledSession::disconnect() {
-    c2_trace_func_enter();
     this->reset();
     mImpl->closeConnection();
     return true;
 }
 
 bool C2RKTunneledSession::reset() {
-    c2_trace_func_enter();
     mImpl->reset();
 
     auto it = mBuffers.begin();
     if (it != mBuffers.end()) {
         if (!freeBuffer(it->first)) {
             // TODO buffer->handle release ?
-            c2_err("reset: failed to free buffer %d", it->first);
+            Log.E("reset: failed to free buffer %d", it->first);
         }
         it = mBuffers.erase(it);
     }
@@ -251,7 +248,7 @@ bool C2RKTunneledSession::dequeueBuffer(int32_t *bufferId) {
     VTBuffer *buffer = nullptr;
     mImpl->dequeueBuffer(&buffer, 0);
     if (buffer) {
-        c2_trace("dequeue buffer %d", buffer->uniqueId);
+        Log.D("dequeue buffer %d", buffer->uniqueId);
         buffer->state = RKVT_STATE_DEQUEUED;
         (*bufferId) = buffer->uniqueId;
         mNeedDequeueCnt -= 1;
@@ -263,7 +260,7 @@ bool C2RKTunneledSession::dequeueBuffer(int32_t *bufferId) {
 bool C2RKTunneledSession::renderBuffer(int32_t bufferId, int64_t presentTime) {
     VTBuffer *buffer = findBuffer(bufferId);
     if (buffer && mImpl->queueBuffer(buffer, presentTime)) {
-        c2_trace("render buffer %d", bufferId);
+        Log.D("render buffer %d", bufferId);
         buffer->state = RKVT_STATE_QUEUED;
         mNeedDequeueCnt += 1;
         return true;
@@ -274,7 +271,7 @@ bool C2RKTunneledSession::renderBuffer(int32_t bufferId, int64_t presentTime) {
 bool C2RKTunneledSession::cancelBuffer(int32_t bufferId) {
     VTBuffer *buffer = findBuffer(bufferId);
     if (buffer && mImpl->cancelBuffer(buffer)) {
-        c2_trace("reseved buffer %d", bufferId);
+        Log.D("reseved buffer %d", bufferId);
         mNeedReservedCnt -= 1;
         buffer->state = RKVT_STATE_RESERVED;
         return true;
@@ -294,7 +291,7 @@ bool C2RKTunneledSession::newBuffer(native_handle_t *handle, int32_t bufferId) {
     VTBuffer *buffer = nullptr;
     mImpl->allocBuffer(&buffer);
     if (buffer) {
-        c2_trace("alloc buffer %d", bufferId);
+        Log.D("alloc buffer %d", bufferId);
         buffer->handle   = handle;
         buffer->uniqueId = bufferId;
         buffer->crop     = mSideband.crop;
@@ -312,7 +309,7 @@ bool C2RKTunneledSession::newBuffer(native_handle_t *handle, int32_t bufferId) {
 bool C2RKTunneledSession::freeBuffer(int32_t bufferId) {
     VTBuffer *buffer = findBuffer(bufferId);
     if (buffer && mImpl->freeBuffer(buffer)) {
-        c2_trace("free buffer %d", bufferId);
+        Log.D("free buffer %d", bufferId);
         return true;
     }
     return false;

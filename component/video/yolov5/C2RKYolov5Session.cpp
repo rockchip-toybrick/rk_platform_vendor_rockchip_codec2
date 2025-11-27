@@ -15,9 +15,6 @@
  *
  */
 
-#undef  ROCKCHIP_LOG_TAG
-#define ROCKCHIP_LOG_TAG    "C2RKYolov5Session"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,10 +28,11 @@
 #include "C2RKMediaUtils.h"
 #include "C2RKChipCapDef.h"
 #include "C2RKRknnWrapper.h"
-#include "C2RKEasyTimer.h"
-#include "C2RKLog.h"
+#include "C2RKLogger.h"
 
 namespace android {
+
+C2_LOGGER_ENABLE("C2RKYolov5Session");
 
 #define DEFAULT_RK3576_MODEL_PATH           "/vendor/etc/rknn/yolov5n_seg_for3576.rknn"
 #define DEFAULT_RK3588_MODEL_PATH           "/vendor/etc/rknn/yolov5n_seg_for3588.rknn"
@@ -67,26 +65,23 @@ const char* toStr_TensorType(rknn_tensor_type type) {
 
 void dumpTensorAttr(rknn_tensor_attr *attr) {
     if (nullptr == attr) {
-        c2_err("invalid rknn_tensor_attr");
+        Log.E("invalid rknn_tensor_attr");
         return;
     }
 
-    c2_trace("\t index    : %d", attr->index);
-    c2_trace("\t name     : %s",  attr->name);
-    c2_trace("\t n_dims   : %d dims = [%d %d %d %d]",
-              attr->n_dims, attr->dims[3], attr->dims[2],
-              attr->dims[1], attr->dims[0]);
-    c2_trace("\t n_elems  : %d", attr->n_elems);
-    c2_trace("\t size     : %d", attr->size);
-    c2_trace("\t fmt      : %d fmd name = %s",
-             attr->fmt, toStr_TensorFormat(attr->fmt));
-    c2_trace("\t type     : %d type name = %s",
-              attr->type, toStr_TensorType(attr->type));
-    c2_trace("\t qnt_type : %d", attr->qnt_type);
-    c2_trace("\t fl       : %d", attr->fl);
-    c2_trace("\t zp       : %d", attr->zp);
-    c2_trace("\t scale    : %f", attr->scale);
-    c2_trace("\n");
+    Log.D("\t index    : %d", attr->index);
+    Log.D("\t name     : %s",  attr->name);
+    Log.D("\t n_dims   : %d dims = [%d %d %d %d]",
+           attr->n_dims, attr->dims[0], attr->dims[1], attr->dims[2], attr->dims[3]);
+    Log.D("\t n_elems  : %d", attr->n_elems);
+    Log.D("\t size     : %d", attr->size);
+    Log.D("\t fmt      : %d fmd name = %s", attr->fmt, toStr_TensorFormat(attr->fmt));
+    Log.D("\t type     : %d type name = %s", attr->type, toStr_TensorType(attr->type));
+    Log.D("\t qnt_type : %d", attr->qnt_type);
+    Log.D("\t fl       : %d", attr->fl);
+    Log.D("\t zp       : %d", attr->zp);
+    Log.D("\t scale    : %f", attr->scale);
+    Log.D("\n");
 }
 
 void* loadModelFile(int32_t *size) {
@@ -102,7 +97,7 @@ void* loadModelFile(int32_t *size) {
     // open file
     fp = fopen(path, "r");
     if (fp == nullptr) {
-        c2_err("failed to open file %s, err: %s", path, strerror(errno));
+        Log.E("failed to open file %s, err: %s", path, strerror(errno));
         return nullptr;
     }
 
@@ -112,7 +107,7 @@ void* loadModelFile(int32_t *size) {
     int32_t length = ftell(fp);
     uint8_t* model = (uint8_t*)malloc(length * sizeof(uint8_t));
     if (model == nullptr) {
-        c2_err("failed to malloc model data");
+        Log.E("failed to malloc model data");
         fclose(fp);
         return nullptr;
     }
@@ -120,7 +115,7 @@ void* loadModelFile(int32_t *size) {
     // read file
     fseek(fp, 0, SEEK_SET);
     if (fread(model, 1, length, fp) < 0) {
-        c2_err("failed to fread model file");
+        Log.E("failed to fread model file");
         free(model);
         fclose(fp);
         return nullptr;
@@ -128,7 +123,7 @@ void* loadModelFile(int32_t *size) {
     *size = length;
     fclose(fp);
 
-    c2_info("rknn load model(%s)", path);
+    Log.I("rknn load model(%s)", path);
     return model;
 }
 
@@ -223,7 +218,7 @@ void C2RKYolov5Session::BaseProcessHandler::onMessageReceived(const sp<AMessage>
                     onDoProcess(nnOutput);
                 }
             } else {
-                c2_trace("Ignore process message as we're not running");
+                Log.D("Ignore process message as we're not running");
             }
         } break;
         case kWhatStop: {
@@ -236,7 +231,7 @@ void C2RKYolov5Session::BaseProcessHandler::onMessageReceived(const sp<AMessage>
             response->postReply(replyID);
         } break;
         default: {
-            c2_err("Unrecognized msg: %d", msg->what());
+            Log.E("Unrecognized msg: %d", msg->what());
         } break;
     }
 }
@@ -252,7 +247,7 @@ C2RKYolov5Session::C2RKYolov5Session() :
     mCallback(nullptr) {
     mDrawRect = (bool)property_get_bool(PROPERTY_NAME_ENABLE_RECT, 0);
     mResultProtoMask = (bool)property_get_bool(PROPERTY_NAME_OUTPUT_PROTO_MASK, 1);
-    c2_info("set yolov5 result type: %s", mResultProtoMask ? "mask" : "roi_rects");
+    Log.I("set yolov5 result type: %s", mResultProtoMask ? "mask" : "roi_rects");
 }
 
 C2RKYolov5Session::~C2RKYolov5Session() {
@@ -260,7 +255,6 @@ C2RKYolov5Session::~C2RKYolov5Session() {
 }
 
 bool C2RKYolov5Session::disconnect() {
-    c2_trace_func_enter();
     stopPostProcessLooper();
 
     releaseRknnOutputs();
@@ -452,7 +446,7 @@ bool C2RKYolov5Session::createSession(
     // load rknn model
     err = mOps->rknnInit(&mRknnCtx, modelData, modelSize, 0, nullptr);
     if (err != RKNN_SUCC) {
-        c2_err("failed to init rknn, err %d", err);
+        Log.E("failed to init rknn, err %d", err);
         goto cleanUp;
     }
 
@@ -460,21 +454,21 @@ bool C2RKYolov5Session::createSession(
     rknn_sdk_version ver;
     err = mOps->rknnQuery(mRknnCtx, RKNN_QUERY_SDK_VERSION, &ver, sizeof(ver));
     if (err != RKNN_SUCC) {
-        c2_err("failed to query version, err %d", err);
+        Log.E("failed to query version, err %d", err);
         goto cleanUp;
     }
 
-    c2_info("rknn api_version: %s, drv_version: %s", ver.api_version, ver.drv_version);
+    Log.I("rknn api_version: %s, drv_version: %s", ver.api_version, ver.drv_version);
 
     // get inputs's and outputs's attr
     err = mOps->rknnQuery(mRknnCtx, RKNN_QUERY_IN_OUT_NUM, &mNumIO, sizeof(mNumIO));
     if (err != RKNN_SUCC) {
-        c2_err("failed to rknn_query, err %d", err);
+        Log.E("failed to rknn_query, err %d", err);
         goto cleanUp;
     }
 
     if (mNumIO.n_output != SEG_OUT_CHN_NUM) {
-        c2_err("invalid output number, maybe not yolov5 model");
+        Log.E("invalid output number, maybe not yolov5 model");
         err = RKNN_ERR_FAIL;
         goto cleanUp;
     }
@@ -488,7 +482,7 @@ bool C2RKYolov5Session::createSession(
         err = mOps->rknnQuery(mRknnCtx, RKNN_QUERY_INPUT_ATTR,
                                 &(mInputAttrs[i]), sizeof(rknn_tensor_attr));
         if (err != RKNN_SUCC) {
-            c2_err("rknnQuery(RKNN_QUERY_INPUT_ATTR), err %d", err);
+            Log.E("rknnQuery(RKNN_QUERY_INPUT_ATTR), err %d", err);
             goto cleanUp;
         }
         dumpTensorAttr(&(mInputAttrs[i]));
@@ -499,7 +493,7 @@ bool C2RKYolov5Session::createSession(
         err = mOps->rknnQuery(mRknnCtx, RKNN_QUERY_OUTPUT_ATTR,
                                 &(mOutputAttrs[i]), sizeof(rknn_tensor_attr));
         if (err != RKNN_SUCC) {
-            c2_err("rknnQuery(RKNN_QUERY_OUTPUT_ATTR), err %d", err);
+            Log.E("rknnQuery(RKNN_QUERY_OUTPUT_ATTR), err %d", err);
             goto cleanUp;
         }
         dumpTensorAttr(&(mOutputAttrs[i]));
@@ -534,7 +528,6 @@ cleanUp:
 
 bool C2RKYolov5Session::onPostResult(RknnOutput *nnOutput) {
     if (!nnOutput) {
-        c2_err("onPostResult null output");
         return false;
     }
 
@@ -545,9 +538,6 @@ bool C2RKYolov5Session::onPostResult(RknnOutput *nnOutput) {
 
     memset(&omResults, 0, sizeof(omResults));
 
-    C2RKEasyTimer timer;
-    timer.startRecord();
-
     nnOutput->setStatus(RknnOutput::RESULT);
 
     if (mResultProtoMask && odResults->count > 0) {
@@ -556,18 +546,10 @@ bool C2RKYolov5Session::onPostResult(RknnOutput *nnOutput) {
                 mPostProcessContext, mCtuSize, odResults, &omResults);
     }
 
-    timer.stopRecord("seg_mask_to_class_map");
-
-    timer.startRecord();
-
     // draw detect object rect
     if (odResults->count > 0 && mDrawRect) {
         c2_postprocess_draw_rect_array(inImage, odResults);
     }
-
-    timer.stopRecord("draw_rect");
-
-    timer.startRecord();
 
     if (mCallback) {
         if (mResultProtoMask) {
@@ -592,22 +574,16 @@ bool C2RKYolov5Session::onPostResult(RknnOutput *nnOutput) {
     nnOutput->setStatus(RknnOutput::IDLE);
     mCondition.signal();
 
-    timer.stopRecord("result_callback");
-
     return true;
 }
 
 bool C2RKYolov5Session::onOutputPostProcess(RknnOutput *nnOutput) {
     if (!nnOutput) {
-        c2_err("onOutputPostProcess null output");
         return false;
     }
 
     bool err = false;
     objectDetectResultList *odResults = (objectDetectResultList *)nnOutput->mOdResults;
-
-    C2RKEasyTimer timer;
-    timer.startRecord();
 
     if (!nnOutput->isIdle()) {
         nnOutput->setStatus(RknnOutput::POSTPROCESS);
@@ -616,8 +592,6 @@ bool C2RKYolov5Session::onOutputPostProcess(RknnOutput *nnOutput) {
         err = c2_postprocess_output_model_image(
                     mPostProcessContext, nnOutput->mOutput, odResults);
     }
-
-    timer.stopRecord("postprocess");
 
     // translate yolov5 detection results to mpp class maps.
     // do async encode callback in this looper also.
@@ -632,12 +606,8 @@ bool C2RKYolov5Session::onOutputPostProcess(RknnOutput *nnOutput) {
 
 bool C2RKYolov5Session::onRknnRunProcess(RknnOutput *nnOutput) {
     if (!nnOutput) {
-        c2_err("onRknnRunProcess null output");
         return false;
     }
-
-    C2RKEasyTimer timer;
-    timer.startRecord();
 
     nnOutput->setStatus(RknnOutput::RKNNRUN);
 
@@ -650,7 +620,7 @@ bool C2RKYolov5Session::onRknnRunProcess(RknnOutput *nnOutput) {
 
     int err = mOps->rknnSetInputs(mRknnCtx, mNumIO.n_input, mInput);
     if (err < 0) {
-        c2_err("failed to set rknn input, err %d", err);
+        Log.E("failed to set rknn input, err %d", err);
         goto error;
     }
 
@@ -659,11 +629,9 @@ bool C2RKYolov5Session::onRknnRunProcess(RknnOutput *nnOutput) {
     // Get Output Data
     err = mOps->rknnGetOutputs(mRknnCtx, mNumIO.n_output, nnOutput->mOutput, nullptr);
     if (err < 0) {
-        c2_err("failed to get rknn output, err %d", err);
+        Log.E("failed to get rknn output, err %d", err);
         goto error;
     }
-
-    timer.stopRecord("rknnRun");
 
     // the postprocess of yolov5 output.
     // process rknn model output and get object detection results.
@@ -680,7 +648,6 @@ error:
 
 bool C2RKYolov5Session::onCopyInputBuffer(RknnOutput *nnOutput) {
     if (!nnOutput) {
-        c2_err("onCopyInputBuffer null output");
         return false;
     }
 
@@ -698,7 +665,7 @@ bool C2RKYolov5Session::onCopyInputBuffer(RknnOutput *nnOutput) {
     nnOutput->mCopyImage->vstride = inImage->vstride;
 
     if (!c2_postprocess_copy_image_buffer(inImage, nnOutput->mCopyImage)) {
-        c2_err("failed to copy input buffer");
+        Log.E("failed to copy input buffer");
         return false;
     }
 
@@ -712,7 +679,7 @@ bool C2RKYolov5Session::startDetect(ImageBuffer *srcImage) {
     int err = 0;
 
     if ((srcImage->hstride * srcImage->vstride) > MAX_SUPPORT_SIZE) {
-        c2_err("max support 4K size");
+        Log.E("max support 4K size");
         return false;
     }
 
@@ -720,13 +687,10 @@ bool C2RKYolov5Session::startDetect(ImageBuffer *srcImage) {
         err = c2_postprocess_init_context(
                 &mPostProcessContext, srcImage, mOutputAttrs, mResultProtoMask);
         if (!err) {
-            c2_err("failed to init post-process context");
+            Log.E("failed to init post-process context");
             return false;
         }
     }
-
-    C2RKEasyTimer timer;
-    timer.startRecord();
 
     RknnOutput *nnOutput = nullptr;
 
@@ -754,21 +718,15 @@ bool C2RKYolov5Session::startDetect(ImageBuffer *srcImage) {
         return false;
     }
 
-    timer.stopRecord("pre_convert_model_image");
-
     memcpy(nnOutput->mInImage, srcImage, sizeof(ImageBuffer));
 
     if (mCallback) {
-        timer.startRecord();
-
         /*
          * since the timing when the input buffer runs out is not fixed, it is not
          * a methods hold the input buffer all yolov5 execution time, so copy anthor
          * input buffer for result callback encoder.
          */
         onCopyInputBuffer(nnOutput);
-
-        timer.stopRecord("copy_input_buffer");
 
         // rknn run looper process, do rknn_run & rknn_outputs_get.
         mRknnRunHandler->pendingProcess(nnOutput);

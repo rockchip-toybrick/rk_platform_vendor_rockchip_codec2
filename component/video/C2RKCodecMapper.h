@@ -19,6 +19,8 @@
 
 #include <stdio.h>
 
+namespace android {
+
 //!< AVC Profile IDC definitions
 enum MppH264Profile {
     MPP_H264_BASELINE    = 66,   //!< YUV 4:2:0/8  "Baseline"
@@ -99,5 +101,7 @@ public:
     /* bitrate mode mapper */
     static uint32_t getMppBitrateMode(int32_t mode, bool c2Type);
 };
+
+} // namespace android
 
 #endif  // ANDROID_C2_RK_CODEC_MAPPER_H__

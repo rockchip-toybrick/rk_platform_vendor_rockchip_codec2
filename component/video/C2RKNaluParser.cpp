@@ -14,17 +14,17 @@
  * limitations under the License.
  */
 
-#undef  ROCKCHIP_LOG_TAG
-#define ROCKCHIP_LOG_TAG    "C2RKNaluParser"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "rk_mpi.h"
 #include "C2RKNaluParser.h"
-#include "C2RKLog.h"
+#include "C2RKLogger.h"
 
+namespace android {
+
+C2_LOGGER_ENABLE("C2RKNaluParser");
 
 #define H264_NALU_TYPE_SPS              7
 #define H264_PROFILE_IDC_HIGH10       110
@@ -61,7 +61,7 @@ bool C2RKNaluParser::searchAVCNaluInfo(
     c2_set_bitread_ctx(gb, buf, size);
     c2_set_pre_detection(gb);
     if (!c2_update_curbyte(gb)) {
-        c2_err("failed to update curbyte, skipping.");
+        Log.E("failed to update curbyte, skipping.");
         goto error;
     }
 
@@ -109,7 +109,7 @@ bool C2RKNaluParser::searchAVCNaluInfo(
         } else {
             *outValue = 8;
         }
-        c2_trace("get AVC stream bitDepth %d", (*outValue));
+        Log.D("get AVC stream bitDepth %d", (*outValue));
         return true;
     }
 
@@ -197,7 +197,7 @@ bool C2RKNaluParser::searchAVCNaluInfo(
 
     READ_UE(gb, &val);
     if (detectFiled == C2_DETECT_FIELD_MAX_REF_COUNT) {
-        c2_trace("get AVC stream maxRefCount %d", val);
+        Log.D("get AVC stream maxRefCount %d", val);
         *outValue = val;
         return true;
     }
@@ -213,7 +213,7 @@ bool C2RKNaluParser::searchHEVCNalSPS(
 
     READ_BITS(gb, 4, &val); // vps-id
     if (val > H265_MAX_VPS_COUNT) {
-        c2_err("VPS id out of range: %d", val);
+        Log.E("VPS id out of range: %d", val);
         goto error;
     }
 
@@ -221,7 +221,7 @@ bool C2RKNaluParser::searchHEVCNalSPS(
     val += 1;
 
     if (val > H265_MAX_SUB_LAYERS) {
-        c2_err("sps_max_sub_layers out of range: %d", val);
+        Log.E("sps_max_sub_layers out of range: %d", val);
         goto error;
     }
 
@@ -236,7 +236,7 @@ bool C2RKNaluParser::searchHEVCNalSPS(
         } else {
             *outValue = 8;
         }
-        c2_trace("get HEVC stream bitDepth %d", (*outValue));
+        Log.D("get HEVC stream bitDepth %d", (*outValue));
         return true;
     }
 
@@ -257,13 +257,13 @@ bool C2RKNaluParser::searchHEVCNalVPS(
 
     READ_BITS(gb, 4, &val); // vps-id
     if (val >= H265_MAX_VPS_COUNT) {
-        c2_err("VPS id out of range: %d", val);
+        Log.E("VPS id out of range: %d", val);
         goto error;
     }
 
     READ_BITS(gb, 2, &val);
     if (val != 3) {  // vps_reserved_three_2bits
-        c2_err("vps_reserved_three_2bits is not three");
+        Log.E("vps_reserved_three_2bits is not three");
         goto error;
     }
 
@@ -275,12 +275,12 @@ bool C2RKNaluParser::searchHEVCNalVPS(
     SKIP_BITS(gb, 1);  // vps_temporal_id_nesting_flag
     READ_BITS(gb, 16, &val);
     if (val != 0xffff) {  // vps_reserved_ffff_16bits
-        c2_err("vps_reserved_ffff_16bits is not 0xffff");
+        Log.E("vps_reserved_ffff_16bits is not 0xffff");
         return 0;
     }
 
     if (vpsMaxSubLayers > 7) {
-        c2_err("vps_max_sub_layers out of range: %d", vpsMaxSubLayers);
+        Log.E("vps_max_sub_layers out of range: %d", vpsMaxSubLayers);
         return 0;
     }
 
@@ -317,14 +317,14 @@ bool C2RKNaluParser::searchHEVCNalVPS(
         READ_UE(gb, &val);  // vps_max_latency_increase
 
         if (vpsMaxDecPicBuffering[i] > 17) {
-            c2_err("vpsMaxDecPicBuffering_minus1 out of range: %d",
+            Log.E("vpsMaxDecPicBuffering_minus1 out of range: %d",
                    vpsMaxDecPicBuffering[i] - 1);
             goto error;
         }
     }
 
     if (detectFiled == C2_DETECT_FIELD_MAX_REF_COUNT) {
-        c2_trace("get HEVC stream maxRefCount %d", (*outValue));
+        Log.D("get HEVC stream maxRefCount %d", (*outValue));
     }
 
     return true;
@@ -351,7 +351,7 @@ bool C2RKNaluParser::searchHEVCNalUnit(
     c2_set_bitread_ctx(gb, buf, size);
     c2_set_pre_detection(gb);
     if (!c2_update_curbyte(gb)) {
-        c2_err("failed to update curbyte, skipping.");
+        Log.E("failed to update curbyte, skipping.");
         return false;
     }
 
@@ -362,11 +362,11 @@ bool C2RKNaluParser::searchHEVCNalUnit(
 
     temporalId = temporalId -1;
 
-    c2_trace("nal_unit_type: %d, nuh_layer_id: %d temporal_id: %d",
-             nalUnitType, nuhLayerId, temporalId);
+    Log.D("nal_unit_type: %d, nuh_layer_id: %d temporal_id: %d",
+           nalUnitType, nuhLayerId, temporalId);
 
     if (temporalId < 0) {
-        c2_err("Invalid NAL unit %d, skipping.", nalUnitType);
+        Log.E("Invalid NAL unit %d, skipping.", nalUnitType);
         goto error;
     }
 
@@ -382,7 +382,7 @@ bool C2RKNaluParser::searchHEVCNalUnit(
             if (!searchHEVCNalVPS(gb, detectFiled, outValue)) goto error;
         } break;
         default: {
-            c2_trace("not support nalunit type %d", nalUnitType);
+            Log.D("not support nalunit type %d", nalUnitType);
             goto error;
         } break;
     }
@@ -409,7 +409,7 @@ bool C2RKNaluParser::searchHEVCNaluInfo(
             goto error;
         }
 
-        c2_trace("extradata is encoded as hvcC format");
+        Log.D("extradata is encoded as hvcC format");
 
         nalLenSize = 1 + (buf[14 + 7] & 3);
         buf += 22;
@@ -457,7 +457,7 @@ bool C2RKNaluParser::searchHEVCNaluInfo(
             // find start code
             if (buf[i] == 0x00 && buf[i + 1] == 0x00 &&
                 buf[i + 2] == 0x01 && ((buf[i + 3] & 0x7f) >> 1) == detectNaluType) {
-                c2_trace("find h265 start code");
+                Log.D("find h265 start code");
                 i += 3;
                 if (searchHEVCNalUnit(buf + i, size - i, detectFiled, outValue)) {
                     return true;
@@ -478,18 +478,18 @@ int32_t C2RKNaluParser::detectBitDepth(uint8_t *buf, int32_t size, int32_t codin
         case MPP_VIDEO_CodingAVC: {
             if (!searchAVCNaluInfo(buf, size, C2_DETECT_FIELD_DEPTH, &bitDepth)) {
                 bitDepth = 8;
-                c2_trace("failed to find bitDepth, set default 8bit");
+                Log.D("failed to find bitDepth, set default 8bit");
             }
         } break;
         case MPP_VIDEO_CodingHEVC: {
             if (!searchHEVCNaluInfo(buf, size, C2_DETECT_FIELD_DEPTH, &bitDepth)) {
                 bitDepth = 8;
-                c2_trace("failed to find bitDepth, set default 8bit");
+                Log.D("failed to find bitDepth, set default 8bit");
             }
         } break;
         default: {
             bitDepth = 8;
-            c2_trace("not support coding %d, set default 8bit", coding);
+            Log.D("not support coding %d, set default 8bit", coding);
         } break;
     }
     return bitDepth;
@@ -503,21 +503,22 @@ int32_t C2RKNaluParser::detectMaxRefCount(uint8_t *buf, int32_t size, int32_t co
             if (!searchAVCNaluInfo(
                     buf, size, C2_DETECT_FIELD_MAX_REF_COUNT, &maxRefCount)) {
                 maxRefCount = 0;
-                c2_trace("failed to find maxRefCount");
+                Log.D("failed to find maxRefCount");
             }
         } break;
         case MPP_VIDEO_CodingHEVC: {
             if (!searchHEVCNaluInfo(
                     buf, size, C2_DETECT_FIELD_MAX_REF_COUNT, &maxRefCount)) {
                 maxRefCount = 0;
-                c2_trace("failed to find maxRefCount");
+                Log.D("failed to find maxRefCount");
             }
         } break;
         default: {
             maxRefCount = 0;
-            c2_trace("not support coding %d", coding);
+            Log.D("not support coding %d", coding);
         } break;
     }
     return maxRefCount;
 }
 
+} // namespace android

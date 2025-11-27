@@ -14,18 +14,17 @@
  * limitations under the License.
  */
 
-#undef  ROCKCHIP_LOG_TAG
-#define ROCKCHIP_LOG_TAG    "C2RKRgaDef"
-
 #include <string.h>
 
 #include "C2RKRgaDef.h"
-#include "C2RKLog.h"
+#include "C2RKLogger.h"
 #include "im2d.h"
 #include "RockchipRga.h"
 #include "hardware/hardware_rockchip.h"
 
-using namespace android;
+namespace android {
+
+C2_LOGGER_ENABLE("C2RKRgaDef");
 
 struct RgaFormtMap {
     int halFmt;
@@ -64,7 +63,7 @@ static int toRgaColorSpaceMode(int colorSpaceMode) {
             case RGA_RGB_TO_YUV_BT601_FULL:     return IM_RGB_TO_YUV_BT601_FULL;
             case RGA_RGB_TO_YUV_BT709_LIMIT:    return IM_RGB_TO_YUV_BT709_LIMIT;
             default: {
-                c2_warn("unsupport color space mode %d, set default", colorSpaceMode);
+                Log.W("unsupport color space mode %d, set default", colorSpaceMode);
             }
         }
     }
@@ -118,17 +117,17 @@ bool C2RKRgaDef::DoBlit(RgaInfo srcInfo, RgaInfo dstInfo, int colorSpaceMode) {
     int32_t dstRgaFmt = getRgaFormat(dstInfo.format);
 
     if (srcRgaFmt == RK_FORMAT_UNKNOWN || dstRgaFmt == RK_FORMAT_UNKNOWN) {
-        c2_err("[RgaBlit]: unsupport fmt, src %d dst %d", srcInfo.format, dstInfo.format);
+        Log.E("[RgaBlit]: unsupport fmt, src %d dst %d", srcInfo.format, dstInfo.format);
         return false;
     }
 
-    c2_trace("[RgaBlit]: src fd %d rect[%d, %d, %d, %d] fmt %s",
-              srcInfo.fd, srcInfo.width, srcInfo.height,
-              srcInfo.hstride, srcInfo.vstride, toStr_format(srcInfo.format));
-    c2_trace("[RgaBlit]: dst fd %d rect[%d, %d, %d, %d] fmt %s",
-              dstInfo.fd, dstInfo.width, dstInfo.height,
-              dstInfo.hstride, dstInfo.vstride, toStr_format(dstInfo.format));
-    c2_trace("[RgaBlit]: color space mode: %d", colorSpaceMode);
+    Log.D("[RgaBlit]: src fd %d rect[%d, %d, %d, %d] fmt %s",
+           srcInfo.fd, srcInfo.width, srcInfo.height,
+           srcInfo.hstride, srcInfo.vstride, toStr_format(srcInfo.format));
+    Log.D("[RgaBlit]: dst fd %d rect[%d, %d, %d, %d] fmt %s",
+           dstInfo.fd, dstInfo.width, dstInfo.height,
+           dstInfo.hstride, dstInfo.vstride, toStr_format(dstInfo.format));
+    Log.D("[RgaBlit]: color space mode: %d", colorSpaceMode);
 
     memset((void*)&src, 0, sizeof(rga_buffer_t));
     memset((void*)&dst, 0, sizeof(rga_buffer_t));
@@ -136,7 +135,7 @@ bool C2RKRgaDef::DoBlit(RgaInfo srcInfo, RgaInfo dstInfo, int colorSpaceMode) {
     srcHdl = importRgaBuffer(&srcInfo, srcRgaFmt);
     dstHdl = importRgaBuffer(&dstInfo, dstRgaFmt);
     if (!srcHdl || !dstHdl) {
-        c2_err("[RgaBlit]: failed to import rga buffer");
+        Log.E("[RgaBlit]: failed to import rga buffer");
         return false;
     }
 
@@ -152,13 +151,13 @@ bool C2RKRgaDef::DoBlit(RgaInfo srcInfo, RgaInfo dstInfo, int colorSpaceMode) {
 
     err = improcess(src, dst, {}, {}, {}, {}, IM_SYNC);
     if (err <= 0) {
-        c2_err("[RgaBlit]: error %d", err);
-        c2_err("[RgaBlit]: src fd %d rect[%d, %d, %d, %d] fmt %s",
-                srcInfo.fd, srcInfo.width, srcInfo.height,
-                srcInfo.hstride, srcInfo.vstride, toStr_format(srcInfo.format));
-        c2_err("[RgaBlit]: dst fd %d rect[%d, %d, %d, %d] fmt %s",
-                dstInfo.fd, dstInfo.width, dstInfo.height,
-                dstInfo.hstride, dstInfo.vstride, toStr_format(dstInfo.format));
+        Log.E("[RgaBlit]: error %d", err);
+        Log.E("[RgaBlit]: src fd %d rect[%d, %d, %d, %d] fmt %s",
+               srcInfo.fd, srcInfo.width, srcInfo.height,
+               srcInfo.hstride, srcInfo.vstride, toStr_format(srcInfo.format));
+        Log.E("[RgaBlit]: dst fd %d rect[%d, %d, %d, %d] fmt %s",
+               dstInfo.fd, dstInfo.width, dstInfo.height,
+               dstInfo.hstride, dstInfo.vstride, toStr_format(dstInfo.format));
     }
 
     freeRgaBuffer(srcHdl);
@@ -166,3 +165,5 @@ bool C2RKRgaDef::DoBlit(RgaInfo srcInfo, RgaInfo dstInfo, int colorSpaceMode) {
 
     return (err > 0);
 }
+
+} // namespace android

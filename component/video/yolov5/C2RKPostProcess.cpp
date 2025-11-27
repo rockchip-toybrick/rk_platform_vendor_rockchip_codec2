@@ -14,9 +14,6 @@
  * limitations under the License.
  */
 
-#undef  ROCKCHIP_LOG_TAG
-#define ROCKCHIP_LOG_TAG    "C2RKPostProcess"
-
 #include <stdlib.h>
 #include <string.h>
 #include <vector>
@@ -31,12 +28,14 @@
 #include "C2RKMediaUtils.h"
 #include "C2RKChipCapDef.h"
 #include "C2RKRknnWrapper.h"
-#include "C2RKLog.h"
+#include "C2RKLogger.h"
 
 #include "im2d.h"
 #include "drmrga.h"
 
 namespace android {
+
+C2_LOGGER_ENABLE("C2RKPostProcess");
 
 // post-process output seg mask dump
 #define PROPERTY_NAME_SEG_MASK_DUMP     "codec2_yolov5_seg_mask_dump"
@@ -150,7 +149,7 @@ void _resize_by_rga_uint8(
         rgaDstHdl = importbuffer_virtualaddr(
                         outputPtr + (b * outputW * outputH), &rgaDstParam);
         if (!rgaSrcHdl || !rgaDstHdl) {
-            c2_err("failed to import rga buffer");
+            Log.E("failed to import rga buffer");
             return;
         }
 
@@ -159,7 +158,7 @@ void _resize_by_rga_uint8(
 
         ret = imresize(rgaSrc, rgaDst);
         if (ret != IM_STATUS_SUCCESS) {
-            c2_err("failed imresize");
+            Log.E("failed imresize");
         }
 
         releasebuffer_handle(rgaSrcHdl);
@@ -535,7 +534,7 @@ void _matmul_by_npu_fp(
 
     ret = C2RKRknnWrapper::get()->rknnMatmulSetShape(matCtx, &impl->shapes[ROWSA - 1]);
     if (ret != 0) {
-        c2_err("failed to rknn_matmul_set_dynamic_shapes, ret %d", ret);
+        Log.E("failed to rknn_matmul_set_dynamic_shapes, ret %d", ret);
         return;
     }
 
@@ -658,7 +657,7 @@ bool c2_postprocess_init_context(
         PostProcessContext *ctx, ImageBuffer *originImage,
         rknn_tensor_attr *outputAttr, bool resultMask) {
     if (originImage == nullptr || outputAttr == nullptr) {
-        c2_err("invalid null params");
+        Log.E("invalid null params");
         return false;
     }
 
@@ -700,7 +699,7 @@ bool c2_postprocess_init_context(
         err = C2RKRknnWrapper::get()->rknnMatmulCreateShape(
                 &impl->matmulCtx, &info, SEG_NUMB_MAX_SIZE, impl->shapes, impl->ioAttr);
         if (err < 0) {
-            c2_err("failed to rknn_matmul_create_dynamic_shape, err %d", err);
+            Log.E("failed to rknn_matmul_create_dynamic_shape, err %d", err);
             return false;
         }
 
@@ -709,8 +708,8 @@ bool c2_postprocess_init_context(
             maxSizeB = _MAX(impl->ioAttr[i].B.size, maxSizeB);
             maxSizeC = _MAX(impl->ioAttr[i].C.size, maxSizeC);
         }
-        c2_trace("tensor_a max size %d tensor_b max size %d tensor_c max size %d",
-                 maxSizeA, maxSizeB, maxSizeC);
+        Log.D("tensor_a max size %d tensor_b max size %d tensor_c max size %d",
+               maxSizeA, maxSizeB, maxSizeC);
 
         impl->tensorA = C2RKRknnWrapper::get()->rknnCreateMem(impl->matmulCtx, maxSizeA);
         impl->tensorB = C2RKRknnWrapper::get()->rknnCreateMem(impl->matmulCtx, maxSizeB);
@@ -810,7 +809,7 @@ int c2_preprocess_convert_image_with_rga(
         rgaSrcHdl = importbuffer_virtualaddr(src->virAddr, &rgaSrcParam);
     }
     if (rgaSrcHdl <= 0) {
-        c2_err("src handle error");
+        Log.E("src handle error");
         err = IM_STATUS_FAILED;
         goto cleanUp;
     }
@@ -823,7 +822,7 @@ int c2_preprocess_convert_image_with_rga(
         rgaDstHdl = importbuffer_virtualaddr(dst->virAddr, &rgaDstParam);
     }
     if (rgaDstHdl <= 0) {
-        c2_err("dst handle error");
+        Log.E("dst handle error");
         err = IM_STATUS_FAILED;
         goto cleanUp;
     }
@@ -841,21 +840,21 @@ int c2_preprocess_convert_image_with_rga(
         pImColor[3] = bgColor;
         err = imfill(rgaDst, dstWholeRect, imcolor);
         if (err <= 0) {
-            c2_warn("Warning: Can not fill color on target image");
+            Log.W("Warning: Can not fill color on target image");
         }
     }
 
-    c2_trace("===========preprocess rga translte info===============");
-    c2_trace("rga src [%04d,%04d,%04d,%04d] fd %d fmt %d", rgaSrc.width, rgaSrc.height,
-              rgaSrc.wstride, rgaSrc.hstride, rgaSrc.fd, rgaSrc.format);
-    c2_trace("rga dst [%04d,%04d,%04d,%04d] fd %d fmt %d", rgaDst.width, rgaDst.height,
-              rgaDst.wstride, rgaDst.hstride, rgaDst.fd, rgaDst.format);
-    c2_trace("======================================================");
+    Log.D("===========preprocess rga translte info===============");
+    Log.D("rga src [%04d,%04d,%04d,%04d] fd %d fmt %d", rgaSrc.width, rgaSrc.height,
+           rgaSrc.wstride, rgaSrc.hstride, rgaSrc.fd, rgaSrc.format);
+    Log.D("rga dst [%04d,%04d,%04d,%04d] fd %d fmt %d", rgaDst.width, rgaDst.height,
+           rgaDst.wstride, rgaDst.hstride, rgaDst.fd, rgaDst.format);
+    Log.D("======================================================");
 
     err = improcess(rgaSrc, rgaDst, rgaPat, srect, drect, prect, 0);
     if (err <= 0) {
-        c2_err("Error on improcess STATUS=%d", err);
-        c2_err("RGA error message: %s", imStrError(err));
+        Log.E("Error on improcess STATUS=%d", err);
+        Log.E("RGA error message: %s", imStrError(err));
     }
 
 cleanUp:
@@ -874,7 +873,7 @@ bool c2_preprocess_convert_model_image(
         PostProcessContext ctx, ImageBuffer *srcImage, ImageBuffer *modelImage) {
     PostProcessContextImpl *impl = (PostProcessContextImpl*)ctx;
     if (!impl) {
-        c2_err("invalid null post-process context");
+        Log.E("invalid null post-process context");
         return false;
     }
 
@@ -949,9 +948,9 @@ bool c2_preprocess_convert_model_image(
         leftOffset = dstRect.left;
     }
 
-    c2_trace("convert: scale %f dstRect(%d,%d,%d,%d) offset(left %d top %d) pad %dx%d",
-             scale, dstRect.left, dstRect.top, dstRect.right, dstRect.bottom,
-             leftOffset, topOffset, paddingWidth, paddingHeight);
+    Log.D("convert: scale %f dstRect(%d,%d,%d,%d) offset(left %d top %d) pad %dx%d",
+           scale, dstRect.left, dstRect.top, dstRect.right, dstRect.bottom,
+           leftOffset, topOffset, paddingWidth, paddingHeight);
 
     // set offset and scale
     if (letterbox != nullptr){
@@ -967,7 +966,7 @@ bool c2_postprocess_output_model_image(
         PostProcessContext ctx, rknn_output *outputs, objectDetectResultList *odResults) {
     PostProcessContextImpl *impl = (PostProcessContextImpl*)ctx;
     if (!impl || !odResults || !outputs) {
-        c2_err("invalid null post-process context");
+        Log.E("invalid null post-process context");
         return false;
     }
 
@@ -1093,9 +1092,9 @@ bool c2_postprocess_output_model_image(
         if (odResults->results[i].box.bottom > impl->originHeight)
             odResults->results[i].box.bottom = impl->originHeight;
 
-        c2_trace("detect box[%d] - [%d %d %d %d]", i,
-                 odResults->results[i].box.left, odResults->results[i].box.top,
-                 odResults->results[i].box.right, odResults->results[i].box.bottom);
+        Log.D("detect box[%d] - [%d %d %d %d]", i,
+               odResults->results[i].box.left, odResults->results[i].box.top,
+               odResults->results[i].box.right, odResults->results[i].box.bottom);
     }
 
     // For non_seg encode version, get detection box and return.
@@ -1154,7 +1153,7 @@ bool c2_postprocess_seg_mask_to_class_map(
         objectDetectResultList *odResults, objectMapResultList *omResults) {
     PostProcessContextImpl *impl = (PostProcessContextImpl*)ctx;
     if (!impl) {
-        c2_err("invalid null post-process context");
+        Log.E("invalid null post-process context");
         return false;
     }
 
@@ -1204,13 +1203,13 @@ bool c2_postprocess_seg_mask_to_class_map(
             }
         }
         if (impl->dumpSegMask) {
-            c2_info("%s", dumpResult.c_str());
+            Log.I("%s", dumpResult.c_str());
             dumpResult.clear();
         }
     }
 
     if (!classMapValid) {
-        c2_warn("not get valid roi map, maybe some error occurs");
+        Log.W("not get valid roi map, maybe some error occurs");
     }
 
     omResults->objectSegMap = impl->omResultMap;
@@ -1231,7 +1230,7 @@ bool c2_postprocess_copy_image_buffer(ImageBuffer *srcImage, ImageBuffer *dstIma
         srcHandle = importbuffer_virtualaddr(srcImage->virAddr, &srcParam);
     }
     if (srcHandle <= 0) {
-        c2_err("src handle error");
+        Log.E("src handle error");
         return false;
     }
 
@@ -1248,7 +1247,7 @@ bool c2_postprocess_copy_image_buffer(ImageBuffer *srcImage, ImageBuffer *dstIma
         dstHandle = importbuffer_virtualaddr(dstImage->virAddr, &dstParam);
     }
     if (dstHandle <= 0) {
-        c2_err("dst handle error");
+        Log.E("dst handle error");
         return false;
     }
 
@@ -1287,8 +1286,8 @@ bool c2_postprocess_draw_rect_array(
                              odResults->results[i].box.left) & (~0x01);
         faceRect[i].height = (odResults->results[i].box.bottom -
                               odResults->results[i].box.top) & (~0x01);
-        c2_trace("draw face[%d] - [%d %d %d %d]", i,
-                 faceRect[i].x, faceRect[i].y, faceRect[i].width, faceRect[i].height);
+        Log.D("draw face[%d] - [%d %d %d %d]", i,
+               faceRect[i].x, faceRect[i].y, faceRect[i].width, faceRect[i].height);
     }
 
     rga_buffer_t src;
@@ -1308,7 +1307,7 @@ bool c2_postprocess_draw_rect_array(
     }
 
     if (handle <= 0) {
-        c2_err("src handle error");
+        Log.E("src handle error");
         return false;
     }
 

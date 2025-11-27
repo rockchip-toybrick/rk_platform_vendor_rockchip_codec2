@@ -14,9 +14,6 @@
  * limitations under the License.
  */
 
-#undef  ROCKCHIP_LOG_TAG
-#define ROCKCHIP_LOG_TAG    "C2RKComponent"
-
 #include <media/stagefright/foundation/AMessage.h>
 #include <inttypes.h>
 
@@ -25,9 +22,11 @@
 #include <C2PlatformSupport.h>
 
 #include "C2RKComponent.h"
-#include "C2RKLog.h"
+#include "C2RKLogger.h"
 
 namespace android {
+
+C2_LOGGER_ENABLE("C2RKComponent");
 
 std::unique_ptr<C2Work> C2RKComponent::WorkQueue::pop_front() {
     std::unique_ptr<C2Work> work = std::move(mQueue.front().work);
@@ -77,7 +76,7 @@ static void Reply(const sp<AMessage> &msg, int32_t *err = nullptr) {
 void C2RKComponent::WorkHandler::onMessageReceived(const sp<AMessage> &msg) {
     std::shared_ptr<C2RKComponent> thiz = mThiz.lock();
     if (!thiz) {
-        c2_info("component not yet set; msg = %s", msg->debugString().c_str());
+        Log.I("component not yet set; msg = %s", msg->debugString().c_str());
         sp<AReplyToken> replyId;
         if (msg->senderAwaitsResponse(&replyId)) {
             sp<AMessage> reply = new AMessage;
@@ -94,7 +93,7 @@ void C2RKComponent::WorkHandler::onMessageReceived(const sp<AMessage> &msg) {
                     (new AMessage(kWhatProcess, this))->post();
                 }
             } else {
-                c2_trace("Ignore process message as we're not running");
+                Log.D("Ignore process message as we're not running");
             }
             break;
         }
@@ -128,7 +127,7 @@ void C2RKComponent::WorkHandler::onMessageReceived(const sp<AMessage> &msg) {
             break;
         }
         default: {
-            c2_err("Unrecognized msg: %d", msg->what());
+            Log.E("Unrecognized msg: %d", msg->what());
             break;
         }
     }
@@ -212,8 +211,6 @@ C2RKComponent::~C2RKComponent() {
 
 c2_status_t C2RKComponent::setListener_vb(
         const std::shared_ptr<C2Component::Listener> &listener, c2_blocking_t mayBlock) {
-    c2_trace_func_enter();
-
     mHandler->setComponent(shared_from_this());
 
     Mutexed<ExecState>::Locked state(mExecState);
@@ -227,8 +224,6 @@ c2_status_t C2RKComponent::setListener_vb(
     state->mListener = listener;
     // TODO: wait for listener change to have taken place before returning
     // (e.g. if there is an ongoing listener callback)
-
-    c2_trace_func_leave();
 
     return C2_OK;
 }
@@ -263,8 +258,7 @@ c2_status_t C2RKComponent::announce_nb(const std::vector<C2WorkOutline> &items) 
 
 c2_status_t C2RKComponent::flush_sm(
         flush_mode_t flushMode, std::list<std::unique_ptr<C2Work>>* const flushedWork) {
-    c2_trace_func_enter();
-
+    Log.TraceEnter();
     (void)flushMode;
     {
         Mutexed<ExecState>::Locked state(mExecState);
@@ -293,14 +287,11 @@ c2_status_t C2RKComponent::flush_sm(
         }
     }
 
-    c2_trace_func_leave();
-
+    Log.TraceLeave();
     return C2_OK;
 }
 
 c2_status_t C2RKComponent::drain_nb(drain_mode_t drainMode) {
-    c2_trace_func_enter();
-
     if (drainMode == DRAIN_CHAIN) {
         return C2_OMITTED;
     }
@@ -319,21 +310,18 @@ c2_status_t C2RKComponent::drain_nb(drain_mode_t drainMode) {
     if (queueWasEmpty) {
         (new AMessage(WorkHandler::kWhatProcess, mHandler))->post();
     }
-
-    c2_trace_func_leave();
-
     return C2_OK;
 }
 
 c2_status_t C2RKComponent::start() {
-    c2_trace_func_enter();
-
+    Log.TraceEnter();
     Mutexed<ExecState>::Locked state(mExecState);
     if (state->mState == RUNNING) {
         return C2_BAD_STATE;
     }
     bool needsInit = (state->mState == UNINITIALIZED);
     state.unlock();
+
     if (needsInit) {
         sp<AMessage> reply;
         (new AMessage(WorkHandler::kWhatInit, mHandler))->postAndAwaitResponse(&reply);
@@ -348,14 +336,11 @@ c2_status_t C2RKComponent::start() {
     state.lock();
     state->mState = RUNNING;
 
-    c2_trace_func_leave();
-
     return C2_OK;
 }
 
 c2_status_t C2RKComponent::stop() {
-    c2_trace_func_enter();
-
+    Log.TraceEnter();
     {
         Mutexed<ExecState>::Locked state(mExecState);
         if (state->mState != RUNNING) {
@@ -381,13 +366,11 @@ c2_status_t C2RKComponent::stop() {
     }
 
     stopFlushingState();
-    c2_trace_func_leave();
-
     return C2_OK;
 }
 
 c2_status_t C2RKComponent::reset() {
-    c2_trace_func_enter();
+    Log.TraceEnter();
     {
         Mutexed<ExecState>::Locked state(mExecState);
         state->mState = UNINITIALIZED;
@@ -405,13 +388,11 @@ c2_status_t C2RKComponent::reset() {
     (new AMessage(WorkHandler::kWhatReset, mHandler))->postAndAwaitResponse(&reply);
 
     stopFlushingState();
-    c2_trace_func_leave();
-
     return C2_OK;
 }
 
 c2_status_t C2RKComponent::release() {
-    c2_trace_func_enter();
+    Log.TraceEnter();
 
     // since release process is time-consuming, set flushing state
     // to discard all work output during process.
@@ -421,7 +402,6 @@ c2_status_t C2RKComponent::release() {
     (new AMessage(WorkHandler::kWhatRelease, mHandler))->postAndAwaitResponse(&reply);
 
     stopFlushingState();
-
     return C2_OK;
 }
 
@@ -481,7 +461,7 @@ void C2RKComponent::finishAllPendingWorks() {
 
         std::shared_ptr<C2Component::Listener> listener = mExecState.lock()->mListener;
         listener->onWorkDone_nb(shared_from_this(), vec(work));
-        c2_trace("flush pending work, index %lld", queue->pending().begin()->first);
+        Log.D("flush pending work, index %lld", queue->pending().begin()->first);
 
         queue->pending().erase(queue->pending().begin());
     }
@@ -498,12 +478,12 @@ void C2RKComponent::finish(
 
         // ensure normal output of work with configUpdate
         if (isPendingFlushing()) {
-            c2_trace("ignore frame output since pending flush");
+            Log.D("ignore frame output since pending flush");
             return;
         }
 
         if (queue->pending().count(frameIndex) == 0) {
-            c2_warn("unknown frame index: %" PRIu64, frameIndex);
+            Log.W("unknown frame index: %" PRIu64, frameIndex);
             return;
         }
         work = std::move(queue->pending().at(frameIndex));
@@ -522,14 +502,14 @@ void C2RKComponent::finish(
 
     // ensure normal output of work with configUpdate
     if (isPendingFlushing()) {
-        c2_trace("ignore frame output since pending flush");
+        Log.D("ignore frame output since pending flush");
         return;
     }
 
     fillWork(work);
     std::shared_ptr<C2Component::Listener> listener = mExecState.lock()->mListener;
     listener->onWorkDone_nb(shared_from_this(), vec(work));
-    c2_trace("returning pending work");
+    Log.D("returning pending work");
 }
 
 void C2RKComponent::cloneAndSend(
@@ -543,7 +523,7 @@ void C2RKComponent::cloneAndSend(
     } else {
         Mutexed<WorkQueue>::Locked queue(mWorkQueue);
         if (queue->pending().count(frameIndex) == 0) {
-            c2_warn("unknown frame index: %" PRIu64, frameIndex);
+            Log.W("unknown frame index: %" PRIu64, frameIndex);
             return;
         }
         work->input.flags = queue->pending().at(frameIndex)->input.flags;
@@ -554,7 +534,7 @@ void C2RKComponent::cloneAndSend(
         fillWork(work);
         std::shared_ptr<C2Component::Listener> listener = mExecState.lock()->mListener;
         listener->onWorkDone_nb(shared_from_this(), vec(work));
-        c2_trace("cloned and sending work");
+        Log.D("cloned and sending work");
     }
 }
 
@@ -577,10 +557,10 @@ bool C2RKComponent::processQueue() {
         hasQueuedWork = !queue->empty();
     }
     if (isFlushPending) {
-        c2_trace("processing pending flush");
+        Log.D("processing pending flush");
         c2_status_t err = onFlush_sm();
         if (err != C2_OK) {
-            c2_err("flush err: %d", err);
+            Log.E("flush err: %d", err);
             // TODO: error
         }
 
@@ -598,7 +578,7 @@ bool C2RKComponent::processQueue() {
                     C2_DONT_BLOCK,
                     &params);
             if (err != C2_OK && err != C2_BAD_INDEX) {
-                c2_err("query err = %d", err);
+                Log.E("query err = %d", err);
                 return err;
             }
             C2BlockPool::local_id_t poolId =
@@ -615,11 +595,9 @@ bool C2RKComponent::processQueue() {
 
             std::shared_ptr<C2BlockPool> blockPool;
             err = GetCodec2BlockPool(poolId, shared_from_this(), &blockPool);
-            c2_trace("Using output block pool with poolID %llu => got %llu - %d",
-                    (unsigned long long)poolId,
-                    (unsigned long long)(
-                            blockPool ? blockPool->getLocalId() : 111000111),
-                    err);
+            Log.D("Using output block pool with poolID %llu => got %llu - %d",
+                   (unsigned long long)poolId,
+                   (unsigned long long)(blockPool ? blockPool->getLocalId() : 111000111), err);
             if (err == C2_OK) {
                 mOutputBlockPool = std::make_shared<BlockingBlockPool>(blockPool);
             }
@@ -655,24 +633,23 @@ bool C2RKComponent::processQueue() {
         if (!updates.empty()) {
             std::vector<std::unique_ptr<C2SettingResult>> failures;
             c2_status_t err = intf()->config_vb(updates, C2_MAY_BLOCK, &failures);
-            c2_trace("applied %zu configUpdates => %s (%d)", updates.size(), asString(err), err);
+            Log.D("applied %zu configUpdates => %s (%d)", updates.size(), asString(err), err);
         }
     }
 
-    c2_trace("start processing frame #%" PRIu64, work->input.ordinal.frameIndex.peeku());
+    Log.D("start processing frame #%" PRIu64, work->input.ordinal.frameIndex.peeku());
     // If input buffer list is not empty, it means we have some input to process on.
     // However, input could be a null buffer. In such case, clear the buffer list
     // before making call to process().
     if (!work->input.buffers.empty() && !work->input.buffers[0]) {
-        c2_info("Encountered null input buffer. Clearing the input buffer");
+        Log.I("Encountered null input buffer. Clearing the input buffer");
         work->input.buffers.clear();
     }
     process(work, mOutputBlockPool);
-    c2_trace("processed frame #%" PRIu64, work->input.ordinal.frameIndex.peeku());
+    Log.D("processed frame #%" PRIu64, work->input.ordinal.frameIndex.peeku());
     Mutexed<WorkQueue>::Locked queue(mWorkQueue);
     if (queue->generation() != generation) {
-        c2_info("work form old generation: was %" PRIu64 " now %" PRIu64,
-                queue->generation(), generation);
+        Log.I("work form old generation: %" PRIu64 " now %" PRIu64, queue->generation(), generation);
         work->result = C2_NOT_FOUND;
         queue.unlock();
 
@@ -685,12 +662,12 @@ bool C2RKComponent::processQueue() {
     if (work->workletsProcessed != 0u) {
         queue.unlock();
         Mutexed<ExecState>::Locked state(mExecState);
-        c2_trace("returning this work");
+        Log.D("returning this work");
         std::shared_ptr<C2Component::Listener> listener = state->mListener;
         state.unlock();
         listener->onWorkDone_nb(shared_from_this(), vec(work));
     } else {
-        c2_trace("queue pending work");
+        Log.D("queue pending work");
         work->input.buffers.clear();
         std::unique_ptr<C2Work> unexpected;
 
@@ -703,7 +680,7 @@ bool C2RKComponent::processQueue() {
 
         queue.unlock();
         if (unexpected) {
-            c2_info("unexpected pending work");
+            Log.I("unexpected pending work");
             unexpected->result = C2_CORRUPTED;
             Mutexed<ExecState>::Locked state(mExecState);
             std::shared_ptr<C2Component::Listener> listener = state->mListener;

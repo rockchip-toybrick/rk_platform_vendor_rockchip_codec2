@@ -19,6 +19,8 @@
 
 #include <stdio.h>
 
+namespace android {
+
 typedef enum {
     RGA_COLOR_SPACE_DEFAULT = 0,
     RGA_YUV_TO_RGB_BT601_LIMIT,
@@ -46,5 +48,7 @@ public:
 
     static bool DoBlit(RgaInfo srcInfo, RgaInfo dstInfo, int colorSpaceMode = 0);
 };
+
+} // namespace android
 
 #endif  // ANDROID_C2_RK_RGA_DEF_H__

@@ -14,11 +14,7 @@
  * limitations under the License.
  */
 
-#undef  ROCKCHIP_LOG_TAG
-#define ROCKCHIP_LOG_TAG    "C2VdecExtendFeature"
-
 #include "C2RKVdecExtendFeature.h"
-#include "C2RKLog.h"
 #include "C2RKGraphicBufferMapper.h"
 
 #include <errno.h>
@@ -49,11 +45,9 @@ int C2RKVdecExtendFeature::checkNeedScale(buffer_handle_t hnd) {
         switch (metadata->requestMask) {
         case 1:
             need = 1;
-            c2_trace("bufId:0x%" PRIx64" hwc need scale", bufId);
             break;
         case 2:
             need = 0;
-            c2_trace("bufId:0x%" PRIx64" hwc no need scale", bufId);
             break;
         default:
             need = -1;

@@ -17,7 +17,7 @@ cc_library_static {
 
     srcs: [
         "C2RKChipCapDef.cpp",
-        "C2RKLog.cpp",
+        "C2RKLogger.cpp",
         "C2RKRgaDef.cpp",
         "C2RKMediaUtils.cpp",
         "C2RKGraphicBufferMapper.cpp",

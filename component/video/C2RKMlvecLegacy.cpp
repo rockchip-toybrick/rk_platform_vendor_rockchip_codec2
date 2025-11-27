@@ -14,15 +14,14 @@
  * limitations under the License.
  */
 
-#undef  ROCKCHIP_LOG_TAG
-#define ROCKCHIP_LOG_TAG    "C2RKMlvecLegacy"
-
 #include <string.h>
 
 #include "C2RKMlvecLegacy.h"
-#include "C2RKLog.h"
+#include "C2RKLogger.h"
 
 namespace android {
+
+C2_LOGGER_ENABLE("C2RKMlvecLegacy");
 
 C2RKMlvecLegacy::C2RKMlvecLegacy(MppCtx ctx, MppApi *mpi, MppEncCfg cfg) :
     mMppCtx(ctx),
@@ -47,7 +46,7 @@ bool C2RKMlvecLegacy::setupMaxTid(int32_t maxTid) {
     memset(ltRef, 0, sizeof(ltRef));
     memset(stRef, 0, sizeof(stRef));
 
-    c2_info("max_tid %d numLtrFrms %d ", maxTid, numLtrFrms);
+    Log.I("max_tid %d numLtrFrms %d ", maxTid, numLtrFrms);
 
     switch (maxTid) {
     case 1: {
@@ -59,7 +58,7 @@ bool C2RKMlvecLegacy::setupMaxTid(int32_t maxTid) {
 
         stCfgCnt = 1;
         tid0Loop = 1;
-        c2_info("no tsvc");
+        Log.I("no tsvc");
     } break;
     case 2: {
         /* set tsvc2 st-ref struct */
@@ -84,7 +83,7 @@ bool C2RKMlvecLegacy::setupMaxTid(int32_t maxTid) {
 
         stCfgCnt = 3;
         tid0Loop = 2;
-        c2_info("tsvc2");
+        Log.I("tsvc2");
     } break;
     case 3: {
         /* set tsvc3 st-ref struct */
@@ -121,7 +120,7 @@ bool C2RKMlvecLegacy::setupMaxTid(int32_t maxTid) {
 
         stCfgCnt = 5;
         tid0Loop = 4;
-        c2_info("tsvc3");
+        Log.I("tsvc3");
     } break;
     case 4: {
         /* set tsvc3 st-ref struct */
@@ -182,10 +181,10 @@ bool C2RKMlvecLegacy::setupMaxTid(int32_t maxTid) {
 
         stCfgCnt = 9;
         tid0Loop = 8;
-        c2_info("tsvc4");
+        Log.I("tsvc4");
     } break;
     default : {
-        c2_err("invalid max temporal layer id %d", maxTid);
+        Log.E("invalid max temporal layer id %d", maxTid);
     } break;
     }
 
@@ -202,7 +201,7 @@ bool C2RKMlvecLegacy::setupMaxTid(int32_t maxTid) {
         }
     }
 
-    c2_info("ltCfgCnt %d stCfgCnt %d", ltCfgCnt, stCfgCnt);
+    Log.I("ltCfgCnt %d stCfgCnt %d", ltCfgCnt, stCfgCnt);
     if (ltCfgCnt || stCfgCnt) {
         MppEncRefCfg ref = nullptr;
 
@@ -216,7 +215,7 @@ bool C2RKMlvecLegacy::setupMaxTid(int32_t maxTid) {
 
         ret = mMppMpi->control(mMppCtx, MPP_ENC_SET_REF_CFG, ref);
         if (ret) {
-            c2_err("failed to set ref cfg, ret %d", ret);
+            Log.E("failed to set ref cfg, ret %d", ret);
             return false;
         }
 
@@ -224,7 +223,7 @@ bool C2RKMlvecLegacy::setupMaxTid(int32_t maxTid) {
     } else {
         ret = mMppMpi->control(mMppCtx, MPP_ENC_SET_REF_CFG, nullptr);
         if (ret) {
-            c2_err("failed to set ref cfg, ret %d", ret);
+            Log.E("failed to set ref cfg, ret %d", ret);
             return false;
         }
     }
@@ -237,14 +236,14 @@ bool C2RKMlvecLegacy::setupStaticConfig(MStaticCfg *cfg) {
 
     if ((((magic >> 24) & 0xff) != MLVEC_MAGIC) ||
         (((magic >> 16) & 0xff) != MLVEC_VERSION)) {
-        c2_err("failed to check mlvec cfg magic %08x", magic);
+        Log.E("failed to check mlvec cfg magic %08x", magic);
         return false;
     }
 
-    c2_info("add_prefix %d", cfg->addPrefix);
+    Log.I("add_prefix %d", cfg->addPrefix);
     mpp_enc_cfg_set_s32(mEncCfg, "h264:prefix_mode", cfg->addPrefix);
 
-    c2_info("slice_mbs  %d", cfg->sliceMbs);
+    Log.I("slice_mbs  %d", cfg->sliceMbs);
     if (cfg->sliceMbs) {
         mpp_enc_cfg_set_u32(mEncCfg, "split:mode", MPP_ENC_SPLIT_BY_CTU);
         mpp_enc_cfg_set_u32(mEncCfg, "split:arg", cfg->sliceMbs);
@@ -298,7 +297,7 @@ bool C2RKMlvecLegacy::setupDynamicConfig(MDynamicCfg *cfg, MppMeta meta) {
                 sliceCfg.split_arg = cfg->sliceMbs;
                 mMppMpi->control(mMppCtx, MPP_ENC_SET_SPLIT, &sliceCfg);
 
-                c2_info("got sliceMbs %d update", cfg->sliceMbs);
+                Log.I("got sliceMbs %d update", cfg->sliceMbs);
                 mStaticCfg.sliceMbs = cfg->sliceMbs;
              }
         }
@@ -306,8 +305,8 @@ bool C2RKMlvecLegacy::setupDynamicConfig(MDynamicCfg *cfg, MppMeta meta) {
         cfg->updated = 0;
     }
 
-    c2_info("ltr mark %2d use %2d frm qp %2d blpid %d", dst->markLtr,
-              dst->useLtr, dst->frameQP, dst->baseLayerPid);
+    Log.I("ltr mark %2d use %2d frm qp %2d blpid %d", dst->markLtr,
+          dst->useLtr, dst->frameQP, dst->baseLayerPid);
 
     /* setup next frame configure */
     if (dst->markLtr >= 0)
@@ -325,4 +324,4 @@ bool C2RKMlvecLegacy::setupDynamicConfig(MDynamicCfg *cfg, MppMeta meta) {
     return true;
 }
 
-}
+} // namespace android

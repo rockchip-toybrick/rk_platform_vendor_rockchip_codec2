@@ -15,16 +15,15 @@
  *
  */
 
-#undef  ROCKCHIP_LOG_TAG
-#define ROCKCHIP_LOG_TAG    "C2RKGraphicBufferMapper"
-
 #include "C2RKGraphicBufferMapper.h"
-#include "C2RKLog.h"
+#include "C2RKLogger.h"
 
 #include <hardware/hardware_rockchip.h>
 #include <ui/GraphicBufferMapper.h>
 #include <hardware/gralloc.h>
 #include <android/hardware/graphics/mapper/4.0/IMapper.h>
+
+C2_LOGGER_ENABLE("C2RKGraphicBufferMapper");
 
 using android::hardware::graphics::mapper::V4_0::Error;
 using android::hardware::graphics::mapper::V4_0::IMapper;
@@ -59,7 +58,7 @@ static const gralloc_module_t* getGrallocModule() {
     if (cachedModule == NULL) {
         const hw_module_t* module = NULL;
         if (hw_get_module(GRALLOC_HARDWARE_MODULE_ID, &module) != 0) {
-            c2_err("Failed to open gralloc module");
+            Log.E("Failed to open gralloc module");
         }
         cachedModule = reinterpret_cast<const gralloc_module_t*>(module);
     }
@@ -93,7 +92,7 @@ static status_t encodeRkOffsetOfVideoMetadata(
 
 C2RKGraphicBufferMapper::C2RKGraphicBufferMapper() {
     mMapperVersion = GraphicBufferMapper::get().getMapperVersion();
-    c2_info("init with mapper version %d", mMapperVersion);
+    Log.I("init with mapper version %d", mMapperVersion);
 }
 
 int32_t C2RKGraphicBufferMapper::getMapperVersion() {
@@ -118,7 +117,7 @@ int32_t C2RKGraphicBufferMapper::getWidth(buffer_handle_t handle) {
     }
 
     if (err != OK) {
-        c2_err("Failed to get width. err : %d", err);
+        Log.E("Failed to get width. err : %d", err);
         return -1;
     }
 
@@ -135,7 +134,7 @@ int32_t C2RKGraphicBufferMapper::getHeight(buffer_handle_t handle) {
     }
 
     if (err != OK) {
-        c2_err("Failed to get height. err : %d", err);
+        Log.E("Failed to get height. err : %d", err);
         return -1;
     }
 
@@ -152,7 +151,7 @@ int32_t C2RKGraphicBufferMapper::getFormatRequested(buffer_handle_t handle) {
     }
 
     if (err != OK) {
-        c2_err("Failed to get pixel_format_requested. err : %d", err);
+        Log.E("Failed to get pixel_format_requested. err : %d", err);
         return -1;
     }
 
@@ -169,7 +168,7 @@ int32_t C2RKGraphicBufferMapper::getAllocationSize(buffer_handle_t handle) {
     }
 
     if (err != OK) {
-        c2_err("Failed to get allocation_size. err : %d", err);
+        Log.E("Failed to get allocation_size. err : %d", err);
         return -1;
     }
 
@@ -182,26 +181,26 @@ int32_t C2RKGraphicBufferMapper::getPixelStride(buffer_handle_t handle) {
 
     formatRequested = getFormatRequested(handle);
     if (formatRequested < 0) {
-        c2_err("err formatRequested: %d", formatRequested);
+        Log.E("err formatRequested: %d", formatRequested);
         return -1;
     }
 
     if (formatRequested != HAL_PIXEL_FORMAT_YCrCb_NV12_10) {
         status_t err = GraphicBufferMapper::get().getPlaneLayouts(handle, &layouts);
         if (err != OK || layouts.size() < 1) {
-            c2_err("Failed to get plane layouts. err : %d", err);
+            Log.E("Failed to get plane layouts. err : %d", err);
             return err;
         }
 
         if (layouts.size() > 1) {
-            c2_warn("it's not reasonable to get global pixel_stride with planes more than 1.");
+            Log.W("it's not reasonable to get global pixel_stride with planes more than 1.");
         }
 
         return (int32_t)(layouts[0].widthInSamples);
     } else {
         int32_t width = getWidth(handle);
         if (width <= 0) {
-            c2_err("err width : %d", width);
+            Log.E("err width : %d", width);
             return -1;
         }
 
@@ -215,26 +214,26 @@ int32_t C2RKGraphicBufferMapper::getByteStride(buffer_handle_t handle) {
 
     formatRequested = getFormatRequested(handle);
     if (formatRequested < 0) {
-        c2_err("err formatRequested: %d", formatRequested);
+        Log.E("err formatRequested: %d", formatRequested);
         return -1;
     }
 
     if (formatRequested != HAL_PIXEL_FORMAT_YCrCb_NV12_10) {
         status_t err = GraphicBufferMapper::get().getPlaneLayouts(handle, &layouts);
         if (err != OK || layouts.size() < 1) {
-            c2_err("Failed to get plane layouts. err : %d", err);
+            Log.E("Failed to get plane layouts. err : %d", err);
             return err;
         }
 
         if (layouts.size() > 1) {
-            c2_warn("it's not reasonable to get global pixel_stride with planes more than 1.");
+            Log.W("it's not reasonable to get global pixel_stride with planes more than 1.");
         }
 
         return (int32_t)(layouts[0].strideInBytes);
     } else {
         int32_t width = getWidth(handle);
         if (width <= 0) {
-            c2_err("err width : %d", width);
+            Log.E("err width : %d", width);
             return -1;
         }
 
@@ -252,7 +251,7 @@ uint64_t C2RKGraphicBufferMapper::getUsage(buffer_handle_t handle) {
     }
 
     if (err != OK) {
-        c2_err("Failed to get usage. err : %d", err);
+        Log.E("Failed to get usage. err : %d", err);
         return 0;
     }
 
@@ -269,7 +268,7 @@ uint64_t C2RKGraphicBufferMapper::getBufferId(buffer_handle_t handle) {
     }
 
     if (err != OK) {
-        c2_err("Failed to get buffer id. err : %d", err);
+        Log.E("Failed to get buffer id. err : %d", err);
         return 0;
     }
 
@@ -291,7 +290,7 @@ status_t C2RKGraphicBufferMapper::importBuffer(
             gHandle, width, height, 1, format, usage,
             stride, outHandle);
     if (err != OK) {
-        c2_err("failed to import buffer %p", gHandle);
+        Log.E("failed to import buffer %p", gHandle);
     }
 
     native_handle_delete(gHandle);
@@ -309,14 +308,14 @@ int32_t C2RKGraphicBufferMapper::setDynamicHdrMeta(buffer_handle_t handle, int64
     int err = 0;
 
     if (mMapperVersion == 5) {
-        c2_trace("not implement");
+        Log.D("not implement");
     } else if (mMapperVersion == 4) {
         auto &mapper = getGralloc4Mapper();
         hidl_vec<uint8_t> encodedOffset;
 
         err = encodeRkOffsetOfVideoMetadata(offset, &encodedOffset);
         if (err != OK) {
-            c2_err("Failed to encode offset_of_dynamic_hdr_metadata. err : %d", err);
+            Log.E("Failed to encode offset_of_dynamic_hdr_metadata. err : %d", err);
             return err;
         }
 
@@ -329,10 +328,9 @@ int32_t C2RKGraphicBufferMapper::setDynamicHdrMeta(buffer_handle_t handle, int64
             case Error::BAD_BUFFER:
             case Error::BAD_VALUE:
             case Error::NO_RESOURCES:
-                c2_err("set(%s, %lld, ...) failed with %d",
-                    RkMetadataType_OFFSET_OF_DYNAMIC_HDR_METADATA.name.c_str(),
-                    (long long)RkMetadataType_OFFSET_OF_DYNAMIC_HDR_METADATA.value,
-                    error);
+                Log.E("set(%s, %lld, ...) failed with %d",
+                       RkMetadataType_OFFSET_OF_DYNAMIC_HDR_METADATA.name.c_str(),
+                       (long long)RkMetadataType_OFFSET_OF_DYNAMIC_HDR_METADATA.value, error);
                 err = -1;
                 break;
             // It is not an error to attempt to set metadata that a particular gralloc implementation
@@ -351,7 +349,7 @@ int32_t C2RKGraphicBufferMapper::setDynamicHdrMeta(buffer_handle_t handle, int64
     }
 
     if (err != 0) {
-        c2_err("Failed to set dynamic hdr metadata, err %d", err);
+        Log.E("Failed to set dynamic hdr metadata, err %d", err);
     }
     return err;
 }
@@ -361,7 +359,7 @@ int64_t C2RKGraphicBufferMapper::getDynamicHdrMeta(buffer_handle_t handle) {
     int64_t offset = -1;
 
     if (mMapperVersion == 5) {
-        c2_trace("not implement");
+        Log.D("not implement");
     } else if (mMapperVersion == 4) {
         auto &mapper = getGralloc4Mapper();
 
@@ -383,7 +381,7 @@ int64_t C2RKGraphicBufferMapper::getDynamicHdrMeta(buffer_handle_t handle) {
     }
 
     if (err != OK) {
-        c2_err("Failed to get dynamic hdr metadata, err %d", err);
+        Log.E("Failed to get dynamic hdr metadata, err %d", err);
         return -1;
     }
 
@@ -395,15 +393,15 @@ int32_t C2RKGraphicBufferMapper::mapScaleMeta(
     int32_t err = 0;
 
     if (mMapperVersion == 5) {
-        c2_trace("not implement");
+        Log.E("not implement");
     } else if (mMapperVersion == 4) {
-        c2_trace("not implement");
+        Log.E("not implement");
     } else {
         const gralloc_module_t* module = getGrallocModule();
         err = module->perform(module,
                     PERFORM_LOCK_RKVDEC_SCALING_METADATA, handle, metadata);
         if (err != 0) {
-            c2_err("Failed to lock rkdevc_scaling_metadata, err %d", err);
+            Log.E("Failed to lock rkdevc_scaling_metadata, err %d", err);
         }
     }
 
@@ -414,14 +412,14 @@ int32_t C2RKGraphicBufferMapper::unmapScaleMeta(buffer_handle_t handle) {
     int32_t err = 0;
 
     if (mMapperVersion == 5) {
-        c2_trace("not implement");
+        Log.E("not implement");
     } else if (mMapperVersion == 4) {
-        c2_trace("not implement");
+        Log.E("not implement");
     } else {
         const gralloc_module_t* module = getGrallocModule();
         err = module->perform(module, PERFORM_UNLOCK_RKVDEC_SCALING_METADATA, handle);
         if (err != 0) {
-            c2_err("Failed to unlock rkdevc_scaling_metadata, err %d", err);
+            Log.E("Failed to unlock rkdevc_scaling_metadata, err %d", err);
         }
     }
 

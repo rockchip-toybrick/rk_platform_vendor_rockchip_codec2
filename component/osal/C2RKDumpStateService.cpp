@@ -14,9 +14,6 @@
  * limitations under the License.
  */
 
-#undef  ROCKCHIP_LOG_TAG
-#define ROCKCHIP_LOG_TAG    "C2RKDumpStateService"
-
 #include <string.h>
 #include <sys/syscall.h>
 #include <sys/time.h>
@@ -26,7 +23,7 @@
 #include <sstream>
 #include <queue>
 
-#include "C2RKLog.h"
+#include "C2RKLogger.h"
 #include "C2RKPropsDef.h"
 #include "C2RKChipCapDef.h"
 #include "C2RKMediaUtils.h"
@@ -35,6 +32,8 @@
 #include "rk_mpi.h"
 
 namespace android {
+
+C2_LOGGER_ENABLE("C2RKDumpStateService");
 
 #define C2_RECORD_DIR   "/data/video/"
 
@@ -127,8 +126,7 @@ public:
         if (mLogging) {
             int64_t now = _getCurrentTimeMs();
             if ((now - mLastLogTime) > mLogInterval) {
-                c2_info("%s real-time bitrate %.1f kbps", mTag.c_str(),
-                        getInstantBitrate());
+                Log.I("%s real-time bitrate %.1f kbps", mTag.c_str(), getInstantBitrate());
                 mLastLogTime = now;
             }
         }
@@ -213,8 +211,8 @@ public:
         removeExpiredTimestamps(mInputTimestamps, now);
 
         if (mLogging && (now - mLastInputLogTime) > mLogInterval) {
-            c2_info("%s input frameCount = %lld fps = %.3f", mTag.c_str(),
-                    mTotalInputFrames, mInputTimestamps.size()  / mWindowSeconds);
+            Log.I("%s input frameCount = %lld fps = %.3f", mTag.c_str(),
+                  mTotalInputFrames, mInputTimestamps.size()  / mWindowSeconds);
             mLastInputLogTime = now;
         }
     }
@@ -227,8 +225,8 @@ public:
         removeExpiredTimestamps(mOutputTimestamps, now);
 
         if (mLogging && (now - mLastOutputLogTime) > mLogInterval) {
-            c2_info("%s output frameCount = %lld fps = %.3f", mTag.c_str(),
-                    mTotalOutputFrames, mOutputTimestamps.size()  / mWindowSeconds);
+            Log.I("%s output frameCount = %lld fps = %.3f", mTag.c_str(),
+                   mTotalOutputFrames, mOutputTimestamps.size()  / mWindowSeconds);
             mLastOutputLogTime = now;
         }
     }
@@ -316,7 +314,7 @@ C2RKDumpStateService::~C2RKDumpStateService() {
 
 void C2RKDumpStateService::updateDebugFlags(int32_t flags) {
     if (flags != mDumpFlags) {
-        c2_info("update dumpFlags 0x%x -> 0x%x", mDumpFlags, flags);
+        Log.I("update dumpFlags 0x%x -> 0x%x", mDumpFlags, flags);
         mDumpFlags = flags;
 
         // dynamically determine file capture based on dumpFlags
@@ -376,13 +374,13 @@ void C2RKDumpStateService::updateFeatures(std::string features) {
             auto it = kFeatureMap.find(feature);
             if (it != kFeatureMap.end()) {
                 mFeatureFlags |= it->second;
-                c2_info("Add Feature: %s", it->first.c_str());
+                Log.I("Add Feature: %s", it->first.c_str());
             } else {
-                c2_info("Invalid feature name: %s", feature.c_str());
+                Log.I("Invalid feature name: %s", feature.c_str());
             }
         }
     }
-    c2_info("Update final Feature flags 0x%x", mFeatureFlags);
+    Log.I("Update final Feature flags 0x%x", mFeatureFlags);
 }
 
 bool C2RKDumpStateService::hasFeatures(int32_t feature) {
@@ -406,12 +404,12 @@ bool C2RKDumpStateService::addNode(std::shared_ptr<C2NodeInfo> node) {
     Mutex::Autolock autoLock(mNodeLock);
 
     if (node->mNodeId == nullptr) {
-        c2_err("can't record node without nodeId");
+        Log.E("can't record node without nodeId");
         return false;
     }
 
     if (findNodeItem(node->mNodeId) != nullptr) {
-        c2_info("ignore duplicate node, nodeId %p", node->mNodeId);
+        Log.I("ignore duplicate node, nodeId %p", node->mNodeId);
         return true;
     }
 
@@ -459,10 +457,10 @@ bool C2RKDumpStateService::addNode(std::shared_ptr<C2NodeInfo> node) {
     }
 
     if (overload) {
-        c2_err("overload initialize %s(%dx%d@%.1f), current loading %d",
-                node->mIsEncoder ? "mIsEncoder" : "decoder",
-                node->mWidth, node->mHeight, node->mFrameRate,
-                node->mIsEncoder ? mEncTotalLoading : mDecTotalLoading);
+        Log.E("overload initialize %s(%dx%d@%.1f), current loading %d",
+               node->mIsEncoder ? "mIsEncoder" : "decoder",
+               node->mWidth, node->mHeight, node->mFrameRate,
+               node->mIsEncoder ? mEncTotalLoading : mDecTotalLoading);
         return false;
     }
 
@@ -491,7 +489,7 @@ bool C2RKDumpStateService::removeNode(void *nodeId) {
         }
         return true;
     } else {
-        c2_warn("remove: unexpected nodeId %p", nodeId);
+        Log.W("remove: unexpected nodeId %p", nodeId);
         return false;
     }
 }
@@ -571,9 +569,9 @@ void C2RKDumpStateService::onDumpFlagsUpdated(std::shared_ptr<C2NodeInfo> node) 
                     node->mIsEncoder ? "enc" : "dec", node->mWidth, node->mHeight, node->mPid);
             node->mInFile = fopen(fileName, "wb");
             if (node->mInFile == nullptr) {
-                c2_err("failed to open input file, err: %s", strerror(errno));
+                Log.E("failed to open input file, err: %s", strerror(errno));
             } else {
-                c2_info("recording input to %s", fileName);
+                Log.I("recording input to %s", fileName);
             }
         }
     } else {
@@ -594,9 +592,9 @@ void C2RKDumpStateService::onDumpFlagsUpdated(std::shared_ptr<C2NodeInfo> node) 
                     node->mIsEncoder ? "enc" : "dec", node->mWidth, node->mHeight, node->mPid);
             node->mOutFile = fopen(fileName, "wb");
             if (node->mOutFile == nullptr) {
-                c2_err("failed to open output file, err: %s", strerror(errno));
+                Log.E("failed to open output file, err: %s", strerror(errno));
             } else {
-                c2_info("recording output to %s", fileName);
+                Log.I("recording output to %s", fileName);
             }
         }
     } else {
@@ -630,8 +628,8 @@ void C2RKDumpStateService::recordFrame(
         if (file) {
             fwrite(data, 1, size, file);
             fflush(file);
-            c2_info("%s dump_%s: data 0x%08x size %d",
-                    toStr_Node(node).c_str(), toStr_DumpPort(port), data, size);
+            Log.I("%s dump_%s: data 0x%08x size %d",
+                   toStr_Node(node).c_str(), toStr_DumpPort(port), data, size);
         }
     }
 }
@@ -649,7 +647,7 @@ void C2RKDumpStateService::recordFrame(
         FILE *file = (port == kPortIndexInput) ? node->mInFile : node->mOutFile;
         if (file && src) {
             if (MPP_FRAME_FMT_IS_FBC(fmt)) {
-                c2_warn("not support fbc buffer dump");
+                Log.W("not support fbc buffer dump");
                 return;
             }
 
@@ -658,7 +656,7 @@ void C2RKDumpStateService::recordFrame(
                 size_t size = w * h * 3 / 2;
                 uint8_t *dst = (uint8_t *)malloc(size);
                 if (!dst) {
-                    c2_warn("failed to malloc temp 8bit dump buffer");
+                    Log.W("failed to malloc temp 8bit dump buffer");
                     return;
                 }
 
@@ -675,8 +673,8 @@ void C2RKDumpStateService::recordFrame(
             }
 
             fflush(file);
-            c2_info("%s dump_%s_%s: data 0x%08x w:h [%d:%d]", toStr_Node(node).c_str(),
-                    toStr_DumpPort(port), toStr_RawType(fmt), src, w, h);
+            Log.I("%s dump_%s_%s: data 0x%08x w:h [%d:%d]", toStr_Node(node).c_str(),
+                   toStr_DumpPort(port), toStr_RawType(fmt), src, w, h);
         }
     }
 }
@@ -716,8 +714,8 @@ void C2RKDumpStateService::showFrameTiming(void *nodeId, int64_t frameIndex) {
             int64_t startTime = node->mRecordStartTimes.valueAt(index);
             int64_t timeDiff = (_getCurrentTimeMs() - startTime);
             node->mRecordStartTimes.removeItemsAt(index);
-            c2_info("%s frameIndex %lld process consumes %lld ms",
-                    toStr_Node(node).c_str(), frameIndex, timeDiff);
+            Log.I("%s frameIndex %lld process consumes %lld ms",
+                   toStr_Node(node).c_str(), frameIndex, timeDiff);
         }
     }
 }
@@ -762,7 +760,7 @@ std::string C2RKDumpStateService::dumpNodesSummary(bool logging) {
         std::string line;
 
         while (std::getline(ss, line)) {
-            c2_info("%s", line.c_str());
+            Log.I("%s", line.c_str());
         }
     }
 

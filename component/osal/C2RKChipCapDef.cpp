@@ -14,18 +14,19 @@
  * limitations under the License.
  */
 
-#undef  ROCKCHIP_LOG_TAG
-#define ROCKCHIP_LOG_TAG    "C2RKChipCapDef"
-
 #include <unistd.h>
 #include <fcntl.h>
 #include <string.h>
 #include <cutils/properties.h>
 
 #include "C2RKChipCapDef.h"
-#include "C2RKLog.h"
+#include "C2RKLogger.h"
 #include "mpp_platform.h"
 #include "mpp_dev_defs.h"
+
+namespace android {
+
+C2_LOGGER_ENABLE("C2RKChipCapDef");
 
 #define MAX_SOC_NAME_LENGTH     1024
 
@@ -226,7 +227,7 @@ static void readChipName(char *name) {
     const char *path = "/proc/device-tree/compatible";
     int fd = open(path, O_RDONLY);
     if (fd < 0) {
-        c2_err("open %s error", path);
+        Log.E("open %s error", path);
         return;
     }
 
@@ -241,7 +242,7 @@ static void readChipName(char *name) {
             if (ptr >= name + length - 1)
                 break;
         }
-        c2_info("read chip name: %s", name);
+        Log.I("read chip name: %s", name);
     }
 
     close(fd);
@@ -257,7 +258,7 @@ static C2ChipCapInfo *checkChipInfo(const char *chipName) {
         const char *compatible = sChipCapInfos[i].chipName;
 
         if (strstr(chipName, compatible)) {
-            c2_info("match chip %s", compatible);
+            Log.I("match chip %s", compatible);
             return &sChipCapInfos[i];
         }
     }
@@ -265,14 +266,13 @@ static C2ChipCapInfo *checkChipInfo(const char *chipName) {
     return nullptr;
 }
 
-
 C2RKChipCapDef::C2RKChipCapDef() {
     char name[MAX_SOC_NAME_LENGTH] = { 0 };
 
     readChipName(name);
     mChipCapInfo = checkChipInfo(name);
     if (mChipCapInfo == nullptr) {
-        c2_info("use default chip info");
+        Log.I("use default chip info");
         mChipCapInfo = &sChipCapDefault;
     }
 }
@@ -319,11 +319,11 @@ int32_t C2RKChipCapDef::getFbcOutputMode(MppCodingType codecId) {
     }
 
     if (fbcMode > 0 && property_get_int32("codec2_fbc_disable", 0)) {
-        c2_info("property match, disable fbc output mode");
+        Log.I("property match, disable fbc output mode");
         fbcMode = 0;
     }
 
-    c2_trace("[%s] codec-0x%08x fbcMode-%d", mChipCapInfo->chipName, codecId, fbcMode);
+    Log.D("[%s] codec-0x%08x fbcMode-%d", mChipCapInfo->chipName, codecId, fbcMode);
 
     return fbcMode;
 }
@@ -389,7 +389,7 @@ bool C2RKChipCapDef::is10bitSupport(MppCodingType codecId) {
             break;
         }
         default: {
-            c2_err("Unknown cap10bit for codec: 0x%08x", codecId);
+            Log.E("Unknown cap10bit for codec: 0x%08x", codecId);
             break;
         }
     }
@@ -413,3 +413,4 @@ bool C2RKChipCapDef::hasRkVenc() {
     return ret;
 }
 
+} // namespace android

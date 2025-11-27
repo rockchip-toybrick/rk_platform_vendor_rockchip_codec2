@@ -14,15 +14,16 @@
  * limitations under the License.
  */
 
-#undef  ROCKCHIP_LOG_TAG
-#define ROCKCHIP_LOG_TAG    "C2RKCodecMapper"
-
 #include "C2RKCodecMapper.h"
-#include "C2RKLog.h"
+#include "C2RKLogger.h"
 #include "mpp/rk_mpi.h"
 #include <string>
 #include <media/stagefright/MediaCodecConstants.h>
 #include <C2Config.h>
+
+namespace android {
+
+C2_LOGGER_ENABLE("C2RKCodecMapper");
 
 const char *toStr_Format(uint32_t fmt) {
     switch (fmt) {
@@ -74,7 +75,7 @@ const char *toStr_Profile(uint32_t i, uint32_t coding) {
             default:                                    return "unknown";
         }
     }
-    c2_warn("unsupport coding type %d profile", coding, i);
+    Log.W("unsupport coding type %d profile", coding, i);
     return "unknown";
 }
 
@@ -121,7 +122,7 @@ const char *toStr_Level(uint32_t i, uint32_t coding) {
             default:                    return "unknown";
         }
     }
-    c2_warn("unsupport coding type %d level %d", coding, i);
+    Log.W("unsupport coding type %d level %d", coding, i);
     return "unknown";
 }
 
@@ -171,8 +172,7 @@ uint32_t C2RKCodecMapper::getMppH264Profile(uint32_t profile, bool c2Type) {
     }
 
     if (i == kNumAProfileMaps) {
-        c2_warn("get unsupport %s profile %d, set default main profile",
-                c2Type ? "c2" : "codec", profile);
+        Log.E("unsupport %s profile %d", c2Type ? "c2" : "codec", profile);
         return MPP_H264_MAIN;
     }
 
@@ -221,8 +221,7 @@ uint32_t C2RKCodecMapper::getMppH264Level(uint32_t level, bool c2Type) {
     }
 
     if (i == kNumALevelMaps) {
-        c2_warn("get unsupport %s level %d, set default level4_1",
-                c2Type ? "c2" : "codec", level);
+        Log.E("unsupport %s level %d", c2Type ? "c2" : "codec", level);
         return MPP_H264_LEVEL4_1;
     }
 
@@ -253,7 +252,7 @@ uint32_t C2RKCodecMapper::getMppH265Profile(uint32_t profile) {
     }
 
     if (i == kNumHProfileMaps) {
-        c2_warn("get unsupport profile %d, set default main profile", profile);
+        Log.E("unsupport profile %d, set default main profile", profile);
         return MPP_PROFILE_HEVC_MAIN;
     }
 
@@ -292,7 +291,7 @@ uint32_t C2RKCodecMapper::getMppH265Level(uint32_t level) {
     }
 
     if (i == kNumHLevelMaps) {
-        c2_warn("get unsupport level %d, set default level4_1", level);
+        Log.E("unsupport level %d, set default level4_1", level);
         return MPP_H265_LEVEL4_1;
     }
 
@@ -324,10 +323,11 @@ uint32_t C2RKCodecMapper::getMppBitrateMode(int32_t mode, bool c2Type) {
     }
 
     if (i == kNumBModeMaps) {
-        c2_warn("get unsupport %s bitrate mode %d, set default cbr mode",
-                c2Type ? "c2" : "codec", mode);
+        Log.E("unsupport %s bitrate mode %d", c2Type ? "c2" : "codec", mode);
         return MPP_ENC_RC_MODE_CBR;
     }
 
     return kBModeMaps[i].mppMode;
 }
+
+} // namespace android

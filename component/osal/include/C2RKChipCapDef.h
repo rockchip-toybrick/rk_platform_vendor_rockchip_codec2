@@ -21,6 +21,8 @@
 #include <stdio.h>
 #include "rk_type.h"
 
+namespace android {
+
 typedef enum _C2ChipType {
     RK_CHIP_UNKOWN = 0,
 
@@ -142,5 +144,7 @@ private:
 
     C2ChipCapInfo *mChipCapInfo;
 };
+
+} // namespace android
 
 #endif  // C2_RK_CHIP_CAP_DEF_H_

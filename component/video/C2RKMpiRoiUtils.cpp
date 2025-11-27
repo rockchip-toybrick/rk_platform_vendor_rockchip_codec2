@@ -15,18 +15,17 @@
  *
  */
 
-#undef  ROCKCHIP_LOG_TAG
-#define ROCKCHIP_LOG_TAG    "C2RKMpiRoiUtils"
-
 #include <stdlib.h>
 #include <string.h>
 
-#include "C2RKLog.h"
+#include "C2RKLogger.h"
 #include "C2RKChipCapDef.h"
 #include "C2RKMpiRoiUtils.h"
 #include "C2RKDmaBufSync.h"
 
 namespace android {
+
+C2_LOGGER_ENABLE("C2RKMpiRoiUtils");
 
 #define _ALIGN(x, a)            (((x)+(a)-1)&~((a)-1))
 #define _FREE(ptr)              do { if(ptr) free(ptr); ptr = NULL; } while (0)
@@ -248,7 +247,7 @@ static MPP_RET gen_vepu54x_roi(MppEncRoiImpl *ctx, Vepu541RoiCfg *dst) {
         memcpy(dst + i, &cfg, sizeof(cfg));
 
     if (ctx->w <= 0 || ctx->h <= 0) {
-        c2_err("invalid size [%d:%d]", ctx->w, ctx->h);
+        Log.E("invalid size [%d:%d]", ctx->w, ctx->h);
         goto done;
     }
 
@@ -266,10 +265,10 @@ static MPP_RET gen_vepu54x_roi(MppEncRoiImpl *ctx, Vepu541RoiCfg *dst) {
             ret = MPP_NOK;
 
         if (ret) {
-            c2_err("region %d invalid param:", i);
-            c2_err("position [%d:%d:%d:%d] vs [%d:%d]",
+            Log.E("region %d invalid param:", i);
+            Log.E("position [%d:%d:%d:%d] vs [%d:%d]",
                    region->x, region->y, region->w, region->h, ctx->w, ctx->h);
-            c2_err("force intra %d qp mode %d val %d",
+            Log.E("force intra %d qp mode %d val %d",
                    region->force_intra, region->qp_mode, region->qp_val);
             goto done;
         }
@@ -629,13 +628,13 @@ MPP_RET mpp_enc_roi_init(MppEncRoiCtx *ctx, int32_t w, int32_t h, MppCodingType 
     } break;
     default : {
         roi_type = ROI_TYPE_LEGACY;
-        c2_info("%s run with legacy roi cfg", C2RKChipCapDef::get()->getChipName());
+        Log.I("%s run with legacy roi cfg", C2RKChipCapDef::get()->getChipName());
     } break;
     }
 
     impl = _CALLOC(MppEncRoiImpl, 1);
     if (!impl) {
-        c2_err("can't create roi context");
+        Log.E("can't create roi context");
         goto done;
     }
 
@@ -655,7 +654,7 @@ MPP_RET mpp_enc_roi_init(MppEncRoiCtx *ctx, int32_t w, int32_t h, MppCodingType 
         int32_t stride_h = _ALIGN(mb_w, 4);
         int32_t stride_v = _ALIGN(mb_h, 4);
 
-        c2_trace("set to vepu54x roi generation");
+        Log.D("set to vepu54x roi generation");
 
         impl->base_cfg_size = stride_h * stride_v * sizeof(Vepu541RoiCfg);
         mpp_buffer_group_get_internal(&impl->roi_grp, MPP_BUFFER_TYPE_ION | MPP_BUFFER_FLAGS_CACHABLE);
@@ -705,7 +704,7 @@ MPP_RET mpp_enc_roi_init(MppEncRoiCtx *ctx, int32_t w, int32_t h, MppCodingType 
             impl->cu_size       = mb_w * mb_h;
         }
 
-        c2_trace("set to vepu58x roi generation");
+        Log.D("set to vepu58x roi generation");
 
         impl->roi_cfg.roi_qp_en = 1;
         mpp_buffer_group_get_internal(&impl->roi_grp, MPP_BUFFER_TYPE_ION | MPP_BUFFER_FLAGS_CACHABLE);
@@ -805,7 +804,7 @@ MPP_RET mpp_enc_roi_add_region(MppEncRoiCtx ctx, RoiRegionCfg *region) {
     MppEncRoiImpl *impl = (MppEncRoiImpl *)ctx;
 
     if (impl->count >= impl->max_count) {
-        c2_err("can not add more region with max %d\n", impl->max_count);
+        Log.E("can not add more region with max %d\n", impl->max_count);
         return MPP_NOK;
     }
 

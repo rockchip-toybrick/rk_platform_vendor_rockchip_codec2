@@ -14,13 +14,9 @@
  * limitations under the License.
  */
 
-#undef  ROCKCHIP_LOG_TAG
-#define ROCKCHIP_LOG_TAG    "C2RKRknnWrapper"
-
 #include <dlfcn.h>
 #include <string.h>
 
-#include "C2RKLog.h"
 #include "C2RKRknnWrapper.h"
 
 namespace android {
@@ -43,7 +39,6 @@ bool C2RKRknnWrapper::initCheck() {
 
     mLibFd = dlopen("librknnrt.so", RTLD_LAZY);
     if (mLibFd == nullptr) {
-        c2_err("failed to open librkvt, %s", dlerror());
         return false;
     }
 
@@ -67,14 +62,12 @@ bool C2RKRknnWrapper::initCheck() {
     if (!mInitFunc || !mDestroyFunc || !mQueryFunc || !mSetInputsFunc ||
         !mGetOutputsFunc || !mRunFunc || !mReleaseOutputsFunc ||
         !mSetCoreMaskFunc || !mCreateMemFunc || !mDestroyMemFunc) {
-        c2_err("could not find rknn api symbol, %s", dlerror());
         dlclose(mLibFd);
         return false;
     }
 
     if (!mMatmulCreateShapeFunc || !mMatmulDestroyFunc ||
         !mMatmulSetShapeFunc || !mMatmulRunFunc || !mMatmulSetIOMemFunc) {
-        c2_err("could not find rknn api matmul symbol, %s", dlerror());
         dlclose(mLibFd);
         return false;
     }

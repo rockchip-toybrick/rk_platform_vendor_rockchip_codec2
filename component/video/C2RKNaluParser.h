@@ -19,6 +19,8 @@
 
 #include "C2RKBitReader.h"
 
+namespace android {
+
 class C2RKNaluParser {
 public:
     static int32_t detectBitDepth(uint8_t *buf, int32_t size, int32_t coding);
@@ -43,5 +45,7 @@ private:
     static bool searchHEVCNaluInfo(
             uint8_t *buf, int32_t size, int32_t detectFiled, int32_t *outValue);
 };
+
+} // namespace android
 
 #endif  // ANDROID_C2_RK_NALU_PARSER_H__

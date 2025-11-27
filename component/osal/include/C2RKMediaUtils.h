@@ -21,6 +21,8 @@
 #include "hardware/hardware_rockchip.h"
 #include "hardware/gralloc_rockchip.h"
 
+namespace android {
+
 #ifndef HAL_PIXEL_FORMAT_YUV420_8BIT_RFBC
 #define HAL_PIXEL_FORMAT_YUV420_8BIT_RFBC   0x200
 #endif
@@ -102,5 +104,6 @@ public:
             C2FrameInfo srcInfo, C2FrameInfo dstInfo, bool cacheSync = false);
 };
 
-#endif  // ANDROID_C2_RK_MEDIA_UTILS_H_
+} // namespace android
 
+#endif  // ANDROID_C2_RK_MEDIA_UTILS_H_

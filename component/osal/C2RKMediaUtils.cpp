@@ -14,9 +14,6 @@
  * limitations under the License.
  */
 
-#undef  ROCKCHIP_LOG_TAG
-#define ROCKCHIP_LOG_TAG    "C2RKMediaUtils"
-
 #include <string.h>
 #include <cutils/properties.h>
 #include <C2Config.h>
@@ -24,9 +21,11 @@
 #include "C2RKMediaUtils.h"
 #include "C2RKDmaBufSync.h"
 #include "C2RKChipCapDef.h"
-#include "C2RKLog.h"
+#include "C2RKLogger.h"
 
-using namespace android;
+namespace android {
+
+C2_LOGGER_ENABLE("C2RKMediaUtils");
 
 typedef struct {
     int32_t      level;
@@ -155,9 +154,9 @@ static C2LevelInfo vp9LevelInfos[] = {
 };
 
 void dumpFrameInfo(C2FrameInfo &info, const char *tag) {
-    c2_trace("%s frame ptr %p fd %d fmt %d rect[%d, %d, %d, %d]",
-              tag, info.ptr, info.fd, info.format,
-              info.width, info.height, info.hstride, info.vstride);
+    Log.D("%s frame ptr %p fd %d fmt %d rect[%d, %d, %d, %d]",
+           tag, info.ptr, info.fd, info.format,
+           info.width, info.height, info.hstride, info.vstride);
 }
 
 int32_t C2RKMediaUtils::getHalPixerFormat(int32_t format) {
@@ -174,14 +173,14 @@ int32_t C2RKMediaUtils::getHalPixerFormat(int32_t format) {
             if (gFormatList[i].androidFormat[fbcMode] > 0) {
                 androidFormat = gFormatList[i].androidFormat[fbcMode];
             } else {
-                c2_err("unable to get available fmt from fbcMode %d", fbcMode);
+                Log.E("unable to get available fmt from fbcMode %d", fbcMode);
             }
             break;
         }
     }
 
     if (i == gNumFormatList) {
-        c2_err("unsupport c2Format 0x%x fbcMode %d", format, fbcMode);
+        Log.E("unsupport c2Format 0x%x fbcMode %d", format, fbcMode);
     }
 
     return androidFormat;
@@ -285,7 +284,7 @@ uint32_t C2RKMediaUtils::calculateVideoRefCount(
         refCount = gAV1DefRefCount;
         break;
       default: {
-        c2_trace("use default ref frame count(%d)", C2_DEFAULT_REF_FRAME_COUNT);
+        Log.D("use default ref frame count(%d)", C2_DEFAULT_REF_FRAME_COUNT);
         refCount = C2_DEFAULT_REF_FRAME_COUNT;
       }
     }
@@ -328,20 +327,20 @@ void C2RKMediaUtils::translateToRequestFmt(
 
     switch (srcFmt) {
     case HAL_PIXEL_FORMAT_YCrCb_NV12: {
-        c2_trace("software convert: nv12 -> nv12");
+        Log.D("software convert: nv12 -> nv12");
         C2RKMediaUtils::convertNV12ToNV12(srcInfo, dstInfo, cacheSync);
     } break;
     case HAL_PIXEL_FORMAT_YCrCb_NV12_10: {
         if (dstFmt == HAL_PIXEL_FORMAT_YCBCR_P010) {
-            c2_trace("software convert: nv12_10 -> p010");
+            Log.D("software convert: nv12_10 -> p010");
             C2RKMediaUtils::convert10BitNV12ToP010(srcInfo, dstInfo, cacheSync);
         } else {
-            c2_trace("software convert: nv12_10 -> nv12");
+            Log.D("software convert: nv12_10 -> nv12");
             C2RKMediaUtils::convert10BitNV12ToNV12(srcInfo, dstInfo, cacheSync);
         }
     } break;
     default: {
-        c2_err("not support src format %d", srcFmt);
+        Log.E("not support src format %d", srcFmt);
     } break;
     }
 }
@@ -486,3 +485,5 @@ void C2RKMediaUtils::convertNV12ToNV12(
         dma_sync_cpu_to_device(dstInfo.fd);
     }
 }
+
+} // namespace android
