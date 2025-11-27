@@ -2680,50 +2680,53 @@ void C2RKMpiEnc::fillEmptyWork(const std::unique_ptr<C2Work>& work) {
 void C2RKMpiEnc::finishWork(
         const std::unique_ptr<C2Work> &work,
         MppPacket entry) {
-    c2_status_t ret = C2_OK;
-    std::shared_ptr<C2LinearBlock> block;
-    C2MemoryUsage usage = { C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE };
+    std::shared_ptr<C2Buffer> buffer = nullptr;
 
     void    *data   = mpp_packet_get_data(entry);
     size_t   len    = mpp_packet_get_length(entry);
     size_t   size   = mpp_packet_get_size(entry);
     uint64_t frmIdx = mpp_packet_get_pts(entry);
 
-    ret = mBlockPool->fetchLinearBlock(size, usage, &block);
-    if (ret != C2_OK) {
-        c2_err("failed to fetch block for output, ret 0x%x", ret);
-        mSignalledError = true;
-        return;
-    }
+    if (data != nullptr && len > 0) {
+        std::shared_ptr<C2LinearBlock> block;
+        C2MemoryUsage usage = { C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE };
 
-    C2WriteView wView = block->map().get();
-    if (C2_OK != wView.error()) {
-        c2_err("write view map failed with status 0x%x", wView.error());
-        mSignalledError = true;
-        return;
-    }
-
-    // copy mpp output to c2 output
-    memcpy(wView.data(), data, len);
-
-    std::shared_ptr<C2Buffer> buffer = createLinearBuffer(block, 0, len);
-    MppMeta meta = mpp_packet_get_meta(entry);
-    if (meta != nullptr) {
-        int32_t isIntra = 0;
-        MppFrame frame = nullptr;
-
-        mpp_meta_get_s32(meta, KEY_OUTPUT_INTRA, &isIntra);
-        if (isIntra) {
-            c2_info("IDR frame produced");
-            buffer->setInfo(std::make_shared<C2StreamPictureTypeMaskInfo::output>(
-                    0u /* stream id */, C2Config::SYNC_FRAME));
+        c2_status_t ret = mBlockPool->fetchLinearBlock(size, usage, &block);
+        if (ret != C2_OK) {
+            c2_err("failed to fetch block for output, ret 0x%x", ret);
+            mSignalledError = true;
+            return;
         }
 
-        mpp_meta_get_frame(meta, KEY_INPUT_FRAME, &frame);
-        if (frame != nullptr) {
-            mpp_frame_deinit(&frame);
-        } else if (mHandler) {
-            ALOGW("unexpected null frame pointer");
+        C2WriteView wView = block->map().get();
+        if (C2_OK != wView.error()) {
+            c2_err("write view map failed with status 0x%x", wView.error());
+            mSignalledError = true;
+            return;
+        }
+
+        // copy mpp output to c2 output
+        memcpy(wView.data(), data, len);
+
+        buffer = createLinearBuffer(block, 0, len);
+        MppMeta meta = mpp_packet_get_meta(entry);
+        if (meta != nullptr) {
+            int32_t isIntra = 0;
+            MppFrame frame = nullptr;
+
+            mpp_meta_get_s32(meta, KEY_OUTPUT_INTRA, &isIntra);
+            if (isIntra) {
+                c2_info("IDR frame produced");
+                buffer->setInfo(std::make_shared<C2StreamPictureTypeMaskInfo::output>(
+                        0u /* stream id */, C2Config::SYNC_FRAME));
+            }
+
+            mpp_meta_get_frame(meta, KEY_INPUT_FRAME, &frame);
+            if (frame != nullptr) {
+                mpp_frame_deinit(&frame);
+            } else if (mHandler) {
+                ALOGW("unexpected null frame pointer");
+            }
         }
     }
 
@@ -2732,7 +2735,9 @@ void C2RKMpiEnc::finishWork(
     auto fillWork = [buffer](const std::unique_ptr<C2Work> &work) {
         work->worklets.front()->output.flags = (C2FrameData::flags_t)0;
         work->worklets.front()->output.buffers.clear();
-        work->worklets.front()->output.buffers.push_back(buffer);
+        if (buffer != nullptr) {
+            work->worklets.front()->output.buffers.push_back(buffer);
+        }
         work->worklets.front()->output.ordinal = work->input.ordinal;
         work->workletsProcessed = 1u;
     };
@@ -2747,6 +2752,41 @@ void C2RKMpiEnc::finishWork(
     }
 }
 
+c2_status_t C2RKMpiEnc::drainEOS(const std::unique_ptr<C2Work> &work) {
+    if (mHandler) {
+        mHandler->stopWork();
+    }
+
+    int64_t maxTimeUs = 2000000; /* 2s */
+    int64_t startTimeUs = ALooper::GetNowUs();
+
+    while (true) {
+        if (C2_OK != onDrainWork(work)) {
+            goto error;
+        }
+
+        if (mOutputEOS) {
+            break;
+        }
+
+        if (ALooper::GetNowUs() - startTimeUs >= maxTimeUs) {
+            c2_warn("failed to get output eos within 2 seconds");
+            goto error;
+        } else {
+            usleep(1000);
+        }
+    }
+
+    return C2_OK;
+
+error:
+    mSignalledError = true;
+    work->workletsProcessed = 1u;
+    work->result = C2_CORRUPTED;
+
+    return C2_CORRUPTED;
+}
+
 c2_status_t C2RKMpiEnc::drain(
         uint32_t drainMode,
         const std::shared_ptr<C2BlockPool> &pool) {
@@ -2759,6 +2799,7 @@ c2_status_t C2RKMpiEnc::onDrainWork(const std::unique_ptr<C2Work> &work) {
     if (mSignalledError) return C2_BAD_STATE;
 
     MppPacket entry;
+    memset(&entry, 0, sizeof(entry));
 
     c2_status_t err = getoutpacket(&entry);
     if (err == C2_OK) {
@@ -2808,6 +2849,8 @@ void C2RKMpiEnc::process(
     uint64_t frameIndex = work->input.ordinal.frameIndex.peekull();
     uint64_t timestamp = work->input.ordinal.timestamp.peekll();
 
+    mSawInputEOS = (flags & C2FrameData::FLAG_END_OF_STREAM);
+
     std::shared_ptr<const C2GraphicView> view;
     std::shared_ptr<C2Buffer> inputBuffer = nullptr;
     if (!work->input.buffers.empty()) {
@@ -2821,16 +2864,10 @@ void C2RKMpiEnc::process(
             work->workletsProcessed = 1u;
             return;
         }
-    } else {
-        c2_warn("ignore empty input with frameIndex %lld", frameIndex);
-        fillEmptyWork(work);
-        return;
     }
 
     c2_trace("process one work timestamp %llu frameindex %llu, flags %x",
              timestamp, frameIndex, flags);
-
-    mSawInputEOS = (flags & C2FrameData::FLAG_END_OF_STREAM);
 
     if (!mSpsPpsHeaderReceived) {
         MppPacket hdrPkt   = nullptr;
@@ -2912,13 +2949,13 @@ void C2RKMpiEnc::process(
     if (mHandler) {
         sp<AMessage> msg = new AMessage(WorkHandler::kWhatDrainWork, mHandler);
         msg->post();
+
+        if (mSawInputEOS) {
+            drainEOS(work);
+        }
     } else {
         err = onDrainWork(work);
         if (err != C2_OK) {
-            fillEmptyWork(work);
-        }
-
-        if (!mSawInputEOS && work->input.buffers.empty()) {
             fillEmptyWork(work);
         }
     }
@@ -3284,10 +3321,15 @@ int32_t C2RKMpiEnc::getRgaColorSpaceMode() {
 
 c2_status_t C2RKMpiEnc::getInBufferFromWork(
         const std::unique_ptr<C2Work> &work, MyDmaBuffer_t *outBuffer) {
-    c2_status_t ret = C2_OK;
     uint64_t frameIndex = work->input.ordinal.frameIndex.peekull();
-    bool configChanged = false;
 
+    if (work->input.buffers.empty()) {
+        c2_info("ignore empty input with frameIndex %lld", frameIndex);
+        return C2_OK;
+    }
+
+    c2_status_t ret = C2_OK;
+    bool configChanged = false;
     std::shared_ptr<const C2GraphicView> view;
     std::shared_ptr<C2Buffer> inputBuffer = nullptr;
 
@@ -3602,16 +3644,6 @@ c2_status_t C2RKMpiEnc::getoutpacket(MppPacket *entry) {
         if (eos) {
             c2_info("get output eos");
             mOutputEOS = true;
-            if (pts == 0 || !len) {
-                c2_info("eos with empty pkt");
-                return C2_CORRUPTED;
-            }
-        }
-
-        if (!len) {
-            c2_trace("ignore empty output with pts %lld", pts);
-            mpp_packet_deinit(&packet);
-            return C2_NOT_FOUND;
         }
 
         *entry = packet;

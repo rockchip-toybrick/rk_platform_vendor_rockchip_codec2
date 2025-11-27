@@ -198,6 +198,7 @@ private:
     int32_t getRgaColorSpaceMode();
     int32_t getCtuSize();
 
+    c2_status_t drainEOS(const std::unique_ptr<C2Work> &work);
     c2_status_t getInBufferFromWork(
             const std::unique_ptr<C2Work> &work, MyDmaBuffer_t *outBuffer);
     c2_status_t sendframe(MyDmaBuffer_t dBuffer, uint64_t pts, uint32_t flags);
