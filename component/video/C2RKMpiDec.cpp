@@ -1006,10 +1006,12 @@ void C2RKMpiDec::onRelease() {
 
     stopAndReleaseLooper();
 
-    releaseAllBuffers();
-
     if (mBlockPool) {
         mBlockPool.reset();
+    }
+
+    if (mOutBlock) {
+        mOutBlock.reset();
     }
 
     if (mBufferGroup != nullptr) {
@@ -1046,6 +1048,10 @@ c2_status_t C2RKMpiDec::onFlush_sm() {
         if (mHandler) {
             mHandler->flushAllMessages();
         }
+
+        Mutex::Autolock autoLock(mBufferLock);
+
+        releaseAllBuffers();
 
         // reset dump statistics
         mDumpService->resetNode(this);
