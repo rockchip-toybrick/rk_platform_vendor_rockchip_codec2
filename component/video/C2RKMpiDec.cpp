@@ -2608,7 +2608,6 @@ c2_status_t C2RKMpiDec::getoutframe(WorkEntry *entry) {
         flags |= WorkEntry::FLAGS_DROP_FRAME;
         /* record drop output frame */
         mDumpService->recordFrame(this, kDropFrame);
-        goto cleanUp;
     }
 
     if (error || discard) {
