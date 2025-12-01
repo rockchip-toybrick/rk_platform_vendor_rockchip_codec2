@@ -1870,12 +1870,13 @@ void C2RKMpiDec::finishWork(
         if (c2Buffer) {
             work->worklets.front()->output.buffers.push_back(c2Buffer);
         }
-        if (flags & WorkEntry::FLAGS_DROP_FRAME) {
+
+        if (isDropFrame(timestamp)) {
+            c2_trace("this is not error frame, just transmit drop flag");
             work->input.flags = C2FrameData::flags_t(
                     work->input.flags | C2FrameData::FLAG_DROP_FRAME);
-            work->worklets.front()->output.flags = C2FrameData::flags_t(
-                    work->worklets.front()->output.flags |C2FrameData::FLAG_DROP_FRAME);
         }
+
         if (flags & WorkEntry::FLAGS_INFO_CHANGE) {
             c2_info("update new size %dx%d config to framework.", mWidth, mHeight);
             C2StreamPictureSizeInfo::output size(0u, mWidth, mHeight);
@@ -2601,13 +2602,6 @@ c2_status_t C2RKMpiDec::getoutframe(WorkEntry *entry) {
         flags |= WorkEntry::FLAGS_EOS;
         // ignore null frame with eos
         if (!mppBuffer) goto cleanUp;
-    }
-
-    if (isDropFrame(pts)) {
-        c2_warn("skip drop frame with pts %lld", pts);
-        flags |= WorkEntry::FLAGS_DROP_FRAME;
-        /* record drop output frame */
-        mDumpService->recordFrame(this, kDropFrame);
     }
 
     if (error || discard) {
