@@ -412,8 +412,16 @@ c2_status_t C2RKComponent::reset() {
 
 c2_status_t C2RKComponent::release() {
     c2_trace_func_enter();
+
+    // since release process is time-consuming, set flushing state
+    // to discard all work output during process.
+    setFlushingState();
+
     sp<AMessage> reply;
     (new AMessage(WorkHandler::kWhatRelease, mHandler))->postAndAwaitResponse(&reply);
+
+    stopFlushingState();
+
     return C2_OK;
 }
 
