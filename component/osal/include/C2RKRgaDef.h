@@ -46,7 +46,7 @@ public:
             RgaInfo *param, int32_t fd, int32_t format,
             int32_t width, int32_t height, int32_t hstride = 0, int32_t vstride = 0);
 
-    static bool DoBlit(RgaInfo srcInfo, RgaInfo dstInfo, int colorSpaceMode = 0);
+    static bool DoBlit(RgaInfo srcInfo, RgaInfo dstInfo);
 };
 
 } // namespace android

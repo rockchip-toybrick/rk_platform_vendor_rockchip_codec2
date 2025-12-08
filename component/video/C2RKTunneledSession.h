@@ -104,8 +104,8 @@ public:
     virtual ~C2RKTunneledSession();
 
     bool configure(TunnelParams_t params);
-    bool disconnect();
-    bool reset();
+    void disconnect();
+    void reset();
 
     bool dequeueBuffer(int32_t *bufferId);
     bool renderBuffer(int32_t bufferId, int64_t presentTime = 0);

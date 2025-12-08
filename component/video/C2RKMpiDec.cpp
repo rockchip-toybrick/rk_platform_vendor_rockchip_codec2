@@ -18,6 +18,9 @@
 #include <C2AllocatorGralloc.h>
 #include <Codec2Mapper.h>
 #include <media/stagefright/foundation/ALookup.h>
+#include <sstream>
+#include <chrono>
+#include <thread>
 
 #include "C2RKMpiDec.h"
 #include "C2RKPlatformSupport.h"
@@ -38,6 +41,8 @@
 #include "C2RKVersion.h"
 
 namespace android {
+
+using std::ignore;
 
 C2_LOGGER_ENABLE("C2RKMpiDec");
 
@@ -301,7 +306,7 @@ public:
         std::shared_ptr<C2StreamColorInfo::output> defaultColorInfo =
             C2StreamColorInfo::output::AllocShared(
                     1u, 0u, 8u /* bitDepth */, C2Color::YUV_420);
-        memcpy(defaultColorInfo->m.locations, locations, sizeof(locations));
+        ignore = memcpy(defaultColorInfo->m.locations, locations, sizeof(locations));
 
         defaultColorInfo =
             C2StreamColorInfo::output::AllocShared(
@@ -375,7 +380,7 @@ public:
                     .build());
         }
 
-        /* tunneled video playback */
+        // tunneled video playback
         addParameter(
                 DefineParam(mTunneledPlayback, C2_PARAMKEY_TUNNELED_RENDER)
                 .withDefault(C2PortTunneledModeTuning::output::AllocUnique(
@@ -408,7 +413,7 @@ public:
                 .withSetter(Setter<decltype(*mLowLatency)>::NonStrictValueWithNoDeps)
                 .build());
 
-        /* extend parameter definition */
+        // extend parameter definition
         addParameter(
                 DefineParam(mDisableDpbCheck, C2_PARAMKEY_DEC_DISABLE_DPB_CHECK)
                 .withDefault(new C2StreamDecDisableDpbCheck::input(0))
@@ -677,9 +682,9 @@ public:
 
     bool getIs10bit() {
         uint32_t profile = mProfileLevel ? mProfileLevel->profile : 0;
-        if (profile == PROFILE_AVC_HIGH_10 ||
-            profile == PROFILE_HEVC_MAIN_10 ||
-            profile == PROFILE_VP9_2) {
+        if (profile == C2Config::PROFILE_AVC_HIGH_10 ||
+            profile == C2Config::PROFILE_HEVC_MAIN_10 ||
+            profile == C2Config::PROFILE_VP9_2) {
             return true;
         }
         if (mDefaultColorAspects->transfer == 6 /* SMPTEST2084 */) {
@@ -743,7 +748,7 @@ void C2RKMpiDec::WorkHandler::flushAllMessages() {
 
     sp<AMessage> msg = new AMessage(WorkHandler::kWhatFlushMessage, this);
     sp<AMessage> response;
-    msg->postAndAwaitResponse(&response);
+    CHECK_EQ(msg->postAndAwaitResponse(&response), OK);
 
     mRunning = true;
 }
@@ -753,23 +758,29 @@ void C2RKMpiDec::WorkHandler::stop() {
 
     sp<AMessage> msg = new AMessage(WorkHandler::kWhatFlushMessage, this);
     sp<AMessage> response;
-    msg->postAndAwaitResponse(&response);
+    CHECK_EQ(msg->postAndAwaitResponse(&response), OK);
 }
 
 void C2RKMpiDec::WorkHandler::onMessageReceived(const sp<AMessage> &msg) {
     switch (msg->what()) {
         case kWhatFrameReady: {
-            C2RKMpiDec *thiz = nullptr;
-            if (mRunning && msg->findPointer("thiz", (void **)(&thiz)) && thiz) {
-                thiz->drainWork();
+            if (mRunning) {
+                std::shared_ptr<C2RKMpiDec> thiz = mThiz.lock();
+                CHECK(thiz);
+
+                if (thiz->drainWork() != C2_OK) {
+                    Log.E("Error DrainWork, stoping work looper...");
+                    mRunning = false;
+                }
             }
         } break;
         case kWhatFlushMessage: {
             sp<AReplyToken> replyID;
-            msg->senderAwaitsResponse(&replyID);
+            CHECK(msg->senderAwaitsResponse(&replyID));
 
             sp<AMessage> response = new AMessage;
-            response->postReply(replyID);
+            response->setInt32("err", C2_OK);
+            CHECK_EQ(response->postReply(replyID), OK);
         } break;
         default: {
             Log.E("Unrecognized msg: %d", msg->what());
@@ -783,17 +794,17 @@ bool C2RKMpiDec::OutBuffer::ownedByDecoder() {
 
 void C2RKMpiDec::OutBuffer::submitToDecoder() {
     if (!mOwnedByDecoder) {
-        mpp_buffer_put(mMppBuffer);
+        CHECK(mpp_buffer_put(mMppBuffer) == MPP_OK);
         mOwnedByDecoder = true;
     } else {
         Log.W("submitToDecoder - invalid operation "
-                "(the index %d is already owned by decoder)", mBufferId);
+              "(the index %d is already owned by decoder)", mBufferId);
     }
 }
 
 void C2RKMpiDec::OutBuffer::setInusedByClient() {
     if (mOwnedByDecoder) {
-        mpp_buffer_inc_ref(mMppBuffer);
+        CHECK(mpp_buffer_inc_ref(mMppBuffer) == MPP_OK);
         mOwnedByDecoder = false;
     } else {
         Log.W("setInusedByClient - invalid operation "
@@ -803,15 +814,18 @@ void C2RKMpiDec::OutBuffer::setInusedByClient() {
 
 class C2DecNodeInfoListener : public C2NodeInfoListener {
 public:
-    explicit C2DecNodeInfoListener(C2RKMpiDec *thiz) : mThiz(thiz) {}
+    explicit C2DecNodeInfoListener(const std::shared_ptr<C2RKMpiDec> &thiz)
+        : mThiz(thiz) {}
     ~C2DecNodeInfoListener() override = default;
 
     void onNodeSummaryRequest(std::string &summary) override {
-        mThiz->onNodeSummaryRequest(summary);
+        if (auto thiz = mThiz.lock()) {
+            thiz->onNodeSummaryRequest(summary);
+        }
     }
 
 private:
-    C2RKMpiDec *mThiz;
+    std::weak_ptr<C2RKMpiDec> mThiz;
 };
 
 C2RKMpiDec::C2RKMpiDec(
@@ -830,6 +844,7 @@ C2RKMpiDec::C2RKMpiDec(
       mMppCtx(nullptr),
       mMppMpi(nullptr),
       mCodingType(MPP_VIDEO_CodingUnused),
+      mDecCfg(nullptr),
       mColorFormat(MPP_FMT_YUV420SP),
       mBufferGroup(nullptr),
       mWidth(0),
@@ -862,44 +877,36 @@ C2RKMpiDec::~C2RKMpiDec() {
     onRelease();
 
     mDumpService->removeNode(this);
-    mDumpService->dumpNodesSummary();
+    mDumpService->logNodesSummary();
 }
 
 // Implementation of virtual function from C2NodeInfoListener
 void C2RKMpiDec::onNodeSummaryRequest(std::string &summary) {
-    const size_t SIZE = 256;
-    char buffer[SIZE];
     int64_t inputFrames = 0;
     int64_t outputFrames = 0;
     int64_t errorFrames = 0;
+
     ColorAspects sfAspects;
+    std::ostringstream oss;
 
     ColorUtils::convertIsoColorAspectsToCodecAspects(
             mBitstreamColorAspects.primaries, mBitstreamColorAspects.transfer,
             mBitstreamColorAspects.coeffs, mBitstreamColorAspects.fullRange, sfAspects);
 
-    snprintf(buffer, sizeof(buffer),
-        "| Component   : %s\n"
-        "| Media Format: %s, %.1f fps, %s%s\n"
-        "| Resolution  : %dx%d (Stride %dx%d)\n",
-        mName, mMime, mIntf->getFrameRate_l()->value,
-        MPP_FRAME_FMT_IS_YUV_10BIT(mColorFormat) ? "10-Bit" : "8-Bit",
-        MPP_FRAME_FMT_IS_FBC(mColorFormat) ? ", FBC" : "",
-        mWidth, mHeight, mHorStride, mVerStride);
-
-    summary.append(buffer);
-
-    snprintf(buffer, sizeof(buffer),
-        "| Color Info  : Range=%d(%s)\n"
-        "|               Primaries=%d(%s)\n"
-        "|               Matrix=%d(%s)\n"
-        "|               Transfer=%d(%s)\n",
-        sfAspects.mRange, asString(sfAspects.mRange),
-        sfAspects.mPrimaries, asString(sfAspects.mPrimaries),
-        sfAspects.mMatrixCoeffs, asString(sfAspects.mMatrixCoeffs),
-        sfAspects.mTransfer, asString(sfAspects.mTransfer));
-
-    summary.append(buffer);
+    oss << "| Component   : " << mName << "\n"
+        << "| Media Format: " << mMime << ", " << mIntf->getFrameRate_l()->value << " fps, "
+        << (MPP_FRAME_FMT_IS_YUV_10BIT(mColorFormat) ? "10-Bit" : "8-Bit") << ", "
+        << (MPP_FRAME_FMT_IS_FBC(mColorFormat) ? ", FBC" : "") << "\n"
+        << "| Resolution  : " << mWidth << "x" << mHeight
+        << " (Stride " << mHorStride << "x" << mVerStride << ")\n"
+        << "| Color Info  : Range=" << sfAspects.mRange << "("
+        << asString(sfAspects.mRange) << ")\n"
+        << "|               Primaries=" << sfAspects.mPrimaries
+        << "(" << asString(sfAspects.mPrimaries) << ")\n"
+        << "|               Matrix=" << sfAspects.mMatrixCoeffs
+        << "(" << asString(sfAspects.mMatrixCoeffs) << ")\n"
+        << "|               Transfer=" << sfAspects.mTransfer
+        << "(" << asString(sfAspects.mTransfer) << ")\n";
 
     if (!mBuffers.empty()) {
         size_t sizeOwnedByDecoder = std::count_if(
@@ -908,19 +915,12 @@ void C2RKMpiDec::onNodeSummaryRequest(std::string &summary) {
                 return value.second->ownedByDecoder();
             });
 
-        snprintf(buffer, sizeof(buffer),
-            "|\n|--------------Buffer Allocation State-------------|\n"
-            "| Count       : %zu (%zu in decoder)\n"
-            "| Size        : %d bytes each\n"
-            "| Usage       : 0x%llx\n"
-            "| Format      : 0x%x\n"
-            "| Mode        : %s\n",
-            mBuffers.size(), sizeOwnedByDecoder,
-            mBuffers.begin()->second->getSize(),
-            (long long)mAllocParams.usage, mAllocParams.format,
-            mBufferMode ? "BufferMode" : "SurfaceMode");
-
-        summary.append(buffer);
+        oss << "|\n|--------------Buffer Allocation State-------------|\n"
+            << "| Count       : " << mBuffers.size() << " (" << sizeOwnedByDecoder << " in decoder)\n"
+            << "| Size        : " << mBuffers.begin()->second->getSize() << " bytes each\n"
+            << "| Usage       : 0x" << std::hex << mAllocParams.usage << std::dec << "\n"
+            << "| Format      : 0x" << mAllocParams.format << "\n"
+            << "| Mode        : " << (mBufferMode ? "BufferMode" : "SurfaceMode") << "\n";
     }
 
     if (mDumpService->getNodePortFrameCount(
@@ -930,21 +930,19 @@ void C2RKMpiDec::onNodeSummaryRequest(std::string &summary) {
         std::string errorFramesDesc = "";
 
         if (errorFrames > 0) {
-            snprintf(buffer, sizeof(buffer), ", %lld Error", (long long)errorFrames);
-            errorFramesDesc.append(buffer);
+            errorFramesDesc = ", " + std::to_string(errorFrames) + " Error";
         }
 
-        snprintf(buffer, sizeof(buffer),
-            "|\n|--------------Pipeline Runtime State--------------|\n"
-            "| Input packet: %lld Totals, %lld Decoded%s\n"
-            "| Threshold   : %d (Slots %d Smoothness %d)\n"
-            "| State       : %s\n",
-            (long long)inputFrames, (long long)outputFrames, errorFramesDesc.c_str(),
-            threshold, (mNumOutputSlots - mSlotsToReduce), (int)kRenderSmoothnessFactor,
-            (diff >= threshold) ? "Pipeline-Full" : "Normal");
-
-        summary.append(buffer);
+        oss << "|\n|--------------Pipeline Runtime State--------------|\n"
+            << "| Input packet: " << (long long)inputFrames << " Totals, "
+            << (long long)outputFrames << " Decoded" << errorFramesDesc << "\n"
+            << "| Threshold   : " << threshold << " (Slots "
+            << (mNumOutputSlots - mSlotsToReduce) << " Smoothness "
+            << (int)kRenderSmoothnessFactor << ")\n"
+            << "| State       : " << ((diff >= threshold) ? "Pipeline-Full" : "Normal") << "\n";
     }
+
+    summary += oss.str();
 }
 
 c2_status_t C2RKMpiDec::onInit() {
@@ -959,25 +957,27 @@ c2_status_t C2RKMpiDec::onInit() {
                 mIntf->getFrameRate_l()->value // frameRate
             );
 
-    nodeInfo->setListener(std::make_shared<C2DecNodeInfoListener>(this));
+    nodeInfo->setListener(
+            std::make_shared<C2DecNodeInfoListener>(
+                std::static_pointer_cast<C2RKMpiDec>(sharedFromComponent())));
 
     if (!mDumpService->addNode(nodeInfo)) {
-        mDumpService->dumpNodesSummary();
+        mDumpService->logNodesSummary();
         return C2_NO_MEMORY;
     }
 
-    c2_status_t err = setupAndStartLooper();
+    status_t err = setupAndStartLooper();
     if (err != C2_OK) {
-        Log.E("failed to start looper therad");
-        return err;
+        Log.PostError("setupAndStartLooper", static_cast<int32_t>(err));
+        return (c2_status_t)err;
     }
 
     err = configOutputDelay();
     if (err != C2_OK) {
-        Log.E("failed to config output delay");
+        Log.PostError("configOutputDelay", static_cast<int32_t>(err));
     }
 
-    return err;
+    return (c2_status_t)err;
 }
 
 c2_status_t C2RKMpiDec::onStop() {
@@ -986,7 +986,7 @@ c2_status_t C2RKMpiDec::onStop() {
 
 void C2RKMpiDec::onReset() {
     Log.Enter();
-    onStop();
+    (void)onStop();
 }
 
 void C2RKMpiDec::onRelease() {
@@ -998,25 +998,26 @@ void C2RKMpiDec::onRelease() {
     /* set flushing state to discard all work output */
     setFlushingState();
 
-    onFlush_sm();
+    CHECK(onFlush_sm() == C2_OK);
 
-    stopAndReleaseLooper();
+    CHECK(stopAndReleaseLooper() == C2_OK);
 
     if (mBlockPool) {
         mBlockPool.reset();
     }
 
-    if (mOutBlock) {
-        mOutBlock.reset();
-    }
-
     if (mBufferGroup != nullptr) {
-        mpp_buffer_group_put(mBufferGroup);
+        CHECK(mpp_buffer_group_put(mBufferGroup) == MPP_OK);
         mBufferGroup = nullptr;
     }
 
+    if (mDecCfg != nullptr) {
+        CHECK(mpp_dec_cfg_deinit(mDecCfg) == MPP_OK);
+        mDecCfg = nullptr;
+    }
+
     if (mMppCtx) {
-        mpp_destroy(mMppCtx);
+        CHECK(mpp_destroy(mMppCtx) == MPP_OK);
         mMppCtx = nullptr;
     }
 
@@ -1037,11 +1038,11 @@ c2_status_t C2RKMpiDec::onFlush_sm() {
         mOutputEOS = false;
         mSignalledError = false;
 
-        if (mMppMpi) {
-            mMppMpi->reset(mMppCtx);
+        if (mMppMpi != nullptr) {
+            CHECK(mMppMpi->reset(mMppCtx) == MPP_OK);
         }
 
-        if (mHandler) {
+        if (mHandler != nullptr) {
             mHandler->flushAllMessages();
         }
 
@@ -1063,26 +1064,31 @@ c2_status_t C2RKMpiDec::setupAndStartLooper() {
 
     if (mLooper == nullptr) {
         mLooper = new ALooper;
-        mHandler = new WorkHandler;
-
+        mHandler = new WorkHandler(
+                std::static_pointer_cast<C2RKMpiDec>(sharedFromComponent()));
         mLooper->setName("C2DecLooper");
+
         err = mLooper->start(false, false, ANDROID_PRIORITY_VIDEO);
         if (err == OK) {
-            mLooper->registerHandler(mHandler);
+            ALooper::handler_id id = mLooper->registerHandler(mHandler);
+            Log.D("registerHandler: %d", id);
         }
     }
     return (c2_status_t)err;
 }
 
-void C2RKMpiDec::stopAndReleaseLooper() {
+c2_status_t C2RKMpiDec::stopAndReleaseLooper() {
+    status_t err = OK;
+
     if (mLooper != nullptr) {
         if (mHandler != nullptr) {
             mLooper->unregisterHandler(mHandler->id());
             mHandler.clear();
         }
-        mLooper->stop();
+        err = mLooper->stop();
         mLooper.clear();
     }
+    return (c2_status_t)err;
 }
 
 int32_t C2RKMpiDec::getFbcOutputMode(const std::unique_ptr<C2Work> &work) {
@@ -1129,7 +1135,7 @@ int32_t C2RKMpiDec::getFbcOutputMode(const std::unique_ptr<C2Work> &work) {
     uint32_t minStride = C2RKChipCapDef::get()->getFbcMinStride(fbcMode);
 
     if (mWidth <= minStride && mHeight <= minStride) {
-        Log.I("within fbc min stirde %d, disable fbc otuput mode", minStride);
+        Log.I("within min stirde %d, disable fbc otuput mode", minStride);
         return 0;
     }
 
@@ -1145,58 +1151,57 @@ c2_status_t C2RKMpiDec::getSurfaceFeatures(const std::shared_ptr<C2BlockPool> &p
             176, 144, HAL_PIXEL_FORMAT_YCrCb_NV12,
             {C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE}, &block);
     if (err != C2_OK) {
-        Log.E("failed to fetchGraphicBlock, err %d", err);
+        Log.PostError("fetchGraphicBlock", static_cast<int32_t>(err));
         return err;
     }
 
     buffer_handle_t handle = nullptr;
     auto c2Handle = block->handle();
 
-    if (C2RKGraphicBufferMapper::get()->importBuffer(c2Handle, &handle) != OK) {
-        Log.E("failed to import feature buffer");
+    status_t status = C2RKGraphicBufferMapper::get()->importBuffer(c2Handle, &handle);
+    if (status != OK) {
+        Log.PostError("importBuffer", static_cast<int32_t>(status));
         return C2_CORRUPTED;
     }
 
     uint64_t usage = C2RKGraphicBufferMapper::get()->getUsage(handle);
     if (usage & GRALLOC_USAGE_HW_VIDEO_ENCODER) {
         mGraphicSourceMode = true;
-        updateFbcModeIfNeeded();
+        err = updateFbcModeIfNeeded();
+        if (err != C2_OK) {
+            Log.PostError("updateFbcModeIfNeeded", static_cast<int32_t>(err));
+            goto cleanUp;
+        }
     }
 
     /* check use scale mode */
 
-    uint32_t scaleMode = C2RKChipCapDef::get()->getScaleMode();
-
-    if (!scaleMode || mBufferMode || C2RKPropsDef::getScaleDisable()) {
-        goto cleanUp;
-    }
-
-    switch (scaleMode) {
-        case C2_SCALE_MODE_META:
-            checkUseScaleMeta(handle);
-        break;
-        case C2_SCALE_MODE_DOWN_SCALE:
-            checkUseScaleDown(handle);
-        break;
-        default:
-        break;
+    if (!mBufferMode && !C2RKPropsDef::getScaleDisable()) {
+        switch (C2RKChipCapDef::get()->getScaleMode()) {
+            case C2_SCALE_MODE_META: {
+                err = checkUseScaleMeta(handle);
+                break;
+            }
+            case C2_SCALE_MODE_DOWN_SCALE: {
+                err = checkUseScaleDown(handle);
+                break;
+            }
+            default: {
+                break;
+            }
+        }
     }
 
 cleanUp:
-    C2RKGraphicBufferMapper::get()->freeBuffer(handle);
+    (void)C2RKGraphicBufferMapper::get()->freeBuffer(handle);
     return err;
 }
 
 c2_status_t C2RKMpiDec::checkUseScaleMeta(buffer_handle_t handle) {
-    MPP_RET ret = MPP_OK;
-    MppDecCfg cfg = nullptr;
-    int needScale = 0;
-    uint32_t scaleMode = C2_SCALE_MODE_META;
+    int32_t scaleMode = C2_SCALE_MODE_META;
 
-    needScale = C2RKVdecExtendFeature::checkNeedScale(handle);
-    if (needScale < 0) {
-        return C2_OK;
-    } else if (needScale == 0) {
+    int32_t needScale = C2RKVdecExtendFeature::checkNeedScale(handle);
+    if (needScale <= 0) {
         scaleMode = C2_SCALE_MODE_NONE;
     }
 
@@ -1204,57 +1209,36 @@ c2_status_t C2RKMpiDec::checkUseScaleMeta(buffer_handle_t handle) {
         return C2_OK;
     }
 
-    mpp_dec_cfg_init(&cfg);
+    ignore = mpp_dec_cfg_set_u32(mDecCfg, "base:enable_thumbnail", scaleMode);
 
-    mMppMpi->control(mMppCtx, MPP_DEC_GET_CFG, cfg);
-    mpp_dec_cfg_set_u32(cfg, "base:enable_thumbnail", scaleMode);
-    ret = mMppMpi->control(mMppCtx, MPP_DEC_SET_CFG, cfg);
-    if (ret != MPP_OK) {
-        Log.W("failed to set scale mode %d", scaleMode);
-        goto cleanUp;
+    if (mMppMpi->control(mMppCtx, MPP_DEC_SET_CFG, mDecCfg) == MPP_OK) {
+        Log.I("enable scale meta mode");
+        mScaleMode = scaleMode;
+        return C2_OK;
+    } else {
+        Log.PostError("setEnableThumbnail", -1);
+        return C2_CORRUPTED;
     }
-
-    Log.I("enable scale meta dec");
-    mScaleMode = scaleMode;
-
-cleanUp:
-    if (cfg != nullptr) {
-        mpp_dec_cfg_deinit(cfg);
-    }
-
-    return C2_OK;
 }
 
 c2_status_t C2RKMpiDec::checkUseScaleDown(buffer_handle_t handle) {
-    MPP_RET err = MPP_OK;
-    MppDecCfg cfg = nullptr;
     (void)handle;
 
     // enable scale dec only in 8k
     if (mWidth <= 4096 && mHeight <= 4096) {
-        goto cleanUp;
+        return C2_OK;
     }
 
-    mpp_dec_cfg_init(&cfg);
+    ignore = mpp_dec_cfg_set_u32(mDecCfg, "base:enable_thumbnail", C2_SCALE_MODE_DOWN_SCALE);
 
-    mMppMpi->control(mMppCtx, MPP_DEC_GET_CFG, cfg);
-    mpp_dec_cfg_set_u32(cfg, "base:enable_thumbnail", C2_SCALE_MODE_DOWN_SCALE);
-    err = mMppMpi->control(mMppCtx, MPP_DEC_SET_CFG, cfg);
-    if (err != MPP_OK) {
-        Log.W("failed to set scale down mode");
-        goto cleanUp;
+    if (mMppMpi->control(mMppCtx, MPP_DEC_SET_CFG, mDecCfg) == MPP_OK) {
+        Log.I("enable scale down mode");
+        mScaleMode = C2_SCALE_MODE_DOWN_SCALE;
+        return C2_OK;
+    } else {
+        Log.PostError("setEnableThumbnail", -1);
+        return C2_CORRUPTED;
     }
-
-    mScaleMode = C2_SCALE_MODE_DOWN_SCALE;
-
-    Log.I("enable scale down mode");
-
-cleanUp:
-    if (cfg != nullptr) {
-        mpp_dec_cfg_deinit(cfg);
-    }
-
-    return C2_OK;
 }
 
 c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
@@ -1315,7 +1299,7 @@ c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
         C2PortActualDelayTuning::output delay(numOutputSlots - slotsToReduce);
         err = mIntf->config({&delay}, C2_MAY_BLOCK, &failures);
         if (err != C2_OK) {
-            Log.E("failed to config delay tuning, err %d", err);
+            Log.PostError("configDelayTuning", static_cast<int32_t>(err));
         } else {
             if (work != nullptr) {
                 work->worklets.front()->output.configUpdate.push_back(C2Param::Copy(delay));
@@ -1349,7 +1333,7 @@ c2_status_t C2RKMpiDec::configTunneledPlayback(const std::unique_ptr<C2Work> &wo
     params.compressMode = MPP_FRAME_FMT_IS_FBC(mColorFormat) ? 1 : 0;
 
     if (!mTunneledSession->configure(params)) {
-        Log.E("failed to congigure tunneled session");
+        Log.PostError("configureTunneledSession", static_cast<int32_t>(err));
         return C2_CORRUPTED;
     }
 
@@ -1360,7 +1344,8 @@ c2_status_t C2RKMpiDec::configTunneledPlayback(const std::unique_ptr<C2Work> &wo
             C2PortTunnelHandleTuning::output::AllocUnique(handles);
 
     void *sideband = mTunneledSession->getTunnelSideband();
-    memcpy(tunnelHandle->m.values, sideband, sizeof(SidebandHandler));
+
+    ignore = memcpy(tunnelHandle->m.values, sideband, sizeof(SidebandHandler));
 
     // 1. When codec2 plugin start update stream sideband to native window, the
     //    decoder has not yet received format information.
@@ -1375,9 +1360,9 @@ c2_status_t C2RKMpiDec::configTunneledPlayback(const std::unique_ptr<C2Work> &wo
 
         // enable fast out in tunnel mode
         uint32_t fastOut = 1;
-        mMppMpi->control(mMppCtx, MPP_DEC_SET_IMMEDIATE_OUT, &fastOut);
+        ignore = mMppMpi->control(mMppCtx, MPP_DEC_SET_IMMEDIATE_OUT, &fastOut);
     } else {
-        Log.E("failed to config tunnel handle");
+        Log.PostError("configTunnelRender", static_cast<int32_t>(err));
     }
 
     return err;
@@ -1467,27 +1452,32 @@ c2_status_t C2RKMpiDec::updateAllocParams() {
 
     // In down-scaling mode, update surface info using down-scaling config
     if (mScaleMode == C2_SCALE_MODE_DOWN_SCALE) {
-        MppFrame frame  = nullptr;
+        MPP_RET ret = MPP_OK;
+        MppFrame frame = nullptr;
 
-        mpp_frame_init(&frame);
+        CHECK(mpp_frame_init(&frame) == MPP_OK);
+
         mpp_frame_set_width(frame, mWidth);
         mpp_frame_set_height(frame, mHeight);
         mpp_frame_set_hor_stride(frame, mHorStride);
         mpp_frame_set_ver_stride(frame, mVerStride);
         mpp_frame_set_fmt(frame, mColorFormat);
 
-        mMppMpi->control(mMppCtx, MPP_DEC_GET_THUMBNAIL_FRAME_INFO, (MppParam)frame);
+        ret = mMppMpi->control(mMppCtx, MPP_DEC_GET_THUMBNAIL_FRAME_INFO, (MppParam)frame);
+        if (ret == MPP_OK) {
+            videoWidth  = mpp_frame_get_width(frame);
+            videoHeight = mpp_frame_get_height(frame);
+            frameWidth  = mpp_frame_get_hor_stride(frame);
+            frameHeight = mpp_frame_get_ver_stride(frame);
+            colorFormat = mpp_frame_get_fmt(frame);
 
-        videoWidth  = mpp_frame_get_width(frame);
-        videoHeight = mpp_frame_get_height(frame);
-        frameWidth  = mpp_frame_get_hor_stride(frame);
-        frameHeight = mpp_frame_get_ver_stride(frame);
-        colorFormat = mpp_frame_get_fmt(frame);
+            Log.I("update down-scaling params: w %d h %d hor %d ver %d fmt %x",
+                   videoWidth, videoHeight, frameWidth, frameHeight, colorFormat);
+        } else {
+            Log.PostError("getThumbnailFrameInfo", static_cast<int32_t>(ret));
+        }
 
-        Log.I("update down-scaling params: w %d h %d hor %d ver %d fmt %x",
-               videoWidth, videoHeight, frameWidth, frameHeight, colorFormat);
-
-        mpp_frame_deinit(&frame);
+        ignore = mpp_frame_deinit(&frame);
     }
 
     allocWidth  = frameWidth;
@@ -1619,29 +1609,35 @@ c2_status_t C2RKMpiDec::updateMppFrameInfo(int32_t fbcMode) {
         format &= ~MPP_FRAME_FBC_AFBC_V2;
     }
 
-    mMppMpi->control(mMppCtx, MPP_DEC_SET_OUTPUT_FORMAT, (MppParam)&format);
+    err = mMppMpi->control(mMppCtx, MPP_DEC_SET_OUTPUT_FORMAT, (MppParam)&format);
+    if (err != MPP_OK) {
+        Log.PostError("setOutputFormat", static_cast<int32_t>(err));
+        return C2_CORRUPTED;
+    }
 
-    mpp_frame_init(&frame);
+    err = mpp_frame_init(&frame);
+    if (err != MPP_OK) {
+        Log.PostError("mpp_frame_init", static_cast<int32_t>(err));
+        return C2_NO_MEMORY;
+    }
+
     mpp_frame_set_width(frame, mWidth);
     mpp_frame_set_height(frame, mHeight);
     mpp_frame_set_fmt(frame, (MppFrameFormat)format);
 
     err = mMppMpi->control(mMppCtx, MPP_DEC_SET_FRAME_INFO, (MppParam)frame);
-    if (err != MPP_OK) {
-        Log.E("failed to set frame info, err %d", err);
-        mpp_frame_deinit(&frame);
-        return C2_CORRUPTED;;
+    if (err == MPP_OK) {
+        mHorStride   = mpp_frame_get_hor_stride(frame);
+        mVerStride   = mpp_frame_get_ver_stride(frame);
+        mColorFormat = mpp_frame_get_fmt(frame);
+        mLeftCorner  = leftCorner;
+        mTopCorner   = topCorner;
+    } else {
+        Log.PostError("setFrameInfo", static_cast<int32_t>(err));
     }
 
-    mHorStride   = mpp_frame_get_hor_stride(frame);
-    mVerStride   = mpp_frame_get_ver_stride(frame);
-    mColorFormat = mpp_frame_get_fmt(frame);
-    mLeftCorner  = leftCorner;
-    mTopCorner   = topCorner;
-
-    mpp_frame_deinit(&frame);
-
-    return C2_OK;
+    ignore = mpp_frame_deinit(&frame);
+    return (c2_status_t)err;
 }
 
 c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
@@ -1649,8 +1645,8 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
 
     MPP_RET err = mpp_create(&mMppCtx, &mMppMpi);
     if (err != MPP_OK) {
-        Log.E("failed to mpp_create, ret %d", err);
-        goto error;
+        Log.PostError("mpp_create", static_cast<int32_t>(err));
+        return C2_CORRUPTED;
     }
 
     {
@@ -1684,39 +1680,47 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
             splitMode = 1;
         }
 
-        mMppMpi->control(mMppCtx, MPP_DEC_SET_PARSER_FAST_MODE, &fastParse);
-        mMppMpi->control(mMppCtx, MPP_DEC_SET_ENABLE_FAST_PLAY, &fastPlay);
+        err = mMppMpi->control(mMppCtx, MPP_DEC_SET_PARSER_FAST_MODE, &fastParse);
+        Log.PostErrorIf(err != MPP_OK, "setParserFastMode");
+
+        err = mMppMpi->control(mMppCtx, MPP_DEC_SET_ENABLE_FAST_PLAY, &fastPlay);
+        Log.PostErrorIf(err != MPP_OK, "setEnableFastPlay");
 
         if (!deinterlace) {
-            mMppMpi->control(mMppCtx, MPP_DEC_SET_ENABLE_DEINTERLACE, &deinterlace);
             Log.I("disable deinterlace mode");
+            err = mMppMpi->control(mMppCtx, MPP_DEC_SET_ENABLE_DEINTERLACE, &deinterlace);
+            Log.PostErrorIf(err != MPP_OK, "setEnableDeinterlace");
         }
 
         if (splitMode) {
-            mStandardWorkFlow = false;
-            mMppMpi->control(mMppCtx, MPP_DEC_SET_PARSER_SPLIT_MODE, &splitMode);
             Log.I("enable parser split mode");
+            mStandardWorkFlow = false;
+            err = mMppMpi->control(mMppCtx, MPP_DEC_SET_PARSER_SPLIT_MODE, &splitMode);
+            Log.PostErrorIf(err != MPP_OK, "setParserSplitMode");
         }
 
         if (fastOut) {
-            mMppMpi->control(mMppCtx, MPP_DEC_SET_IMMEDIATE_OUT, &fastOut);
             Log.I("enable lowLatency fast-out mode");
+            err = mMppMpi->control(mMppCtx, MPP_DEC_SET_IMMEDIATE_OUT, &fastOut);
+            Log.PostErrorIf(err != MPP_OK, "setImmediateOut");
         }
 
         if (disableDpbCheck) {
-            mMppMpi->control(mMppCtx, MPP_DEC_SET_DISABLE_DPB_CHECK, &disableDpbCheck);
             Log.I("disable poc discontinuous check");
+            err = mMppMpi->control(mMppCtx, MPP_DEC_SET_DISABLE_DPB_CHECK, &disableDpbCheck);
+            Log.PostErrorIf(err != MPP_OK, "setDisableDpbCheck");
         }
 
         if (disableErrorMark) {
-            mMppMpi->control(mMppCtx, MPP_DEC_SET_DISABLE_ERROR, &disableErrorMark);
             Log.I("disable error frame mark");
+            err = mMppMpi->control(mMppCtx, MPP_DEC_SET_DISABLE_ERROR, &disableErrorMark);
+            Log.PostErrorIf(err != MPP_OK, "setDisableError");
         }
     }
 
     err = mpp_init(mMppCtx, MPP_CTX_DEC, mCodingType);
     if (err != MPP_OK) {
-        Log.E("failed to mpp_init, err %d", err);
+        Log.PostError("mpp_init", static_cast<int32_t>(err));
         goto error;
     }
 
@@ -1728,39 +1732,42 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
     if (!mDumpService->hasFeatures(C2_FEATURE_DEC_INTERNAL_BUFFER_GROUP)) {
         err = mpp_buffer_group_get_external(&mBufferGroup, MPP_BUFFER_TYPE_ION);
         if (err != MPP_OK) {
-            Log.E("failed to get buffer_group, err %d", err);
+            Log.PostError("getMppBufferGroup", static_cast<int32_t>(err));
             goto error;
         }
 
         err = mMppMpi->control(mMppCtx, MPP_DEC_SET_EXT_BUF_GROUP, mBufferGroup);
         if (err != MPP_OK) {
-            Log.E("failed to set buffer group, err %d", err);
+            Log.PostError("setMppBufferGroup", static_cast<int32_t>(err));
             goto error;
         }
     }
 
     {
         /* set output frame callback  */
-        MppDecCfg cfg;
-        mpp_dec_cfg_init(&cfg);
-        mpp_dec_cfg_set_ptr(cfg, "cb:frm_rdy_cb", (void *)frameReadyCb);
-        mpp_dec_cfg_set_ptr(cfg, "cb:frm_rdy_ctx", this);
 
-        /* check HDR Vivid support */
-        if (!mBufferMode && C2RKChipCapDef::get()->getHdrMetaCap()
-                && !C2RKPropsDef::getHdrDisable()) {
-            Log.I("enable hdr meta");
-            mpp_dec_cfg_set_u32(cfg, "base:enable_hdr_meta", 1);
-            mHdrMetaEnabled = true;
-        }
-
-        err = mMppMpi->control(mMppCtx, MPP_DEC_SET_CFG, cfg);
+        err = mpp_dec_cfg_init(&mDecCfg);
         if (err != MPP_OK) {
-            Log.E("failed to set frame callback, err %d", err);
+            Log.PostError("mpp_dec_cfg_init", static_cast<int32_t>(err));
             goto error;
         }
 
-        mpp_dec_cfg_deinit(cfg);
+        ignore = mpp_dec_cfg_set_ptr(mDecCfg, "cb:frm_rdy_cb", (void *)frameReadyCb);
+        ignore = mpp_dec_cfg_set_ptr(mDecCfg, "cb:frm_rdy_ctx", this);
+
+        /* check HDR Vivid support */
+        if (C2RKChipCapDef::get()->getHdrMetaCap()
+                && !C2RKPropsDef::getHdrDisable() && !mBufferMode) {
+            Log.I("enable hdr meta");
+            mHdrMetaEnabled = true;
+            ignore = mpp_dec_cfg_set_u32(mDecCfg, "base:enable_hdr_meta", 1);
+        }
+
+        err = mMppMpi->control(mMppCtx, MPP_DEC_SET_CFG, mDecCfg);
+        if (err != MPP_OK) {
+            Log.PostError("setFrameCallback", static_cast<int32_t>(err));
+            goto error;
+        }
     }
 
     Log.I("init: w %d h %d coding %s", mWidth, mHeight, toStr_Coding(mCodingType));
@@ -1770,8 +1777,12 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
 
 error:
     if (mMppCtx) {
-        mpp_destroy(mMppCtx);
+        CHECK(mpp_destroy(mMppCtx) == MPP_OK);
         mMppCtx = nullptr;
+    }
+
+    if (mTunneled) {
+        mTunneledSession->disconnect();
     }
 
     return C2_CORRUPTED;
@@ -1804,14 +1815,18 @@ void C2RKMpiDec::setMppPerformance(bool on) {
     }
 
     if (mFdPerf != -1) {
-        char buffer[128] = { 0 };
-        int32_t len = snprintf(buffer, sizeof(buffer),
-                "%d,width=%d,height=%d,ishevc=%d,videoFramerate=%d,streamBitrate=%d",
-                on, width, height, byteHevc, 0, byteColor);
-        Log.I("config performance(%s, len=%d) of dmc driver", buffer, len);
-        write(mFdPerf, buffer, len);
+        std::ostringstream oss;
+        oss << (on ? "1" : "0") << "," << "width=" << width << "," << "height=" << height
+            << "," << "ishevc=" << byteHevc << "," << "videoFramerate=0,"
+            << "streamBitrate=" << byteColor;
+        Log.I("config dmc driver: (%s)", oss.str().c_str());
+        size_t written = write(mFdPerf, oss.str().c_str(), oss.str().length());
+        if (written != oss.str().length()) {
+            Log.W("failed to write to dmc driver, written %zu, expected %zu",
+                   written, oss.str().length());
+        }
         if (!on) {
-            close(mFdPerf);
+            ignore = close(mFdPerf);
             mFdPerf = -1;
         }
     }
@@ -1854,7 +1869,7 @@ void C2RKMpiDec::finishWork(
             mCodingType == MPP_VIDEO_CodingAV1 ||
             mCodingType == MPP_VIDEO_CodingMPEG2) {
             IntfImpl::Lock lock = mIntf->lock();
-            c2Buffer->setInfo(mIntf->getColorAspects_l());
+            ignore = c2Buffer->setInfo(mIntf->getColorAspects_l());
         }
     }
 
@@ -1874,7 +1889,7 @@ void C2RKMpiDec::finishWork(
         }
 
         if (flags & WorkEntry::FLAGS_INFO_CHANGE) {
-            Log.I("update new size %dx%d config to framework.", mWidth, mHeight);
+            Log.I("update new sizeInfo %dx%d to framework.", mWidth, mHeight);
             C2StreamPictureSizeInfo::output size(0u, mWidth, mHeight);
             C2PortActualDelayTuning::output delay(mNumOutputSlots - mSlotsToReduce);
 
@@ -1882,7 +1897,11 @@ void C2RKMpiDec::finishWork(
             work->worklets.front()->output.configUpdate.push_back(C2Param::Copy(delay));
 
             if (mTunneled) {
-                configTunneledPlayback(work);
+                c2_status_t err = configTunneledPlayback(work);
+                if (err != C2_OK) {
+                    mSignalledError = true;
+                    Log.PostError("configTunneledPlayback", static_cast<int32_t>(err));
+                }
              }
         }
         if (flags & WorkEntry::FLAGS_EOS) {
@@ -1905,7 +1924,7 @@ void C2RKMpiDec::finishWork(
             // source, sent through new work pipeline.
             std::unique_ptr<C2Work> work(new C2Work);
             work->worklets.clear();
-            work->worklets.emplace_back(new C2Worklet);
+            ignore = work->worklets.emplace_back(std::make_unique<C2Worklet>());
 
             // work flags set to incomplete to ignore frame index check
             work->input.ordinal.frameIndex = OUTPUT_WORK_INDEX;
@@ -1926,7 +1945,7 @@ c2_status_t C2RKMpiDec::drainEOS(const std::unique_ptr<C2Work> &work) {
 
     while (true) {
         if (C2_OK != drainWork(work)) {
-            goto error;
+            return C2_CORRUPTED;
         }
 
         if (mOutputEOS) {
@@ -1935,20 +1954,13 @@ c2_status_t C2RKMpiDec::drainEOS(const std::unique_ptr<C2Work> &work) {
 
         if (ALooper::GetNowUs() - startTimeUs >= maxTimeUs) {
             Log.W("failed to get output eos within 2 seconds");
-            goto error;
+            return C2_CORRUPTED;
         } else {
-            usleep(1000);
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
     }
 
     return C2_OK;
-
-error:
-    mSignalledError = true;
-    work->workletsProcessed = 1u;
-    work->result = C2_CORRUPTED;
-
-    return C2_CORRUPTED;
 }
 
 c2_status_t C2RKMpiDec::drain(
@@ -1994,21 +2006,26 @@ void C2RKMpiDec::process(
         if (mTunneled) {
             err = configTunneledPlayback(work);
             if (err != C2_OK) {
+                Log.PostError("configTunneledPlayback", static_cast<int32_t>(err));
                 work->result = C2_BAD_VALUE;
-                Log.E("failed to configure tunneled playback, signalled Error");
                 return;
             }
         }
 
         err = configOutputDelay(work);
         if (err != C2_OK) {
-            Log.E("failed to config output delay");
+            Log.PostError("configOutputDelay", static_cast<int32_t>(err));
             work->result = C2_BAD_VALUE;
             return;
         }
 
         // update alloc params once args updated
-        updateAllocParams();
+        err = updateAllocParams();
+        if (err != C2_OK) {
+            Log.PostError("updateAllocParams", static_cast<int32_t>(err));
+            work->result = C2_BAD_VALUE;
+            return;
+        }
 
         // scene ddr frequency control
         setMppPerformance(true);
@@ -2030,7 +2047,7 @@ void C2RKMpiDec::process(
         inData = const_cast<uint8_t *>(rView.data());
         inSize = rView.capacity();
         if (inSize && rView.error()) {
-            Log.E("failed to read rWiew, error %d", rView.error());
+            Log.PostError("readRView", static_cast<int32_t>(rView.error()));
             work->result = rView.error();
             return;
         }
@@ -2056,14 +2073,14 @@ void C2RKMpiDec::process(
 
     err = sendpacket(inData, inSize, timestamp, frameIndex, flags);
     if (err != C2_OK) {
-        Log.E("failed to send packet, pts %lld", timestamp);
+        Log.PostError("sendPacket", static_cast<int32_t>(err));
         mSignalledError = true;
         work->result = C2_CORRUPTED;
         return;
     }
 
     if (mInputEOS) {
-        drainEOS(work);
+        std::ignore = drainEOS(work);
     } else if ((flags & C2FrameData::FLAG_CODEC_CONFIG) || !inSize) {
         fillEmptyWork(work);
     } else if (!mStandardWorkFlow) {
@@ -2168,7 +2185,7 @@ void C2RKMpiDec::getVuiParams(MppFrame frame) {
         }
 
         std::vector<std::unique_ptr<C2SettingResult>> failures;
-        mIntf->config({&codedAspects}, C2_MAY_BLOCK, &failures);
+        ignore = mIntf->config({&codedAspects}, C2_MAY_BLOCK, &failures);
 
         Log.I("set colorAspects (R:%d(%s), P:%d(%s), M:%d(%s), T:%d(%s))",
                sfAspects.mRange, asString(sfAspects.mRange),
@@ -2197,10 +2214,11 @@ c2_status_t C2RKMpiDec::importBufferToDecoder(std::shared_ptr<C2GraphicBlock> bl
 
     status_t err = C2RKGraphicBufferMapper::get()->importBuffer(c2Handle, &handle);
     if (err != OK) {
+        Log.PostError("importBuffer", static_cast<int32_t>(err));
         return C2_CORRUPTED;
     }
 
-    int32_t bufferFd = c2Handle->data[0];
+    int32_t bufferFd = handle->data[0];
     int32_t bufferId = C2RKGraphicBufferMapper::get()->getBufferId(handle);
 
     std::shared_ptr<OutBuffer> outBuffer = findOutBuffer(bufferId);
@@ -2223,8 +2241,13 @@ c2_status_t C2RKMpiDec::importBufferToDecoder(std::shared_ptr<C2GraphicBlock> bl
             .hnd   = nullptr
         };
 
-        mpp_buffer_import_with_tag(
+        MPP_RET ret = mpp_buffer_import_with_tag(
                 mBufferGroup, &bufferInfo, &mppBuffer, "codec2", __FUNCTION__);
+        if (ret != MPP_OK) {
+            Log.PostError("mpp_buffer_import", static_cast<int32_t>(ret));
+            err = C2_CORRUPTED;
+            goto cleanUp;
+        }
 
         std::shared_ptr<OutBuffer> newBuffer =
                 std::make_shared<OutBuffer>(bufferId, bufferInfo.size, mppBuffer, block);
@@ -2233,8 +2256,12 @@ c2_status_t C2RKMpiDec::importBufferToDecoder(std::shared_ptr<C2GraphicBlock> bl
         newBuffer->submitToDecoder();
 
         if (mTunneled) {
-            mTunneledSession->newBuffer(
-                    UnwrapNativeCodec2GrallocHandle(c2Handle), bufferId);
+            if (!mTunneledSession->newBuffer(
+                    UnwrapNativeCodec2GrallocHandle(c2Handle), bufferId)) {
+                Log.PostError("newTunnelBuffer", C2_CORRUPTED);
+                err = C2_CORRUPTED;
+                goto cleanUp;
+            }
 
             // a set of buffer are pre-reserved to surface for smooth
             if (mTunneledSession->isReservedBuffer(bufferId)) {
@@ -2242,19 +2269,15 @@ c2_status_t C2RKMpiDec::importBufferToDecoder(std::shared_ptr<C2GraphicBlock> bl
             }
         }
 
-        mBuffers.insert(std::make_pair(bufferId, std::move(newBuffer)));
+        ignore = mBuffers.emplace(bufferId, std::move(newBuffer));
 
         Log.D("import this buffer, bufferId %d size %d listSize %d",
                bufferId, bufferInfo.size, mBuffers.size());
     }
 
-    /* check use scale meta when chip feature support it */
-    if (C2RKChipCapDef::get()->getScaleMode() == C2_SCALE_MODE_META)
-        checkUseScaleMeta(handle);
-
-    C2RKGraphicBufferMapper::get()->freeBuffer(handle);
-
-    return C2_OK;
+cleanUp:
+    ignore = C2RKGraphicBufferMapper::get()->freeBuffer(handle);
+    return (c2_status_t)err;
 }
 
 c2_status_t C2RKMpiDec::ensureTunneledState() {
@@ -2323,7 +2346,7 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
                                                 C2AndroidMemoryUsage::FromGrallocUsage(bUsage),
                                                 &mOutBlock);
             if (err != C2_OK) {
-                Log.E("failed to fetchGraphicBlock, err %d usage 0x%llx", err, bUsage);
+                Log.PostError("fetchGraphicBlock", static_cast<int32_t>(err));
                 return err;
             }
         }
@@ -2349,13 +2372,13 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
                                                 C2AndroidMemoryUsage::FromGrallocUsage(usage),
                                                 &block);
             if (err != C2_OK) {
-                Log.E("failed to fetchGraphicBlock, err %d", err);
+                Log.PostError("fetchGraphicBlock", static_cast<int32_t>(err));
                 break;
             }
 
             err = importBufferToDecoder(std::move(block));
             if (err != C2_OK) {
-                Log.E("failed to commit buffer");
+                Log.PostError("importBufferToDecoder", static_cast<int32_t>(err));
                 break;
             }
         }
@@ -2372,8 +2395,7 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
 void C2RKMpiDec::postFrameReady() {
     if (mHandler) {
         sp<AMessage> msg = new AMessage(WorkHandler::kWhatFrameReady, mHandler);
-        msg->setPointer("thiz", this);
-        msg->post();
+        ignore = msg->post();
     }
 }
 
@@ -2381,7 +2403,7 @@ c2_status_t C2RKMpiDec::drainWork(const std::unique_ptr<C2Work> &work) {
     if (mSignalledError) return C2_BAD_STATE;
 
     WorkEntry entry;
-    memset(&entry, 0, sizeof(entry));
+    ignore = memset(&entry, 0, sizeof(entry));
 
 outframe:
     c2_status_t err = getoutframe(&entry);
@@ -2420,7 +2442,12 @@ c2_status_t C2RKMpiDec::sendpacket(
     c2_status_t ret = C2_OK;
     MppPacket packet = nullptr;
 
-    mpp_packet_init(&packet, data, size);
+    MPP_RET err = mpp_packet_init(&packet, data, size);
+    if (err != MPP_OK) {
+        Log.PostError("mpp_packet_init", static_cast<int32_t>(err));
+        return C2_CORRUPTED;
+    }
+
     mpp_packet_set_pts(packet, pts);
     mpp_packet_set_pos(packet, data);
     mpp_packet_set_length(packet, size);
@@ -2431,11 +2458,11 @@ c2_status_t C2RKMpiDec::sendpacket(
 
     if (flags & C2FrameData::FLAG_END_OF_STREAM) {
         Log.I("send input eos");
-        mpp_packet_set_eos(packet);
+        ignore = mpp_packet_set_eos(packet);
     }
 
     if (flags & C2FrameData::FLAG_CODEC_CONFIG) {
-        mpp_packet_set_extra_data(packet);
+        ignore = mpp_packet_set_extra_data(packet);
     } else if (flags & C2FrameData::FLAG_DROP_FRAME) {
         mDropFrames.push_back(pts);
     }
@@ -2447,7 +2474,7 @@ c2_status_t C2RKMpiDec::sendpacket(
     uint32_t retry = 0;
 
     while (true) {
-        MPP_RET err = mMppMpi->decode_put_packet(mMppCtx, packet);
+        err = mMppMpi->decode_put_packet(mMppCtx, packet);
         if (err == MPP_OK) {
             Log.D("send packet pts %lld size %d", pts, size);
             /* record input packet buffer */
@@ -2478,11 +2505,10 @@ c2_status_t C2RKMpiDec::sendpacket(
             }
         }
 
-        usleep(3 * 1000);
+        std::this_thread::sleep_for(std::chrono::milliseconds(3));
     }
 
-    mpp_packet_deinit(&packet);
-
+    ignore = mpp_packet_deinit(&packet);
     return ret;
 }
 
@@ -2560,7 +2586,12 @@ c2_status_t C2RKMpiDec::getoutframe(WorkEntry *entry) {
         mColorFormat = format;
 
         // support fbc mode change on info change stage
-        updateFbcModeIfNeeded();
+        ret = updateFbcModeIfNeeded();
+        if (ret != C2_OK) {
+            Log.PostError("updateFbcModeIfNeeded", static_cast<int32_t>(ret));
+            ret = C2_CORRUPTED;
+            goto cleanUp;
+        }
 
         // All buffer group config done. Set info change ready to let
         // decoder continue decoding.
@@ -2570,26 +2601,30 @@ c2_status_t C2RKMpiDec::getoutframe(WorkEntry *entry) {
         std::vector<std::unique_ptr<C2SettingResult>> failures;
         ret = mIntf->config({&size}, C2_MAY_BLOCK, &failures);
         if (ret != C2_OK) {
-            Log.E("failed to set width and height");
+            Log.PostError("configWidthAndHeight", static_cast<int32_t>(ret));
             ret = C2_CORRUPTED;
             goto cleanUp;
         }
 
         ret = configOutputDelay();
         if (ret != C2_OK) {
-            Log.E("failed to update output delay");
+            Log.PostError("configOutputDelay", static_cast<int32_t>(ret));
             ret = C2_CORRUPTED;
             goto cleanUp;
         }
 
         // update alloc params once args updated
-        updateAllocParams();
+        ret = updateAllocParams();
+        if (ret != C2_OK) {
+            Log.PostError("updateAllocParams", static_cast<int32_t>(ret));
+            ret = C2_CORRUPTED;
+            goto cleanUp;
+        }
 
         // update node params of service
         mDumpService->updateNode(this, mWidth, mHeight);
 
         ret = C2_NO_MEMORY;
-
         goto cleanUp;
     }
 
@@ -2675,13 +2710,17 @@ c2_status_t C2RKMpiDec::getoutframe(WorkEntry *entry) {
         }
 
         // scale/hdr frame meta config
-        configFrameMetaIfNeeded(frame, outBuffer->getBlock());
+        ignore = configFrameMetaIfNeeded(frame, outBuffer->getBlock());
 
         // signal buffer occupied by client
         outBuffer->setInusedByClient();
 
         if (mTunneled) {
-            mTunneledSession->renderBuffer(bufferId);
+            if (!mTunneledSession->renderBuffer(bufferId)) {
+                ret = C2_CORRUPTED;
+                Log.PostError("renderTunnelBuffer", static_cast<int32_t>(ret));
+                goto cleanUp;
+            }
             // cancel work output in tunnel mode
             flags |= WorkEntry::FLAGS_CANCEL_FINISH;
         }
@@ -2712,8 +2751,7 @@ cleanUp:
     entry->frameIndex = frameIdx;
 
     if (frame) {
-        mpp_frame_deinit(&frame);
-        frame = nullptr;
+        ignore = mpp_frame_deinit(&frame);
     }
 
     return ret;
@@ -2728,7 +2766,7 @@ void C2RKMpiDec::releaseAllBuffers() {
     mBuffers.clear();
 
     if (mBufferGroup) {
-        mpp_buffer_group_clear(mBufferGroup);
+        ignore = mpp_buffer_group_clear(mBufferGroup);
     }
     if (mOutBlock) {
         mOutBlock.reset();
@@ -2760,8 +2798,8 @@ c2_status_t C2RKMpiDec::configFrameMetaIfNeeded(
     int32_t hdrMetaSize   = 0;
 
     if (mScaleMode && mpp_frame_get_thumbnail_en(frame)) {
-        mpp_meta_get_s32(meta, KEY_DEC_TBN_Y_OFFSET,  &scaleYOffset);
-        mpp_meta_get_s32(meta, KEY_DEC_TBN_UV_OFFSET, &scaleUVOffset);
+        ignore = mpp_meta_get_s32(meta, KEY_DEC_TBN_Y_OFFSET,  &scaleYOffset);
+        ignore = mpp_meta_get_s32(meta, KEY_DEC_TBN_UV_OFFSET, &scaleUVOffset);
 
         if (!scaleYOffset || !scaleUVOffset) {
             Log.E("unexpected scale offset meta");
@@ -2770,8 +2808,8 @@ c2_status_t C2RKMpiDec::configFrameMetaIfNeeded(
     }
 
     if (mHdrMetaEnabled && MPP_FRAME_FMT_IS_HDR(mpp_frame_get_fmt(frame))) {
-        mpp_meta_get_s32(meta, KEY_HDR_META_OFFSET, &hdrMetaOffset);
-        mpp_meta_get_s32(meta, KEY_HDR_META_SIZE,   &hdrMetaSize);
+        ignore = mpp_meta_get_s32(meta, KEY_HDR_META_OFFSET, &hdrMetaOffset);
+        ignore = mpp_meta_get_s32(meta, KEY_HDR_META_SIZE,   &hdrMetaSize);
 
         if (!hdrMetaOffset || !hdrMetaSize) {
             Log.E("unexpected hdr offset meta");
@@ -2784,13 +2822,13 @@ c2_status_t C2RKMpiDec::configFrameMetaIfNeeded(
 
     status_t err = C2RKGraphicBufferMapper::get()->importBuffer(c2Handle, &handle);
     if (err != OK) {
-        Log.E("failed to import graphic buffer");
+        Log.PostError("importBuffer", static_cast<int32_t>(err));
         return C2_CORRUPTED;
     }
 
     if (mScaleMode == C2_SCALE_MODE_META) {
         C2PreScaleParam scaleParam;
-        memset(&scaleParam, 0, sizeof(C2PreScaleParam));
+        ignore = memset(&scaleParam, 0, sizeof(C2PreScaleParam));
 
         scaleParam.thumbWidth     = mpp_frame_get_width(frame) >> 1;
         scaleParam.thumbHeight    = mpp_frame_get_height(frame) >> 1;
@@ -2803,17 +2841,19 @@ c2_status_t C2RKMpiDec::configFrameMetaIfNeeded(
         } else {
             scaleParam.format = HAL_PIXEL_FORMAT_YCrCb_NV12;
         }
-        C2RKVdecExtendFeature::configFrameScaleMeta(handle, &scaleParam);
-
-        memcpy((void *)&c2Handle->data, (void *)&handle->data,
-               sizeof(int) * (handle->numFds + handle->numInts));
+        if (C2RKVdecExtendFeature::configFrameScaleMeta(handle, &scaleParam)) {
+            ignore = memcpy((void *)&c2Handle->data, (void *)&handle->data,
+                    sizeof(int32_t) * (handle->numFds + handle->numInts));
+        }
     }
 
     if (mHdrMetaEnabled) {
-        C2RKVdecExtendFeature::configFrameHdrDynamicMeta(handle, hdrMetaOffset);
+        ignore = C2RKVdecExtendFeature::configFrameHdrDynamicMeta(handle, hdrMetaOffset);
     }
 
-    C2RKGraphicBufferMapper::get()->freeBuffer(handle);
+    err = C2RKGraphicBufferMapper::get()->freeBuffer(handle);
+    Log.PostErrorIf(err != OK, "freeBuffer");
+
     return C2_OK;
 }
 

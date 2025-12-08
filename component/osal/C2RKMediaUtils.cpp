@@ -357,7 +357,7 @@ void C2RKMediaUtils::convert10BitNV12ToP010(
     dumpFrameInfo(dstInfo, "dst");
 
     if (cacheSync && srcInfo.fd > 0) {
-        dma_sync_device_to_cpu(srcInfo.fd);
+        std::ignore = dma_sync_device_to_cpu(srcInfo.fd);
     }
 
     for (i = 0; i < srcInfo.height; i++, srcY += srcInfo.hstride, dstY += dstInfo.hstride) {
@@ -393,7 +393,7 @@ void C2RKMediaUtils::convert10BitNV12ToP010(
 
     if (cacheSync && dstInfo.fd > 0) {
         // invalid CPU cache
-        dma_sync_cpu_to_device(dstInfo.fd);
+        std::ignore = dma_sync_cpu_to_device(dstInfo.fd);
     }
 }
 
@@ -409,7 +409,7 @@ void C2RKMediaUtils::convert10BitNV12ToNV12(
     dumpFrameInfo(dstInfo, "dst");
 
     if (cacheSync && srcInfo.fd > 0) {
-        dma_sync_device_to_cpu(srcInfo.fd);
+        std::ignore = dma_sync_device_to_cpu(srcInfo.fd);
     }
 
     for (i = 0; i < srcInfo.height; i++, srcY += srcInfo.hstride, dstY += dstInfo.hstride) {
@@ -453,7 +453,7 @@ void C2RKMediaUtils::convert10BitNV12ToNV12(
 
     if (cacheSync && dstInfo.fd > 0) {
         // invalid CPU cache
-        dma_sync_cpu_to_device(dstInfo.fd);
+        std::ignore = dma_sync_cpu_to_device(dstInfo.fd);
     }
 }
 
@@ -466,23 +466,23 @@ void C2RKMediaUtils::convertNV12ToNV12(
     dumpFrameInfo(dstInfo, "dst");
 
     if (cacheSync && srcInfo.fd > 0) {
-        dma_sync_device_to_cpu(srcInfo.fd);
+        std::ignore = dma_sync_device_to_cpu(srcInfo.fd);
     }
 
     for (int i = 0; i < srcInfo.height; i++) {
-        memcpy(dstInfo.ptr, srcInfo.ptr, srcInfo.width);
+        std::ignore = memcpy(dstInfo.ptr, srcInfo.ptr, srcInfo.width);
         srcInfo.ptr += srcInfo.hstride;
         dstInfo.ptr += dstInfo.hstride;
     }
     for (int i = 0; i < srcInfo.height / 2; i++) {
-        memcpy(dstUV, srcUV, srcInfo.width);
+        std::ignore = memcpy(dstUV, srcUV, srcInfo.width);
         srcUV += srcInfo.hstride;
         dstUV += dstInfo.hstride;
     }
 
     if (cacheSync && dstInfo.fd > 0) {
         // invalid CPU cache
-        dma_sync_cpu_to_device(dstInfo.fd);
+        std::ignore = dma_sync_cpu_to_device(dstInfo.fd);
     }
 }
 

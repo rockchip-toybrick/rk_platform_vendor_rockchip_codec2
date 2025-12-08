@@ -32,7 +32,7 @@ void logger(int logLevel, const char* tag, const char* fmt, va_list args) {
         }
         logLevel = ANDROID_LOG_INFO;
     }
-    __android_log_vprint(logLevel, tag, fmt, args);
+    std::ignore = __android_log_vprint(logLevel, tag, fmt, args);
 }
 
 void C2RKLogger::D(const char* fmt, ...) const {

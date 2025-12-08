@@ -53,23 +53,6 @@ static int getRgaFormat(int halFmt) {
     return RK_FORMAT_UNKNOWN;
 }
 
-static int toRgaColorSpaceMode(int colorSpaceMode) {
-    if (colorSpaceMode > 0) {
-        switch (colorSpaceMode) {
-            case RGA_YUV_TO_RGB_BT601_LIMIT:    return IM_YUV_TO_RGB_BT601_LIMIT;
-            case RGA_YUV_TO_RGB_BT601_FULL:     return IM_YUV_TO_RGB_BT601_FULL;
-            case RGA_YUV_TO_RGB_BT709_LIMIT:    return IM_YUV_TO_RGB_BT709_LIMIT;
-            case RGA_RGB_TO_YUV_BT601_LIMIT:    return IM_RGB_TO_YUV_BT601_LIMIT;
-            case RGA_RGB_TO_YUV_BT601_FULL:     return IM_RGB_TO_YUV_BT601_FULL;
-            case RGA_RGB_TO_YUV_BT709_LIMIT:    return IM_RGB_TO_YUV_BT709_LIMIT;
-            default: {
-                Log.W("unsupport color space mode %d, set default", colorSpaceMode);
-            }
-        }
-    }
-    return IM_COLOR_SPACE_DEFAULT;
-}
-
 static const char* toStr_format(int halFmt) {
     for (int i = 0; i < kNumRgaFormatType; i++) {
         if (kRgaFormatMaps[i].halFmt == halFmt) {
@@ -82,7 +65,7 @@ static const char* toStr_format(int halFmt) {
 rga_buffer_handle_t importRgaBuffer(RgaInfo *info, int32_t format) {
     im_handle_param_t imParam;
 
-    memset(&imParam, 0, sizeof(im_handle_param_t));
+    std::ignore = memset(&imParam, 0, sizeof(im_handle_param_t));
 
     imParam.width  = info->hstride;
     imParam.height = info->vstride;
@@ -92,13 +75,13 @@ rga_buffer_handle_t importRgaBuffer(RgaInfo *info, int32_t format) {
 }
 
 void freeRgaBuffer(rga_buffer_handle_t handle) {
-    releasebuffer_handle(handle);
+    std::ignore = releasebuffer_handle(handle);
 }
 
 void C2RKRgaDef::SetRgaInfo(
         RgaInfo *info, int32_t fd, int32_t format,
         int32_t width, int32_t height, int32_t hstride, int32_t vstride) {
-    memset(info, 0, sizeof(RgaInfo));
+    std::ignore = memset(info, 0, sizeof(RgaInfo));
 
     info->fd = fd;
     info->format = format;
@@ -108,7 +91,7 @@ void C2RKRgaDef::SetRgaInfo(
     info->vstride = (vstride > 0) ? vstride : height;
 }
 
-bool C2RKRgaDef::DoBlit(RgaInfo srcInfo, RgaInfo dstInfo, int colorSpaceMode) {
+bool C2RKRgaDef::DoBlit(RgaInfo srcInfo, RgaInfo dstInfo) {
     int err = 0;
     rga_buffer_t src, dst;
     rga_buffer_handle_t srcHdl, dstHdl;
@@ -127,10 +110,9 @@ bool C2RKRgaDef::DoBlit(RgaInfo srcInfo, RgaInfo dstInfo, int colorSpaceMode) {
     Log.D("[RgaBlit]: dst fd %d rect[%d, %d, %d, %d] fmt %s",
            dstInfo.fd, dstInfo.width, dstInfo.height,
            dstInfo.hstride, dstInfo.vstride, toStr_format(dstInfo.format));
-    Log.D("[RgaBlit]: color space mode: %d", colorSpaceMode);
 
-    memset((void*)&src, 0, sizeof(rga_buffer_t));
-    memset((void*)&dst, 0, sizeof(rga_buffer_t));
+    std::ignore = memset((void*)&src, 0, sizeof(rga_buffer_t));
+    std::ignore = memset((void*)&dst, 0, sizeof(rga_buffer_t));
 
     srcHdl = importRgaBuffer(&srcInfo, srcRgaFmt);
     dstHdl = importRgaBuffer(&dstInfo, dstRgaFmt);
@@ -145,9 +127,6 @@ bool C2RKRgaDef::DoBlit(RgaInfo srcInfo, RgaInfo dstInfo, int colorSpaceMode) {
     dst = wrapbuffer_handle(
             dstHdl, dstInfo.width, dstInfo.height,
             dstRgaFmt, dstInfo.hstride, dstInfo.vstride);
-
-    // set color space mode
-    dst.color_space_mode = toRgaColorSpaceMode(colorSpaceMode);
 
     err = improcess(src, dst, {}, {}, {}, {}, IM_SYNC);
     if (err <= 0) {

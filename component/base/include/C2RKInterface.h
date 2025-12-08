@@ -188,14 +188,14 @@ template<typename T, typename ...Args>
 std::shared_ptr<T> AllocSharedString(const Args(&... args), const char *str) {
     size_t len = strlen(str) + 1;
     std::shared_ptr<T> ret = T::AllocShared(len, args...);
-    strcpy(ret->m.value, str);
+    std::ignore = strcpy(ret->m.value, str);
     return ret;
 }
 
 template<typename T, typename ...Args>
 std::shared_ptr<T> AllocSharedString(const Args(&... args), const std::string &str) {
     std::shared_ptr<T> ret = T::AllocShared(str.length() + 1, args...);
-    strcpy(ret->m.value, str.c_str());
+    std::ignore = strcpy(ret->m.value, str.c_str());
     return ret;
 }
 

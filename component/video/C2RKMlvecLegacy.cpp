@@ -41,10 +41,10 @@ bool C2RKMlvecLegacy::setupMaxTid(int32_t maxTid) {
     int32_t stCfgCnt = 0;
     int32_t tid0Loop = 0;
     int32_t numLtrFrms = mStaticCfg.ltrFrames;
-    int ret;
+    int ret = MPP_OK;
 
-    memset(ltRef, 0, sizeof(ltRef));
-    memset(stRef, 0, sizeof(stRef));
+    std::ignore = memset(ltRef, 0, sizeof(ltRef));
+    std::ignore = memset(stRef, 0, sizeof(stRef));
 
     Log.I("max_tid %d numLtrFrms %d ", maxTid, numLtrFrms);
 
@@ -205,25 +205,25 @@ bool C2RKMlvecLegacy::setupMaxTid(int32_t maxTid) {
     if (ltCfgCnt || stCfgCnt) {
         MppEncRefCfg ref = nullptr;
 
-        mpp_enc_ref_cfg_init(&ref);
+        ret |= mpp_enc_ref_cfg_init(&ref);
 
-        mpp_enc_ref_cfg_set_cfg_cnt(ref, ltCfgCnt, stCfgCnt);
-        mpp_enc_ref_cfg_add_lt_cfg(ref, ltCfgCnt, ltRef);
-        mpp_enc_ref_cfg_add_st_cfg(ref, stCfgCnt, stRef);
-        mpp_enc_ref_cfg_set_keep_cpb(ref, 1);
-        mpp_enc_ref_cfg_check(ref);
+        ret |= mpp_enc_ref_cfg_set_cfg_cnt(ref, ltCfgCnt, stCfgCnt);
+        ret |= mpp_enc_ref_cfg_add_lt_cfg(ref, ltCfgCnt, ltRef);
+        ret |= mpp_enc_ref_cfg_add_st_cfg(ref, stCfgCnt, stRef);
+        ret |= mpp_enc_ref_cfg_set_keep_cpb(ref, 1);
+        ret |= mpp_enc_ref_cfg_check(ref);
 
-        ret = mMppMpi->control(mMppCtx, MPP_ENC_SET_REF_CFG, ref);
+        ret |= mMppMpi->control(mMppCtx, MPP_ENC_SET_REF_CFG, ref);
+
+        ret |= mpp_enc_ref_cfg_deinit(&ref);
         if (ret) {
-            Log.E("failed to set ref cfg, ret %d", ret);
+            Log.PostError("setRefCfg", static_cast<int32_t>(ret));
             return false;
         }
-
-        mpp_enc_ref_cfg_deinit(&ref);
     } else {
         ret = mMppMpi->control(mMppCtx, MPP_ENC_SET_REF_CFG, nullptr);
         if (ret) {
-            Log.E("failed to set ref cfg, ret %d", ret);
+            Log.PostError("setRefCfg", static_cast<int32_t>(ret));
             return false;
         }
     }
@@ -232,6 +232,7 @@ bool C2RKMlvecLegacy::setupMaxTid(int32_t maxTid) {
 }
 
 bool C2RKMlvecLegacy::setupStaticConfig(MStaticCfg *cfg) {
+    int32_t ret = MPP_OK;
     int32_t magic = cfg->magic;
 
     if ((((magic >> 24) & 0xff) != MLVEC_MAGIC) ||
@@ -241,25 +242,29 @@ bool C2RKMlvecLegacy::setupStaticConfig(MStaticCfg *cfg) {
     }
 
     Log.I("add_prefix %d", cfg->addPrefix);
-    mpp_enc_cfg_set_s32(mEncCfg, "h264:prefix_mode", cfg->addPrefix);
+    ret |= mpp_enc_cfg_set_s32(mEncCfg, "h264:prefix_mode", cfg->addPrefix);
 
     Log.I("slice_mbs  %d", cfg->sliceMbs);
     if (cfg->sliceMbs) {
-        mpp_enc_cfg_set_u32(mEncCfg, "split:mode", MPP_ENC_SPLIT_BY_CTU);
-        mpp_enc_cfg_set_u32(mEncCfg, "split:arg", cfg->sliceMbs);
+        ret |= mpp_enc_cfg_set_u32(mEncCfg, "split:mode", MPP_ENC_SPLIT_BY_CTU);
+        ret |= mpp_enc_cfg_set_u32(mEncCfg, "split:arg", cfg->sliceMbs);
     } else {
-        mpp_enc_cfg_set_u32(mEncCfg, "split:mode", MPP_ENC_SPLIT_NONE);
+        ret |= mpp_enc_cfg_set_u32(mEncCfg, "split:mode", MPP_ENC_SPLIT_NONE);
     }
 
-    memcpy(&mStaticCfg, cfg, sizeof(mStaticCfg));
+    if (ret) {
+        Log.PostError("mpp_enc_cfg_set_u32", static_cast<int32_t>(ret));
+        return false;
+    }
+
+    std::ignore = memcpy(&mStaticCfg, cfg, sizeof(mStaticCfg));
 
     /* NOTE: ltr_frames is already configured */
-    setupMaxTid(cfg->maxTid);
-
-    return true;
+    return setupMaxTid(cfg->maxTid);
 }
 
 bool C2RKMlvecLegacy::setupDynamicConfig(MDynamicCfg *cfg, MppMeta meta) {
+    int32_t ret = MPP_OK;
     MDynamicCfg *dst = &mDynamicCfg;
 
     /* clear non-sticky flag first */
@@ -310,16 +315,21 @@ bool C2RKMlvecLegacy::setupDynamicConfig(MDynamicCfg *cfg, MppMeta meta) {
 
     /* setup next frame configure */
     if (dst->markLtr >= 0)
-        mpp_meta_set_s32(meta, KEY_ENC_MARK_LTR, dst->markLtr);
+        ret |= mpp_meta_set_s32(meta, KEY_ENC_MARK_LTR, dst->markLtr);
 
     if (dst->useLtr >= 0)
-        mpp_meta_set_s32(meta, KEY_ENC_USE_LTR, dst->useLtr);
+        ret |= mpp_meta_set_s32(meta, KEY_ENC_USE_LTR, dst->useLtr);
 
     if (dst->frameQP >= 0)
-        mpp_meta_set_s32(meta, KEY_ENC_FRAME_QP, dst->frameQP);
+        ret |= mpp_meta_set_s32(meta, KEY_ENC_FRAME_QP, dst->frameQP);
 
     if (dst->baseLayerPid >= 0)
-        mpp_meta_set_s32(meta, KEY_ENC_BASE_LAYER_PID, dst->baseLayerPid);
+        ret |= mpp_meta_set_s32(meta, KEY_ENC_BASE_LAYER_PID, dst->baseLayerPid);
+
+    if (ret) {
+        Log.PostError("mpp_meta_set_s32", static_cast<int32_t>(ret));
+        return false;
+    }
 
     return true;
 }

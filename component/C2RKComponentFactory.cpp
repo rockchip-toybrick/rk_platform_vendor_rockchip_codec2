@@ -36,7 +36,7 @@ extern "C" bool UpdateComponentDump(int fd, void* argsPtr, size_t argsSize) {
                 long val = strtol(args[i].c_str(), &endptr, 0);
                 if (*endptr != '\0') {
                     const char* msg = "Error: Invalid number format for flag.\n";
-                    write(fd, msg, strlen(msg));
+                    std::ignore = write(fd, msg, strlen(msg));
                     return false;
                 }
                 dumpService->updateDebugFlags(static_cast<int32_t>(val));
@@ -49,8 +49,8 @@ extern "C" bool UpdateComponentDump(int fd, void* argsPtr, size_t argsSize) {
      }
 
     // dump all nodes summary
-    std::string summary = dumpService->dumpNodesSummary(false);
-    write(fd, summary.c_str(), summary.size());
+    std::string summary = dumpService->dumpNodesSummary();
+    std::ignore = write(fd, summary.c_str(), summary.size());
     return true;
 }
 

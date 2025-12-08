@@ -143,21 +143,21 @@ uint32_t C2RKCodecMapper::getMppH264Profile(uint32_t profile, bool c2Type) {
     };
 
     static const AVCProfileMap kAProfileMaps[] = {
-        { PROFILE_AVC_BASELINE,             AVCProfileBaseline,            MPP_H264_BASELINE },
-        { PROFILE_AVC_CONSTRAINED_BASELINE, AVCProfileConstrainedBaseline, MPP_H264_BASELINE },
-        { PROFILE_AVC_MAIN,                 AVCProfileMain,                MPP_H264_MAIN },
-        { PROFILE_AVC_EXTENDED,             AVCProfileExtended,            MPP_H264_EXTENDED },
-        { PROFILE_AVC_HIGH,                 AVCProfileHigh,                MPP_H264_HIGH },
-        { PROFILE_AVC_PROGRESSIVE_HIGH,     AVCProfileHigh,                MPP_H264_HIGH },
-        { PROFILE_AVC_CONSTRAINED_HIGH,     AVCProfileConstrainedHigh,     MPP_H264_HIGH },
-        { PROFILE_AVC_HIGH_10,              AVCProfileHigh10,              MPP_H264_HIGH10 },
-        { PROFILE_AVC_PROGRESSIVE_HIGH_10,  AVCProfileHigh10,              MPP_H264_HIGH10 },
-        { PROFILE_AVC_HIGH_422,             AVCProfileHigh422,             MPP_H264_HIGH422 },
-        { PROFILE_AVC_HIGH_444_PREDICTIVE,  AVCProfileHigh444,             MPP_H264_HIGH444 },
-        { PROFILE_AVC_HIGH_10_INTRA,        AVCProfileHigh10,              MPP_H264_HIGH10 },
-        { PROFILE_AVC_HIGH_422_INTRA,       AVCProfileHigh422,             MPP_H264_HIGH422 },
-        { PROFILE_AVC_HIGH_444_INTRA,       AVCProfileHigh444,             MPP_H264_HIGH444 },
-        { PROFILE_AVC_CAVLC_444_INTRA,      AVCProfileHigh444,             MPP_H264_HIGH444 },
+        {C2Config::PROFILE_AVC_BASELINE,             AVCProfileBaseline,            MPP_H264_BASELINE},
+        {C2Config::PROFILE_AVC_CONSTRAINED_BASELINE, AVCProfileConstrainedBaseline, MPP_H264_BASELINE},
+        {C2Config::PROFILE_AVC_MAIN,                 AVCProfileMain,                MPP_H264_MAIN},
+        {C2Config::PROFILE_AVC_EXTENDED,             AVCProfileExtended,            MPP_H264_EXTENDED},
+        {C2Config::PROFILE_AVC_HIGH,                 AVCProfileHigh,                MPP_H264_HIGH},
+        {C2Config::PROFILE_AVC_PROGRESSIVE_HIGH,     AVCProfileHigh,                MPP_H264_HIGH},
+        {C2Config::PROFILE_AVC_CONSTRAINED_HIGH,     AVCProfileConstrainedHigh,     MPP_H264_HIGH},
+        {C2Config::PROFILE_AVC_HIGH_10,              AVCProfileHigh10,              MPP_H264_HIGH10},
+        {C2Config::PROFILE_AVC_PROGRESSIVE_HIGH_10,  AVCProfileHigh10,              MPP_H264_HIGH10},
+        {C2Config::PROFILE_AVC_HIGH_422,             AVCProfileHigh422,             MPP_H264_HIGH422},
+        {C2Config::PROFILE_AVC_HIGH_444_PREDICTIVE,  AVCProfileHigh444,             MPP_H264_HIGH444},
+        {C2Config::PROFILE_AVC_HIGH_10_INTRA,        AVCProfileHigh10,              MPP_H264_HIGH10},
+        {C2Config::PROFILE_AVC_HIGH_422_INTRA,       AVCProfileHigh422,             MPP_H264_HIGH422},
+        {C2Config::PROFILE_AVC_HIGH_444_INTRA,       AVCProfileHigh444,             MPP_H264_HIGH444},
+        {C2Config::PROFILE_AVC_CAVLC_444_INTRA,      AVCProfileHigh444,             MPP_H264_HIGH444},
     };
 
     static const size_t kNumAProfileMaps =
@@ -187,26 +187,26 @@ uint32_t C2RKCodecMapper::getMppH264Level(uint32_t level, bool c2Type) {
     };
 
     static const AVCLevelMap kALevelMaps[] = {
-        { LEVEL_AVC_1,    AVCLevel1,   MPP_H264_LEVEL1_0 },
-        { LEVEL_AVC_1B,   AVCLevel1b,  MPP_H264_LEVEL1_B },
-        { LEVEL_AVC_1_1,  AVCLevel11,  MPP_H264_LEVEL1_1 },
-        { LEVEL_AVC_1_2,  AVCLevel12,  MPP_H264_LEVEL1_2 },
-        { LEVEL_AVC_1_3,  AVCLevel13,  MPP_H264_LEVEL1_3 },
-        { LEVEL_AVC_2,    AVCLevel2,   MPP_H264_LEVEL2_0 },
-        { LEVEL_AVC_2_1,  AVCLevel21,  MPP_H264_LEVEL2_1 },
-        { LEVEL_AVC_2_2,  AVCLevel22,  MPP_H264_LEVEL2_2 },
-        { LEVEL_AVC_3,    AVCLevel3,   MPP_H264_LEVEL3_0 },
-        { LEVEL_AVC_3_1,  AVCLevel31,  MPP_H264_LEVEL3_1 },
-        { LEVEL_AVC_3_2,  AVCLevel32,  MPP_H264_LEVEL3_2 },
-        { LEVEL_AVC_4,    AVCLevel4,   MPP_H264_LEVEL4_0 },
-        { LEVEL_AVC_4_1,  AVCLevel41,  MPP_H264_LEVEL4_1 },
-        { LEVEL_AVC_4_2,  AVCLevel42,  MPP_H264_LEVEL4_2 },
-        { LEVEL_AVC_5,    AVCLevel5,   MPP_H264_LEVEL5_0 },
-        { LEVEL_AVC_5_1,  AVCLevel51,  MPP_H264_LEVEL5_1 },
-        { LEVEL_AVC_5_2,  AVCLevel52,  MPP_H264_LEVEL5_2 },
-        { LEVEL_AVC_6,    AVCLevel6,   MPP_H264_LEVEL6_0 },
-        { LEVEL_AVC_6_1,  AVCLevel61,  MPP_H264_LEVEL6_1 },
-        { LEVEL_AVC_6_2,  AVCLevel62,  MPP_H264_LEVEL6_2 },
+        { C2Config::LEVEL_AVC_1,    AVCLevel1,   MPP_H264_LEVEL1_0 },
+        { C2Config::LEVEL_AVC_1B,   AVCLevel1b,  MPP_H264_LEVEL1_B },
+        { C2Config::LEVEL_AVC_1_1,  AVCLevel11,  MPP_H264_LEVEL1_1 },
+        { C2Config::LEVEL_AVC_1_2,  AVCLevel12,  MPP_H264_LEVEL1_2 },
+        { C2Config::LEVEL_AVC_1_3,  AVCLevel13,  MPP_H264_LEVEL1_3 },
+        { C2Config::LEVEL_AVC_2,    AVCLevel2,   MPP_H264_LEVEL2_0 },
+        { C2Config::LEVEL_AVC_2_1,  AVCLevel21,  MPP_H264_LEVEL2_1 },
+        { C2Config::LEVEL_AVC_2_2,  AVCLevel22,  MPP_H264_LEVEL2_2 },
+        { C2Config::LEVEL_AVC_3,    AVCLevel3,   MPP_H264_LEVEL3_0 },
+        { C2Config::LEVEL_AVC_3_1,  AVCLevel31,  MPP_H264_LEVEL3_1 },
+        { C2Config::LEVEL_AVC_3_2,  AVCLevel32,  MPP_H264_LEVEL3_2 },
+        { C2Config::LEVEL_AVC_4,    AVCLevel4,   MPP_H264_LEVEL4_0 },
+        { C2Config::LEVEL_AVC_4_1,  AVCLevel41,  MPP_H264_LEVEL4_1 },
+        { C2Config::LEVEL_AVC_4_2,  AVCLevel42,  MPP_H264_LEVEL4_2 },
+        { C2Config::LEVEL_AVC_5,    AVCLevel5,   MPP_H264_LEVEL5_0 },
+        { C2Config::LEVEL_AVC_5_1,  AVCLevel51,  MPP_H264_LEVEL5_1 },
+        { C2Config::LEVEL_AVC_5_2,  AVCLevel52,  MPP_H264_LEVEL5_2 },
+        { C2Config::LEVEL_AVC_6,    AVCLevel6,   MPP_H264_LEVEL6_0 },
+        { C2Config::LEVEL_AVC_6_1,  AVCLevel61,  MPP_H264_LEVEL6_1 },
+        { C2Config::LEVEL_AVC_6_2,  AVCLevel62,  MPP_H264_LEVEL6_2 },
     };
 
     static const size_t kNumALevelMaps =
@@ -235,11 +235,11 @@ uint32_t C2RKCodecMapper::getMppH265Profile(uint32_t profile) {
     };
 
     static const HEVCProfileMap kHProfileMaps[] = {
-        { PROFILE_HEVC_MAIN,          MPP_PROFILE_HEVC_MAIN },
-        { PROFILE_HEVC_MAIN_10,       MPP_PROFILE_HEVC_MAIN_10 },
-        { PROFILE_HEVC_MAIN_STILL,    MPP_PROFILE_HEVC_MAIN_STILL_PICTURE },
-        { PROFILE_HEVC_MAIN_INTRA,    MPP_PROFILE_HEVC_MAIN },
-        { PROFILE_HEVC_MAIN_10_INTRA, MPP_PROFILE_HEVC_MAIN_10 },
+        { C2Config::PROFILE_HEVC_MAIN,          MPP_PROFILE_HEVC_MAIN },
+        { C2Config::PROFILE_HEVC_MAIN_10,       MPP_PROFILE_HEVC_MAIN_10 },
+        { C2Config::PROFILE_HEVC_MAIN_STILL,    MPP_PROFILE_HEVC_MAIN_STILL_PICTURE },
+        { C2Config::PROFILE_HEVC_MAIN_INTRA,    MPP_PROFILE_HEVC_MAIN },
+        { C2Config::PROFILE_HEVC_MAIN_10_INTRA, MPP_PROFILE_HEVC_MAIN_10 },
     };
 
     static const size_t kNumHProfileMaps =
@@ -266,19 +266,19 @@ uint32_t C2RKCodecMapper::getMppH265Level(uint32_t level) {
     };
 
     static const HEVCLevelMap kHLevelMaps[] = {
-        { LEVEL_HEVC_MAIN_1,      MPP_H265_LEVEL1 },
-        { LEVEL_HEVC_MAIN_2,      MPP_H265_LEVEL2 },
-        { LEVEL_HEVC_MAIN_2_1,    MPP_H265_LEVEL2_1 },
-        { LEVEL_HEVC_MAIN_3,      MPP_H265_LEVEL3 },
-        { LEVEL_HEVC_MAIN_3_1,    MPP_H265_LEVEL3_1 },
-        { LEVEL_HEVC_MAIN_4,      MPP_H265_LEVEL4 },
-        { LEVEL_HEVC_MAIN_4_1,    MPP_H265_LEVEL4_1 },
-        { LEVEL_HEVC_MAIN_5,      MPP_H265_LEVEL5 },
-        { LEVEL_HEVC_MAIN_5_1,    MPP_H265_LEVEL5_1 },
-        { LEVEL_HEVC_MAIN_5_2,    MPP_H265_LEVEL5_2 },
-        { LEVEL_HEVC_MAIN_6,      MPP_H265_LEVEL6 },
-        { LEVEL_HEVC_MAIN_6_1,    MPP_H265_LEVEL6_1 },
-        { LEVEL_HEVC_MAIN_6_2,    MPP_H265_LEVEL6_2 },
+        { C2Config::LEVEL_HEVC_MAIN_1,      MPP_H265_LEVEL1 },
+        { C2Config::LEVEL_HEVC_MAIN_2,      MPP_H265_LEVEL2 },
+        { C2Config::LEVEL_HEVC_MAIN_2_1,    MPP_H265_LEVEL2_1 },
+        { C2Config::LEVEL_HEVC_MAIN_3,      MPP_H265_LEVEL3 },
+        { C2Config::LEVEL_HEVC_MAIN_3_1,    MPP_H265_LEVEL3_1 },
+        { C2Config::LEVEL_HEVC_MAIN_4,      MPP_H265_LEVEL4 },
+        { C2Config::LEVEL_HEVC_MAIN_4_1,    MPP_H265_LEVEL4_1 },
+        { C2Config::LEVEL_HEVC_MAIN_5,      MPP_H265_LEVEL5 },
+        { C2Config::LEVEL_HEVC_MAIN_5_1,    MPP_H265_LEVEL5_1 },
+        { C2Config::LEVEL_HEVC_MAIN_5_2,    MPP_H265_LEVEL5_2 },
+        { C2Config::LEVEL_HEVC_MAIN_6,      MPP_H265_LEVEL6 },
+        { C2Config::LEVEL_HEVC_MAIN_6_1,    MPP_H265_LEVEL6_1 },
+        { C2Config::LEVEL_HEVC_MAIN_6_2,    MPP_H265_LEVEL6_2 },
     };
 
     static const size_t kNumHLevelMaps =
@@ -306,10 +306,10 @@ uint32_t C2RKCodecMapper::getMppBitrateMode(int32_t mode, bool c2Type) {
     };
 
     static const BitrateModeMap kBModeMaps[] = {
-        { BITRATE_IGNORE,             BITRATE_MODE_CQ,      MPP_ENC_RC_MODE_FIXQP },
-        { BITRATE_VARIABLE,           BITRATE_MODE_VBR,     MPP_ENC_RC_MODE_VBR },
-        { BITRATE_CONST,              BITRATE_MODE_CBR,     MPP_ENC_RC_MODE_CBR },
-        { BITRATE_CONST_SKIP_ALLOWED, BITRATE_MODE_CBR_FD,  MPP_ENC_RC_MODE_CBR },
+        { C2Config::BITRATE_IGNORE,             BITRATE_MODE_CQ,      MPP_ENC_RC_MODE_FIXQP },
+        { C2Config::BITRATE_VARIABLE,           BITRATE_MODE_VBR,     MPP_ENC_RC_MODE_VBR },
+        { C2Config::BITRATE_CONST,              BITRATE_MODE_CBR,     MPP_ENC_RC_MODE_CBR },
+        { C2Config::BITRATE_CONST_SKIP_ALLOWED, BITRATE_MODE_CBR_FD,  MPP_ENC_RC_MODE_CBR },
     };
 
     static const size_t kNumBModeMaps =

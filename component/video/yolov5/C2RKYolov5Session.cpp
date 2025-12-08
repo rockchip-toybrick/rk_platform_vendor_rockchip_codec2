@@ -32,6 +32,8 @@
 
 namespace android {
 
+using std::ignore;
+
 C2_LOGGER_ENABLE("C2RKYolov5Session");
 
 #define DEFAULT_RK3576_MODEL_PATH           "/vendor/etc/rknn/yolov5n_seg_for3576.rknn"
@@ -86,44 +88,44 @@ void dumpTensorAttr(rknn_tensor_attr *attr) {
 
 void* loadModelFile(int32_t *size) {
     FILE *fp = nullptr;
-    char path[PROPERTY_VALUE_MAX];
+    std::string path;
 
     if (C2RKChipCapDef::get()->getChipType() == RK_CHIP_3588) {
-        memcpy(path, DEFAULT_RK3588_MODEL_PATH, sizeof(DEFAULT_RK3588_MODEL_PATH));
+        path = DEFAULT_RK3588_MODEL_PATH;
     } else {
-        memcpy(path, DEFAULT_RK3576_MODEL_PATH, sizeof(DEFAULT_RK3576_MODEL_PATH));
+        path = DEFAULT_RK3576_MODEL_PATH;
     }
 
     // open file
-    fp = fopen(path, "r");
+    fp = fopen(path.c_str(), "r");
     if (fp == nullptr) {
-        Log.E("failed to open file %s, err: %s", path, strerror(errno));
+        Log.E("failed to open file %s, err: %s", path.c_str(), strerror(errno));
         return nullptr;
     }
 
     // get the length of file
-    fseek(fp, 0, SEEK_END);
+    ignore = fseek(fp, 0, SEEK_END);
 
     int32_t length = ftell(fp);
     uint8_t* model = (uint8_t*)malloc(length * sizeof(uint8_t));
     if (model == nullptr) {
         Log.E("failed to malloc model data");
-        fclose(fp);
+        ignore = fclose(fp);
         return nullptr;
     }
 
     // read file
-    fseek(fp, 0, SEEK_SET);
+    ignore = fseek(fp, 0, SEEK_SET);
     if (fread(model, 1, length, fp) < 0) {
         Log.E("failed to fread model file");
         free(model);
-        fclose(fp);
+        ignore = fclose(fp);
         return nullptr;
     }
     *size = length;
-    fclose(fp);
+    ignore = fclose(fp);
 
-    Log.I("rknn load model(%s)", path);
+    Log.I("rknn load model(%s)", path.c_str());
     return model;
 }
 
@@ -160,9 +162,10 @@ ImageBuffer* allocImageBuffer(int32_t width, int32_t height, ImageFormat format)
         usage |= RK_GRALLOC_USAGE_WITHIN_4G;
     }
 
-    GraphicBufferAllocator::get().allocate(
+    ignore = GraphicBufferAllocator::get().allocate(
             width, height, halFormat, 1u /* layer count */,
             usage, &bufferHandle, &stride, "c2_yolov5_model_buf");
+
 
     image->width   = width;
     image->height  = height;
@@ -180,10 +183,10 @@ ImageBuffer* allocImageBuffer(int32_t width, int32_t height, ImageFormat format)
 void freeImageBuffer(ImageBuffer *image) {
     if (image) {
         if (image->virAddr) {
-            munmap(image->virAddr, image->size);
+            ignore = munmap(image->virAddr, image->size);
         }
         if (image->handle) {
-            GraphicBufferAllocator::get().free((buffer_handle_t)image->handle);
+            ignore = GraphicBufferAllocator::get().free((buffer_handle_t)image->handle);
         }
         C2_SAFE_DELETE(image);
     }
@@ -200,13 +203,13 @@ void C2RKYolov5Session::RknnOutput::setStatus(Status status) {
 void C2RKYolov5Session::BaseProcessHandler::pendingProcess(RknnOutput *nnOutput) {
     sp<AMessage> msg = new AMessage(kWhatProcess, this);
     msg->setPointer("nnOutput", nnOutput);
-    msg->post();
+    CHECK_EQ(msg->post(), OK);
 }
 
 void C2RKYolov5Session::BaseProcessHandler::stopHandler() {
     mRunning = false;
     sp<AMessage> reply;
-    (new AMessage(kWhatStop, this))->postAndAwaitResponse(&reply);
+    CHECK_EQ((new AMessage(kWhatStop, this))->postAndAwaitResponse(&reply), OK);
 }
 
 void C2RKYolov5Session::BaseProcessHandler::onMessageReceived(const sp<AMessage> &msg) {
@@ -227,8 +230,8 @@ void C2RKYolov5Session::BaseProcessHandler::onMessageReceived(const sp<AMessage>
             /* post response */
             sp<AReplyToken> replyID;
             sp<AMessage> response = new AMessage;
-            msg->senderAwaitsResponse(&replyID);
-            response->postReply(replyID);
+            CHECK(msg->senderAwaitsResponse(&replyID));
+            CHECK(response->postReply(replyID) == OK);
         } break;
         default: {
             Log.E("Unrecognized msg: %d", msg->what());
@@ -254,7 +257,7 @@ C2RKYolov5Session::~C2RKYolov5Session() {
     disconnect();
 }
 
-bool C2RKYolov5Session::disconnect() {
+void C2RKYolov5Session::disconnect() {
     stopPostProcessLooper();
 
     releaseRknnOutputs();
@@ -264,14 +267,13 @@ bool C2RKYolov5Session::disconnect() {
     C2_SAFE_FREE(mOutputAttrs);
 
     if (mRknnCtx != 0) {
-        mOps->rknnDestory(mRknnCtx);
+        ignore = mOps->rknnDestory(mRknnCtx);
         mRknnCtx = 0;
     }
     if (mPostProcessContext != nullptr) {
-        c2_postprocess_deinit_context(mPostProcessContext);
+        ignore = c2_postprocess_deinit_context(mPostProcessContext);
         mPostProcessContext = nullptr;
     }
-    return true;
 }
 
 /* multi-thread is used for share the execution time */
@@ -285,7 +287,7 @@ bool C2RKYolov5Session::startPostProcessLooper() {
         mRknnRunLooper->setName("C2RknnRunLooper");
         err = mRknnRunLooper->start();
         if (err == OK) {
-            mRknnRunLooper->registerHandler(mRknnRunHandler);
+            ignore = mRknnRunLooper->registerHandler(mRknnRunHandler);
         } else {
             return err;
         }
@@ -297,7 +299,7 @@ bool C2RKYolov5Session::startPostProcessLooper() {
         mPostProcessLooper->setName("C2PostProcessLooper");
         err = mPostProcessLooper->start();
         if (err == OK) {
-            mPostProcessLooper->registerHandler(mPostProcessHandler);
+            ignore = mPostProcessLooper->registerHandler(mPostProcessHandler);
         } else {
             return err;
         }
@@ -309,19 +311,19 @@ bool C2RKYolov5Session::startPostProcessLooper() {
         mResultLooper->setName("C2ResultLooper");
         err = mResultLooper->start();
         if (err == OK) {
-            mResultLooper->registerHandler(mResultHandler);
+            ignore = mResultLooper->registerHandler(mResultHandler);
         }
     }
     return (err == OK);
 }
 
-bool C2RKYolov5Session::stopPostProcessLooper() {
+void C2RKYolov5Session::stopPostProcessLooper() {
     if (mRknnRunLooper != nullptr) {
         mRknnRunHandler->stopHandler();
         mRknnRunLooper->unregisterHandler(mRknnRunHandler->id());
         mRknnRunHandler.clear();
 
-        mRknnRunLooper->stop();
+        ignore = mRknnRunLooper->stop();
         mRknnRunLooper.clear();
     }
     if (mPostProcessLooper != nullptr) {
@@ -329,7 +331,7 @@ bool C2RKYolov5Session::stopPostProcessLooper() {
         mPostProcessLooper->unregisterHandler(mPostProcessHandler->id());
         mPostProcessHandler.clear();
 
-        mPostProcessLooper->stop();
+        ignore = mPostProcessLooper->stop();
         mPostProcessLooper.clear();
     }
     if (mResultLooper != nullptr) {
@@ -337,11 +339,9 @@ bool C2RKYolov5Session::stopPostProcessLooper() {
         mResultLooper->unregisterHandler(mResultHandler->id());
         mResultHandler.clear();
 
-        mResultLooper->stop();
+        ignore = mResultLooper->stop();
         mResultLooper.clear();
     }
-
-    return true;
 }
 
 void C2RKYolov5Session::initRknnOutputs() {
@@ -380,7 +380,7 @@ void C2RKYolov5Session::initRknnOutputs() {
         nnOutput->mModelImage = allocImageBuffer(
                 SEG_MODEL_WIDTH, SEG_MODEL_HEIGHT, IMAGE_FORMAT_RGB888);
 
-        memset(nnOutput->mInImage, 0, sizeof(ImageBuffer));
+        ignore = memset(nnOutput->mInImage, 0, sizeof(ImageBuffer));
 
         mRknnOutputs.push(nnOutput);
     }
@@ -413,7 +413,7 @@ void C2RKYolov5Session::releaseRknnOutputs() {
             C2_SAFE_FREE(nnOutput->mOutput);
             C2_SAFE_DELETE(nnOutput)
         }
-        mRknnOutputs.removeAt(0);
+        ignore = mRknnOutputs.removeAt(0);
     }
 }
 
@@ -429,24 +429,20 @@ C2RKYolov5Session::RknnOutput* C2RKYolov5Session::getIdleRknnOutput() {
 
 bool C2RKYolov5Session::createSession(
         const std::shared_ptr<C2RKSessionCallback> &cb, int32_t ctuSize) {
+    // rknn api ops wrapper
+    CHECK(mOps->initCheck());
+
     int32_t err = 0;
     int32_t modelSize = 0;
     void *modelData = nullptr;
 
-    // rknn api ops wrapper
-    if (!mOps->initCheck()) {
-        return false;
-    }
-
     modelData = loadModelFile(&modelSize);
-    if (!modelData) {
-        return false;
-    }
+    CHECK(modelData != nullptr);
 
     // load rknn model
     err = mOps->rknnInit(&mRknnCtx, modelData, modelSize, 0, nullptr);
     if (err != RKNN_SUCC) {
-        Log.E("failed to init rknn, err %d", err);
+        Log.PostError("rknnInit", err);
         goto cleanUp;
     }
 
@@ -454,7 +450,7 @@ bool C2RKYolov5Session::createSession(
     rknn_sdk_version ver;
     err = mOps->rknnQuery(mRknnCtx, RKNN_QUERY_SDK_VERSION, &ver, sizeof(ver));
     if (err != RKNN_SUCC) {
-        Log.E("failed to query version, err %d", err);
+        Log.PostError("rknnQuery(RKNN_QUERY_SDK_VERSION)", err);
         goto cleanUp;
     }
 
@@ -463,7 +459,7 @@ bool C2RKYolov5Session::createSession(
     // get inputs's and outputs's attr
     err = mOps->rknnQuery(mRknnCtx, RKNN_QUERY_IN_OUT_NUM, &mNumIO, sizeof(mNumIO));
     if (err != RKNN_SUCC) {
-        Log.E("failed to rknn_query, err %d", err);
+        Log.PostError("rknnQuery(RKNN_QUERY_IN_OUT_NUM)", err);
         goto cleanUp;
     }
 
@@ -482,7 +478,7 @@ bool C2RKYolov5Session::createSession(
         err = mOps->rknnQuery(mRknnCtx, RKNN_QUERY_INPUT_ATTR,
                                 &(mInputAttrs[i]), sizeof(rknn_tensor_attr));
         if (err != RKNN_SUCC) {
-            Log.E("rknnQuery(RKNN_QUERY_INPUT_ATTR), err %d", err);
+            Log.PostError("rknnQuery(RKNN_QUERY_INPUT_ATTR)", err);
             goto cleanUp;
         }
         dumpTensorAttr(&(mInputAttrs[i]));
@@ -493,7 +489,7 @@ bool C2RKYolov5Session::createSession(
         err = mOps->rknnQuery(mRknnCtx, RKNN_QUERY_OUTPUT_ATTR,
                                 &(mOutputAttrs[i]), sizeof(rknn_tensor_attr));
         if (err != RKNN_SUCC) {
-            Log.E("rknnQuery(RKNN_QUERY_OUTPUT_ATTR), err %d", err);
+            Log.PostError("rknnQuery(RKNN_QUERY_OUTPUT_ATTR)", err);
             goto cleanUp;
         }
         dumpTensorAttr(&(mOutputAttrs[i]));
@@ -503,27 +499,25 @@ bool C2RKYolov5Session::createSession(
     initRknnOutputs();
 
     // NOTE: core_1 ..
-    mOps->rknnSetCoreMask(mRknnCtx, RKNN_NPU_CORE_1);
+    ignore = mOps->rknnSetCoreMask(mRknnCtx, RKNN_NPU_CORE_1);
 
     mCtuSize = ctuSize;
 
     if (cb != nullptr) {
         // In asynchronous mode, start post-process looper
-        startPostProcessLooper();
+        CHECK(startPostProcessLooper());
         mCallback = cb;
     }
 
 cleanUp:
     if (modelData) {
         free(modelData);
-        modelData = nullptr;
     }
     if (err != RKNN_SUCC) {
         disconnect();
-        return false;
     }
 
-    return true;
+    return (err == RKNN_SUCC);
 }
 
 bool C2RKYolov5Session::onPostResult(RknnOutput *nnOutput) {
@@ -531,24 +525,27 @@ bool C2RKYolov5Session::onPostResult(RknnOutput *nnOutput) {
         return false;
     }
 
+    bool ret = true;
     objectMapResultList omResults;
 
     ImageBuffer *inImage = nnOutput->mInImage;
     objectDetectResultList *odResults = (objectDetectResultList*)nnOutput->mOdResults;
 
-    memset(&omResults, 0, sizeof(omResults));
+    ignore = memset(&omResults, 0, sizeof(omResults));
 
     nnOutput->setStatus(RknnOutput::RESULT);
 
     if (mResultProtoMask && odResults->count > 0) {
         // postprocess od result to class map
-        c2_postprocess_seg_mask_to_class_map(
+        ret = c2_postprocess_seg_mask_to_class_map(
                 mPostProcessContext, mCtuSize, odResults, &omResults);
+        Log.PostErrorIf(!ret, "segMaskToClassMap");
     }
 
     // draw detect object rect
     if (odResults->count > 0 && mDrawRect) {
-        c2_postprocess_draw_rect_array(inImage, odResults);
+        ret = c2_postprocess_draw_rect_array(inImage, odResults);
+        Log.PostErrorIf(!ret, "drawRectArray");
     }
 
     if (mCallback) {
@@ -557,7 +554,7 @@ bool C2RKYolov5Session::onPostResult(RknnOutput *nnOutput) {
                     inImage, omResults.foundObjects ? &omResults : nullptr);
         } else {
             DetectRegions regions;
-            memset(&regions, 0, sizeof(regions));
+            ignore = memset(&regions, 0, sizeof(regions));
 
             for (int i = 0; i < odResults->count; i++) {
                 regions.rects[i].left   = odResults->results[i].box.left;
@@ -574,7 +571,7 @@ bool C2RKYolov5Session::onPostResult(RknnOutput *nnOutput) {
     nnOutput->setStatus(RknnOutput::IDLE);
     mCondition.signal();
 
-    return true;
+    return ret;
 }
 
 bool C2RKYolov5Session::onOutputPostProcess(RknnOutput *nnOutput) {
@@ -582,26 +579,27 @@ bool C2RKYolov5Session::onOutputPostProcess(RknnOutput *nnOutput) {
         return false;
     }
 
-    bool err = false;
+    bool ret = false;
     objectDetectResultList *odResults = (objectDetectResultList *)nnOutput->mOdResults;
 
     if (!nnOutput->isIdle()) {
         nnOutput->setStatus(RknnOutput::POSTPROCESS);
 
         // postprocess rknn output and get object detect result.
-        err = c2_postprocess_output_model_image(
+        ret = c2_postprocess_output_model_image(
                     mPostProcessContext, nnOutput->mOutput, odResults);
+        Log.PostErrorIf(!ret, "outputModelImage");
     }
 
     // translate yolov5 detection results to mpp class maps.
     // do async encode callback in this looper also.
     mResultHandler->pendingProcess(nnOutput);
 
-    if (!err && mCallback) {
+    if (!ret && mCallback) {
         mCallback->onError("postprocess");
     }
 
-    return err;
+    return ret;
 }
 
 bool C2RKYolov5Session::onRknnRunProcess(RknnOutput *nnOutput) {
@@ -620,16 +618,20 @@ bool C2RKYolov5Session::onRknnRunProcess(RknnOutput *nnOutput) {
 
     int err = mOps->rknnSetInputs(mRknnCtx, mNumIO.n_input, mInput);
     if (err < 0) {
-        Log.E("failed to set rknn input, err %d", err);
+        Log.PostError("rknnSetInputs", err);
         goto error;
     }
 
     err = mOps->rknnRun(mRknnCtx, nullptr);
+    if (err < 0) {
+        Log.PostError("rknnRun", err);
+        goto error;
+    }
 
     // Get Output Data
     err = mOps->rknnGetOutputs(mRknnCtx, mNumIO.n_output, nnOutput->mOutput, nullptr);
     if (err < 0) {
-        Log.E("failed to get rknn output, err %d", err);
+        Log.PostError("rknnGetOutputs", err);
         goto error;
     }
 
@@ -665,7 +667,7 @@ bool C2RKYolov5Session::onCopyInputBuffer(RknnOutput *nnOutput) {
     nnOutput->mCopyImage->vstride = inImage->vstride;
 
     if (!c2_postprocess_copy_image_buffer(inImage, nnOutput->mCopyImage)) {
-        Log.E("failed to copy input buffer");
+        Log.PostError("copyImageBuffer", -1);
         return false;
     }
 
@@ -676,7 +678,7 @@ bool C2RKYolov5Session::onCopyInputBuffer(RknnOutput *nnOutput) {
 }
 
 bool C2RKYolov5Session::startDetect(ImageBuffer *srcImage) {
-    int err = 0;
+    bool ret = true;
 
     if ((srcImage->hstride * srcImage->vstride) > MAX_SUPPORT_SIZE) {
         Log.E("max support 4K size");
@@ -684,10 +686,10 @@ bool C2RKYolov5Session::startDetect(ImageBuffer *srcImage) {
     }
 
     if (!mPostProcessContext) {
-        err = c2_postprocess_init_context(
+        ret = c2_postprocess_init_context(
                 &mPostProcessContext, srcImage, mOutputAttrs, mResultProtoMask);
-        if (!err) {
-            Log.E("failed to init post-process context");
+        if (!ret) {
+            Log.PostError("initPostProcessContext", -1);
             return false;
         }
     }
@@ -698,7 +700,10 @@ bool C2RKYolov5Session::startDetect(ImageBuffer *srcImage) {
         Mutex::Autolock autoLock(mLock);
         nnOutput = getIdleRknnOutput();
         if (!nnOutput) {
-            mCondition.wait(mLock);
+            if (mCondition.wait(mLock) != OK) {
+                Log.PostError("waitCondition", -1);
+                return false;
+            }
         }
         if (nnOutput) {
             // mark rknn_output is on use
@@ -710,15 +715,12 @@ bool C2RKYolov5Session::startDetect(ImageBuffer *srcImage) {
     ImageBuffer *modelImage = nnOutput->mModelImage;
 
     // convert to dst model image with rga
-    err = c2_preprocess_convert_model_image(mPostProcessContext, srcImage, modelImage);
-    if (!err) {
-        if (mCallback) {
-            mCallback->onError("preprocess");
-        }
+    ret = c2_preprocess_convert_model_image(mPostProcessContext, srcImage, modelImage);
+    if (!ret) {
         return false;
     }
 
-    memcpy(nnOutput->mInImage, srcImage, sizeof(ImageBuffer));
+    ignore = memcpy(nnOutput->mInImage, srcImage, sizeof(ImageBuffer));
 
     if (mCallback) {
         /*
@@ -726,19 +728,20 @@ bool C2RKYolov5Session::startDetect(ImageBuffer *srcImage) {
          * a methods hold the input buffer all yolov5 execution time, so copy anthor
          * input buffer for result callback encoder.
          */
-        onCopyInputBuffer(nnOutput);
+        ret = onCopyInputBuffer(nnOutput);
+        if (!ret) return false;
 
         // rknn run looper process, do rknn_run & rknn_outputs_get.
         mRknnRunHandler->pendingProcess(nnOutput);
     } else {
-        err = onRknnRunProcess(nnOutput);
-        if (!err) return false;
+        ret = onRknnRunProcess(nnOutput);
+        if (!ret) return false;
 
-        err = onOutputPostProcess(nnOutput);
-        if (!err) return false;
+        ret = onOutputPostProcess(nnOutput);
+        if (!ret) return false;
 
-        err = onPostResult(nnOutput);
-        if (!err) return false;
+        ret = onPostResult(nnOutput);
+        if (!ret) return false;
     }
 
     return true;

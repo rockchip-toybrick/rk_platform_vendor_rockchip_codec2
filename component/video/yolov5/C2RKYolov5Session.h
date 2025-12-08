@@ -118,7 +118,7 @@ public:
     ~C2RKYolov5Session();
 
     bool createSession(const std::shared_ptr<C2RKSessionCallback> &cb, int32_t ctuSize);
-    bool disconnect();
+    void disconnect();
 
     bool startDetect(ImageBuffer *srcImage);
 
@@ -165,7 +165,7 @@ private:
         ~RknnRunHandler() override = default;
 
         void onDoProcess(RknnOutput *nnOutput) override {
-            mThiz->onRknnRunProcess(nnOutput);
+            std::ignore = mThiz->onRknnRunProcess(nnOutput);
         }
     };
 
@@ -179,7 +179,7 @@ private:
         ~PostProcessHandler() override = default;
 
         void onDoProcess(RknnOutput *nnOutput) override {
-            mThiz->onOutputPostProcess(nnOutput);
+            std::ignore = mThiz->onOutputPostProcess(nnOutput);
         }
     };
 
@@ -193,7 +193,7 @@ private:
         ~ResultHandler() override = default;
 
         void onDoProcess(RknnOutput *nnOutput) override {
-            mThiz->onPostResult(nnOutput);
+            std::ignore = mThiz->onPostResult(nnOutput);
         }
     };
 
@@ -233,7 +233,7 @@ private:
 
 private:
     bool startPostProcessLooper();
-    bool stopPostProcessLooper();
+    void stopPostProcessLooper();
 
     // due to performance considerations, multi-threaded processing is
     // neccessary. so we maintained a set of output buffers.

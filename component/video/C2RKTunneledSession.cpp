@@ -118,7 +118,7 @@ public:
             mDestroyFunc(mDevFd);
         }
         if (mLibFd) {
-            dlclose(mLibFd);
+            std::ignore = dlclose(mLibFd);
         }
 
         mDevFd = 0;
@@ -126,8 +126,9 @@ public:
         mTunnelId = 0;
     }
 
-    bool reset() {
-        return (mResetFunc(mDevFd, mTunnelId) == 0);
+    void reset() {
+        int32_t ret = mResetFunc(mDevFd, mTunnelId);
+        Log.PostErrorIf(ret != 0, "ImplReset");
     }
 
     bool dequeueBuffer(VTBuffer_t **buffer, int timeout) {
@@ -194,7 +195,7 @@ bool C2RKTunneledSession::configure(TunnelParams_t params) {
 
     static uint64_t gSessionId = 0;
 
-    memset(&mSideband, 0, sizeof(mSideband));
+    std::ignore = memset(&mSideband, 0, sizeof(mSideband));
 
     ++gSessionId;
     mSideband.version = sizeof(SidebandHandler_t);
@@ -220,13 +221,12 @@ bool C2RKTunneledSession::configure(TunnelParams_t params) {
     return true;
 }
 
-bool C2RKTunneledSession::disconnect() {
+void C2RKTunneledSession::disconnect() {
     this->reset();
     mImpl->closeConnection();
-    return true;
 }
 
-bool C2RKTunneledSession::reset() {
+void C2RKTunneledSession::reset() {
     mImpl->reset();
 
     auto it = mBuffers.begin();
@@ -240,14 +240,11 @@ bool C2RKTunneledSession::reset() {
 
     mNeedDequeueCnt = 0;
     mNeedReservedCnt = C2_TUNNELED_RESERVED_COUNT;
-
-    return true;
 }
 
 bool C2RKTunneledSession::dequeueBuffer(int32_t *bufferId) {
     VTBuffer *buffer = nullptr;
-    mImpl->dequeueBuffer(&buffer, 0);
-    if (buffer) {
+    if (mImpl->dequeueBuffer(&buffer, 0) && buffer != nullptr) {
         Log.D("dequeue buffer %d", buffer->uniqueId);
         buffer->state = RKVT_STATE_DEQUEUED;
         (*bufferId) = buffer->uniqueId;
@@ -289,18 +286,17 @@ bool C2RKTunneledSession::isReservedBuffer(int32_t bufferId) {
 
 bool C2RKTunneledSession::newBuffer(native_handle_t *handle, int32_t bufferId) {
     VTBuffer *buffer = nullptr;
-    mImpl->allocBuffer(&buffer);
-    if (buffer) {
+    if (mImpl->allocBuffer(&buffer) && buffer != nullptr) {
         Log.D("alloc buffer %d", bufferId);
         buffer->handle   = handle;
         buffer->uniqueId = bufferId;
         buffer->crop     = mSideband.crop;
         buffer->state    = RTVT_STATE_NEW;
 
-        mBuffers.insert(std::make_pair(bufferId, buffer));
+        std::ignore = mBuffers.emplace(bufferId, buffer);
 
         if (mNeedReservedCnt > 0) {
-            cancelBuffer(bufferId);
+            std::ignore = cancelBuffer(bufferId);
         }
     }
     return (buffer != nullptr);

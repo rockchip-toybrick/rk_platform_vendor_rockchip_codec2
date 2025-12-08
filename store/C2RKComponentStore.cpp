@@ -207,12 +207,12 @@ private:
                 static C2R setDmaBufUsage(bool /* mayBlock */, C2P<C2StoreDmaBufUsageInfo> &me) {
                     long long usage = (long long)me.get().m.usage;
                     if ((usage & C2MemoryUsage::READ_PROTECTED) && system_secure_supported()) {
-                        strncpy(me.set().m.heapName, "secure", me.v.flexCount());
+                        std::ignore = strncpy(me.set().m.heapName, "secure", me.v.flexCount());
                     } else if (C2DmaBufAllocator::system_uncached_supported() &&
                         !(usage & (C2MemoryUsage::CPU_READ | C2MemoryUsage::CPU_WRITE))) {
-                        strncpy(me.set().m.heapName, "system-uncached", me.v.flexCount());
+                        std::ignore = strncpy(me.set().m.heapName, "system-uncached", me.v.flexCount());
                     } else {
-                        strncpy(me.set().m.heapName, "system", me.v.flexCount());
+                        std::ignore = strncpy(me.set().m.heapName, "system", me.v.flexCount());
                     }
                     me.set().m.allocFlags = 0;
                     return C2R::Ok();
@@ -409,7 +409,7 @@ C2RKComponentStore::ComponentModule::~ComponentModule() {
     }
     if (mLibHandle) {
         ALOGV("unloading dll");
-        dlclose(mLibHandle);
+        std::ignore = dlclose(mLibHandle);
     }
 }
 
@@ -467,7 +467,10 @@ C2RKComponentStore::C2RKComponentStore()
       mReflector(std::make_shared<C2ReflectorHelper>()),
       mInterface(mReflector) {
     auto emplace = [this](const char *componentName) {
-        mComponents.emplace(componentName, componentName);
+        auto result = mComponents.emplace(componentName, componentName);
+        if (!result.second) {
+            ALOGD("component %s already exists", componentName);
+        }
     };
 
    for (int i = 0; i < sComponentMapsSize; ++i) {

@@ -18,7 +18,7 @@
 #ifndef ANDROID_RK_C2_DMA_SYNC_H_
 #define ANDROID_RK_C2_DMA_SYNC_H_
 
-int dma_sync_device_to_cpu(int fd);
-int dma_sync_cpu_to_device(int fd);
-   
+bool dma_sync_device_to_cpu(int fd);
+bool dma_sync_cpu_to_device(int fd);
+
 #endif // #ifndef ANDROID_RK_C2_DMA_SYNC_H_

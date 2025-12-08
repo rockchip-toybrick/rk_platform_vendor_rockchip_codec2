@@ -62,6 +62,6 @@ int32_t C2RKPropsDef::getInputBufferSize() {
     return sInputBufferSize;
 }
 
-int32_t C2RKPropsDef::getEncAsncOutputMode() {
+int32_t C2RKPropsDef::getEncAsyncOutputMode() {
     return sEncAsyncOutputMode;
 }

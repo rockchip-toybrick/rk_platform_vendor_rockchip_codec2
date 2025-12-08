@@ -16,12 +16,14 @@
 
 #include <string.h>
 #include <sys/syscall.h>
-#include <sys/time.h>
+#include <chrono>
 #include <cutils/properties.h>
 #include <unistd.h>
 #include <errno.h>
 #include <sstream>
 #include <queue>
+#include <fstream>
+#include <iomanip>
 
 #include "C2RKLogger.h"
 #include "C2RKPropsDef.h"
@@ -45,11 +47,9 @@ int32_t C2RKDumpStateService::mDumpFlags = 0;
 
 std::string toStr_Node(std::shared_ptr<C2NodeInfo> node) {
     if (node) {
-        const size_t SIZE = 20;
-        char buffer[SIZE];
-
-        snprintf(buffer, SIZE - 1, "[%s_%d]", node->mIsEncoder ? "enc" : "dec", node->mPid);
-        return std::string(buffer);
+        std::ostringstream oss;
+        oss << "[" << (node->mIsEncoder ? "enc" : "dec") << "_" << node->mPid << "]";
+        return oss.str();
     }
     return std::string("unknown");
 }
@@ -72,9 +72,10 @@ const char *toStr_RawType(uint32_t type) {
 }
 
 int64_t _getCurrentTimeMs() {
-    struct timeval tv;
-    gettimeofday(&tv, nullptr);
-    return (int64_t)tv.tv_sec * 1000 + tv.tv_usec / 1000;
+    auto now = std::chrono::system_clock::now();
+    auto duration = now.time_since_epoch();
+    auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(duration);
+    return milliseconds.count();
 }
 
 /* Sliding window-based bitrate calculation */
@@ -266,35 +267,25 @@ void C2NodeInfo::setListener(const std::shared_ptr<C2NodeInfoListener> &listener
     mListener = listener;
 }
 
-const char* C2NodeInfo::getNodeSummary() {
-    mNodeSummary.clear();
+std::string C2NodeInfo::getNodeSummary() {
+    std::ostringstream oss;
 
-    const size_t SIZE = 256;
-    char buffer[SIZE];
-
-    snprintf(buffer, sizeof(buffer),
-        "┌──────────────────────────────────────────────────┐\n"
-        "| Process     : %d\n", mPid
-    );
-
-    mNodeSummary.append(buffer);
+    oss << "┌──────────────────────────────────────────────────┐\n"
+        << "| Process     : " << mPid << "\n";
 
     if (mListener) {
-        mListener->onNodeSummaryRequest(mNodeSummary);
+        std::string summary;
+        mListener->onNodeSummaryRequest(summary);
+        oss << summary;
     }
 
-    snprintf(buffer, sizeof(buffer),
-        "| BitRate     : %.0f kbps\n"
-        "| Fps         : In %.1f / Out %.1f\n",
-        mBpsCalculator->getInstantBitrate(),
-        mFpsCalculator->getInstantInputFPS(),
-        mFpsCalculator->getInstantOutputFPS()
-    );
+    oss << std::fixed << std::setprecision(1) << std::setiosflags(std::ios::showpoint)
+        << "| BitRate     : " << mBpsCalculator->getInstantBitrate() << " kbps\n"
+        << "| Fps         : In " << mFpsCalculator->getInstantInputFPS()
+        << " / Out " << mFpsCalculator->getInstantOutputFPS() << "\n";
+    oss << "└──────────────────────────────────────────────────┘\n";
 
-    mNodeSummary.append(buffer);
-    mNodeSummary.append("└──────────────────────────────────────────────────┘\n");
-
-    return mNodeSummary.c_str();
+    return oss.str();
 }
 
 C2RKDumpStateService::C2RKDumpStateService() {
@@ -359,12 +350,13 @@ void C2RKDumpStateService::updateFeatures(std::string features) {
         { "disable-load-check",     C2_FEATURE_DISABLE_LOAD_CHECK        },
     };
 
+    Mutex::Autolock autoLock(mNodeLock);
     // clear features
     mFeatureFlags = 0;
 
-    char* endptr = nullptr;
-    long val = strtol(features.c_str(), &endptr, 0);
-    if (*endptr == '\0') {
+    size_t pos = 0;
+    long val = std::stol(features, &pos, 0);
+    if (pos == features.length()) {
         mFeatureFlags = static_cast<int32_t>(val);
     } else {
         std::istringstream iss(features);
@@ -384,20 +376,21 @@ void C2RKDumpStateService::updateFeatures(std::string features) {
 }
 
 bool C2RKDumpStateService::hasFeatures(int32_t feature) {
+    Mutex::Autolock autoLock(mNodeLock);
     return (mFeatureFlags & feature);
 }
 
-std::shared_ptr<C2NodeInfo> C2RKDumpStateService::findNodeItem(void *nodeId) {
-    auto it = mDecNodes.find(nodeId);
-    if (it != mDecNodes.end()) {
-        return it->second;
-    }
-    it = mEncNodes.find(nodeId);
-    if (it != mEncNodes.end()) {
-        return it->second;
-    }
+std::shared_ptr<C2NodeInfo> C2RKDumpStateService::getNodeInfo(void *nodeId) {
+    auto findInMap = [&](const auto& nodes) -> std::shared_ptr<C2NodeInfo> {
+        auto it = nodes.find(nodeId);
+        return (it != nodes.end()) ? it->second : nullptr;
+    };
 
-    return nullptr;
+    auto node = findInMap(mDecNodes);
+    if (node) {
+        return node;
+    }
+    return findInMap(mEncNodes);
 }
 
 bool C2RKDumpStateService::addNode(std::shared_ptr<C2NodeInfo> node) {
@@ -408,8 +401,8 @@ bool C2RKDumpStateService::addNode(std::shared_ptr<C2NodeInfo> node) {
         return false;
     }
 
-    if (findNodeItem(node->mNodeId) != nullptr) {
-        Log.I("ignore duplicate node, nodeId %p", node->mNodeId);
+    if (getNodeInfo(node->mNodeId) != nullptr) {
+        Log.W("ignore duplicate node, nodeId %p", node->mNodeId);
         return true;
     }
 
@@ -443,14 +436,14 @@ bool C2RKDumpStateService::addNode(std::shared_ptr<C2NodeInfo> node) {
     if (node->mIsEncoder) {
         if (disableCapCheck || ((mEncTotalLoading + loading <= MAX_ENCODER_SOC_CAPACITY)
                 && (mEncNodes.size() < mMaxInstanceLimit))) {
-            mEncNodes.insert(std::make_pair(node->mNodeId, std::move(node)));
+            std::ignore = mEncNodes.emplace(node->mNodeId, std::move(node));
             mEncTotalLoading += loading;
             overload = false;
         }
     } else {
         if (disableCapCheck || ((mDecTotalLoading + loading <= MAX_DECODER_SOC_CAPACITY)
                 && (mDecNodes.size() < mMaxInstanceLimit))) {
-            mDecNodes.insert(std::make_pair(node->mNodeId, std::move(node)));
+            std::ignore = mDecNodes.emplace(node->mNodeId, std::move(node));
             mDecTotalLoading += loading;
             overload = false;
         }
@@ -467,52 +460,46 @@ bool C2RKDumpStateService::addNode(std::shared_ptr<C2NodeInfo> node) {
     return true;
 }
 
-bool C2RKDumpStateService::removeNode(void *nodeId) {
+void C2RKDumpStateService::removeNode(void *nodeId) {
     Mutex::Autolock autoLock(mNodeLock);
 
-    std::shared_ptr<C2NodeInfo> node = findNodeItem(nodeId);
-    if (node) {
+    std::shared_ptr<C2NodeInfo> node = getNodeInfo(nodeId);
+    if (node != nullptr) {
         if (node->mInFile) {
-            fclose(node->mInFile);
+            std::ignore = fclose(node->mInFile);
             node->mInFile = nullptr;
         }
         if (node->mOutFile) {
-            fclose(node->mOutFile);
+            std::ignore = fclose(node->mOutFile);
             node->mOutFile = nullptr;
         }
         if (node->mIsEncoder) {
             mEncTotalLoading -= (node->mWidth * node->mHeight * node->mFrameRate);
-            mEncNodes.erase(node->mNodeId);
+            std::ignore = mEncNodes.erase(node->mNodeId);
         } else {
             mDecTotalLoading -= (node->mWidth * node->mHeight * node->mFrameRate);
-            mDecNodes.erase(node->mNodeId);
+            std::ignore = mDecNodes.erase(node->mNodeId);
         }
-        return true;
-    } else {
-        Log.W("remove: unexpected nodeId %p", nodeId);
-        return false;
     }
 }
 
-bool C2RKDumpStateService::resetNode(void *nodeId) {
+void C2RKDumpStateService::resetNode(void *nodeId) {
     Mutex::Autolock autoLock(mNodeLock);
 
-    std::shared_ptr<C2NodeInfo> node = findNodeItem(nodeId);
+    std::shared_ptr<C2NodeInfo> node = getNodeInfo(nodeId);
     if (node) {
         node->mErrorFrameCnt = 0;
         node->mFpsCalculator->reset();
         node->mBpsCalculator->reset();
-        return true;
     }
-    return false;
 }
 
-bool C2RKDumpStateService::updateNode(
+void C2RKDumpStateService::updateNode(
         void *nodeId, uint32_t width, uint32_t height, float frameRate) {
     Mutex::Autolock autoLock(mNodeLock);
 
-    std::shared_ptr<C2NodeInfo> node = findNodeItem(nodeId);
-    if (node) {
+    std::shared_ptr<C2NodeInfo> node = getNodeInfo(nodeId);
+    if (node != nullptr) {
         if (frameRate == .0f) {
             frameRate = node->mFrameRate;
         } else if (frameRate <= 1.0f) {
@@ -532,17 +519,13 @@ bool C2RKDumpStateService::updateNode(
         node->mWidth = width;
         node->mHeight = height;
         node->mFrameRate = frameRate;
-
-        return true;
     }
-
-    return false;
 }
 
 bool C2RKDumpStateService::getNodePortFrameCount(
         void *nodeId, int64_t *inFrames, int64_t *outFrames, int64_t *errFrames) {
-    std::shared_ptr<C2NodeInfo> node = findNodeItem(nodeId);
-    if (node) {
+    std::shared_ptr<C2NodeInfo> node = getNodeInfo(nodeId);
+    if (node != nullptr) {
         *inFrames = node->mFpsCalculator->getTotalInputFrames();
         *outFrames = node->mFpsCalculator->getTotalOutputFrames();
         if (errFrames) {
@@ -562,22 +545,22 @@ void C2RKDumpStateService::onDumpFlagsUpdated(std::shared_ptr<C2NodeInfo> node) 
     if (!node->mInFile) {
         if ((hasDebugFlags(C2_DUMP_RECORD_ENCODE_INPUT) && node->mIsEncoder) ||
             (hasDebugFlags(C2_DUMP_RECORD_DECODE_INPUT) && !node->mIsEncoder)) {
-            char fileName[128];
-            memset(fileName, 0, 128);
-
-            sprintf(fileName, "%s%s_in_%dx%d_%d.bin", C2_RECORD_DIR,
-                    node->mIsEncoder ? "enc" : "dec", node->mWidth, node->mHeight, node->mPid);
-            node->mInFile = fopen(fileName, "wb");
+            std::ostringstream oss;
+            oss << C2_RECORD_DIR << (node->mIsEncoder ? "enc" : "dec")
+                << "_in_" << node->mWidth << "x" << node->mHeight
+                << "_" << node->mPid << ".bin";
+            std::string fileName = oss.str();
+            node->mInFile = fopen(fileName.c_str(), "wb");
             if (node->mInFile == nullptr) {
                 Log.E("failed to open input file, err: %s", strerror(errno));
             } else {
-                Log.I("recording input to %s", fileName);
+                Log.I("recording input to %s", fileName.c_str());
             }
         }
     } else {
         if ((!hasDebugFlags(C2_DUMP_RECORD_ENCODE_INPUT) && node->mIsEncoder) ||
             (!hasDebugFlags(C2_DUMP_RECORD_DECODE_INPUT) && !node->mIsEncoder)) {
-            fclose(node->mInFile);
+            std::ignore = fclose(node->mInFile);
             node->mInFile = nullptr;
         }
     }
@@ -585,22 +568,22 @@ void C2RKDumpStateService::onDumpFlagsUpdated(std::shared_ptr<C2NodeInfo> node) 
     if (!node->mOutFile) {
         if ((hasDebugFlags(C2_DUMP_RECORD_ENCODE_OUTPUT) && node->mIsEncoder) ||
             (hasDebugFlags(C2_DUMP_RECORD_DECODE_OUTPUT) && !node->mIsEncoder)) {
-            char fileName[128];
-            memset(fileName, 0, 128);
-
-            sprintf(fileName, "%s%s_out_%dx%d_%d.bin", C2_RECORD_DIR,
-                    node->mIsEncoder ? "enc" : "dec", node->mWidth, node->mHeight, node->mPid);
-            node->mOutFile = fopen(fileName, "wb");
+            std::ostringstream oss;
+            oss << C2_RECORD_DIR << (node->mIsEncoder ? "enc" : "dec")
+                << "_out_" << node->mWidth << "x" << node->mHeight
+                << "_" << node->mPid << ".bin";
+            std::string fileName = oss.str();
+            node->mOutFile = fopen(fileName.c_str(), "wb");
             if (node->mOutFile == nullptr) {
                 Log.E("failed to open output file, err: %s", strerror(errno));
             } else {
-                Log.I("recording output to %s", fileName);
+                Log.I("recording output to %s", fileName.c_str());
             }
         }
     } else {
         if ((!hasDebugFlags(C2_DUMP_RECORD_ENCODE_OUTPUT) && node->mIsEncoder) ||
             (!hasDebugFlags(C2_DUMP_RECORD_DECODE_OUTPUT) && !node->mIsEncoder)) {
-            fclose(node->mOutFile);
+            std::ignore = fclose(node->mOutFile);
             node->mOutFile = nullptr;
         }
     }
@@ -613,8 +596,8 @@ void C2RKDumpStateService::onDumpFlagsUpdated(std::shared_ptr<C2NodeInfo> node) 
 
 void C2RKDumpStateService::recordFrame(
         void *nodeId, void *data, size_t size, bool skipStats) {
-    std::shared_ptr<C2NodeInfo> node = findNodeItem(nodeId);
-    if (node) {
+    std::shared_ptr<C2NodeInfo> node = getNodeInfo(nodeId);
+    if (node != nullptr) {
         int32_t port = (node->mIsEncoder) ? kPortIndexOutput : kPortIndexInput;
 
         if (!skipStats) {
@@ -625,9 +608,12 @@ void C2RKDumpStateService::recordFrame(
 
         // file saving for codec input and output
         FILE *file = (port == kPortIndexInput) ? node->mInFile : node->mOutFile;
-        if (file) {
-            fwrite(data, 1, size, file);
-            fflush(file);
+        if (file != nullptr) {
+            size_t written = fwrite(data, 1, size, file);
+            if (written != size) {
+                Log.PostError("fwrite", errno);
+            }
+            std::ignore = fflush(file);
             Log.I("%s dump_%s: data 0x%08x size %d",
                    toStr_Node(node).c_str(), toStr_DumpPort(port), data, size);
         }
@@ -636,8 +622,8 @@ void C2RKDumpStateService::recordFrame(
 
 void C2RKDumpStateService::recordFrame(
         void *nodeId, void *src, int32_t w, int32_t h, int32_t fmt) {
-    std::shared_ptr<C2NodeInfo> node = findNodeItem(nodeId);
-    if (node) {
+    std::shared_ptr<C2NodeInfo> node = getNodeInfo(nodeId);
+    if (node != nullptr) {
         int32_t port = (node->mIsEncoder) ? kPortIndexInput : kPortIndexOutput;
 
         // statistics track for each frame
@@ -645,7 +631,10 @@ void C2RKDumpStateService::recordFrame(
 
         // file saving for codec input and output
         FILE *file = (port == kPortIndexInput) ? node->mInFile : node->mOutFile;
-        if (file && src) {
+        if (file != nullptr && src != nullptr) {
+            size_t written = 0;
+            size_t totalSize = 0;
+
             if (MPP_FRAME_FMT_IS_FBC(fmt)) {
                 Log.W("not support fbc buffer dump");
                 return;
@@ -653,8 +642,8 @@ void C2RKDumpStateService::recordFrame(
 
             if (MPP_FRAME_FMT_IS_YUV_10BIT(fmt)) {
                 // convert platform 10bit into 8bit yuv
-                size_t size = w * h * 3 / 2;
-                uint8_t *dst = (uint8_t *)malloc(size);
+                totalSize = w * h * 3 / 2;
+                uint8_t *dst = (uint8_t *)malloc(totalSize);
                 if (!dst) {
                     Log.W("failed to malloc temp 8bit dump buffer");
                     return;
@@ -663,16 +652,22 @@ void C2RKDumpStateService::recordFrame(
                 C2RKMediaUtils::convert10BitNV12ToNV12(
                         { (uint8_t*)src, -1, -1, w, h, w, h },
                         { (uint8_t*)dst, -1, -1, w, h, w, h });
-                fwrite(dst, 1, size, file);
+
+                written = fwrite(dst, 1, totalSize, file);
+                if (written != totalSize) {
+                    Log.PostError("fwrite", errno);
+                }
 
                 free(dst);
-                dst = nullptr;
             } else {
-                size_t size = MPP_FRAME_FMT_IS_RGB(fmt) ? (w * h * 4) : (w * h * 3 / 2);
-                fwrite(src, 1, size, file);
+                totalSize = MPP_FRAME_FMT_IS_RGB(fmt) ? (w * h * 4) : (w * h * 3 / 2);
+                written = fwrite(src, 1, totalSize, file);
+                if (written != totalSize) {
+                    Log.PostError("fwrite", errno);
+                }
             }
 
-            fflush(file);
+            std::ignore = fflush(file);
             Log.I("%s dump_%s_%s: data 0x%08x w:h [%d:%d]", toStr_Node(node).c_str(),
                    toStr_DumpPort(port), toStr_RawType(fmt), src, w, h);
         }
@@ -680,8 +675,8 @@ void C2RKDumpStateService::recordFrame(
 }
 
 void C2RKDumpStateService::recordFrame(void *nodeId, int32_t frameFlags) {
-    std::shared_ptr<C2NodeInfo> node = findNodeItem(nodeId);
-    if (node) {
+    std::shared_ptr<C2NodeInfo> node = getNodeInfo(nodeId);
+    if (node != nullptr) {
         if (frameFlags & kErrorFrame || frameFlags & kDropFrame) {
             node->mErrorFrameCnt += 1;
         }
@@ -695,10 +690,10 @@ void C2RKDumpStateService::recordFrameTime(void *nodeId, int64_t frameIndex) {
     if (!hasDebugFlags(C2_DUMP_FRAME_TIMING))
         return;
 
-    std::shared_ptr<C2NodeInfo> node = findNodeItem(nodeId);
-    if (node) {
+    std::shared_ptr<C2NodeInfo> node = getNodeInfo(nodeId);
+    if (node != nullptr) {
         Mutex::Autolock autoLock(node->mRecordLock);
-        node->mRecordStartTimes.add(frameIndex, _getCurrentTimeMs());
+        std::ignore = node->mRecordStartTimes.add(frameIndex, _getCurrentTimeMs());
     }
 }
 
@@ -706,65 +701,59 @@ void C2RKDumpStateService::showFrameTiming(void *nodeId, int64_t frameIndex) {
     if (!hasDebugFlags(C2_DUMP_FRAME_TIMING))
         return;
 
-    std::shared_ptr<C2NodeInfo> node = findNodeItem(nodeId);
-    if (node) {
+    std::shared_ptr<C2NodeInfo> node = getNodeInfo(nodeId);
+    if (node != nullptr) {
         Mutex::Autolock autoLock(node->mRecordLock);
         ssize_t index = node->mRecordStartTimes.indexOfKey(frameIndex);
         if (index != NAME_NOT_FOUND) {
             int64_t startTime = node->mRecordStartTimes.valueAt(index);
             int64_t timeDiff = (_getCurrentTimeMs() - startTime);
-            node->mRecordStartTimes.removeItemsAt(index);
+            std::ignore = node->mRecordStartTimes.removeItemsAt(index);
             Log.I("%s frameIndex %lld process consumes %lld ms",
                    toStr_Node(node).c_str(), frameIndex, timeDiff);
         }
     }
 }
 
-std::string C2RKDumpStateService::dumpNodesSummary(bool logging) {
+std::string C2RKDumpStateService::dumpNodesSummary() {
     Mutex::Autolock autoLock(mNodeLock);
 
-    const size_t SIZE = 256;
-    char buffer[SIZE];
-    std::string result;
-
-    result.append("========================================\n");
+    std::ostringstream oss;
+    oss << "========================================\n";
 
     if (mFeatureFlags > 0) {
-        snprintf(buffer, SIZE - 1, "Feature-Flags: 0x%x\n", mFeatureFlags);
-        result.append(buffer);
+        oss << "Feature-Flags: 0x" << std::hex << mFeatureFlags << std::dec << "\n";
     }
 
-    result.append("Hardware Codec2 Memory Summary\n");
+    oss << "Hardware Codec2 Memory Summary\n";
 
-    snprintf(buffer, SIZE - 1, "Total: %zu dec nodes / %zu enc nodes\n",
-            mDecNodes.size(), mEncNodes.size());
-    result.append(buffer);
+    oss << "Total: " << mDecNodes.size() << " dec nodes / "
+        << mEncNodes.size() << " enc nodes\n";
 
     if (mDecNodes.size() > 0) {
-        result.append("\nDecoder:    \n");
+        oss << "\nDecoder:    \n";
         for (auto &pair : mDecNodes) {
-            result.append(pair.second->getNodeSummary());
+            oss << pair.second->getNodeSummary();
         }
     }
 
     if (mEncNodes.size() > 0) {
-        result.append("\nEncoder:    \n");
+        oss << "\nEncoder:    \n";
         for (auto &pair : mEncNodes) {
-            result.append(pair.second->getNodeSummary());
+            oss << pair.second->getNodeSummary();
         }
     }
-    result.append("========================================\n");
+    oss << "========================================\n";
 
-    if (logging) {
-        std::stringstream ss(result);
-        std::string line;
+    return oss.str();
+}
 
-        while (std::getline(ss, line)) {
-            Log.I("%s", line.c_str());
-        }
+void C2RKDumpStateService::logNodesSummary() {
+    std::stringstream ss(dumpNodesSummary());
+    std::string line;
+    while (std::getline(ss, line)) {
+        Log.I("%s", line.c_str());
     }
-
-    return result;
 }
 
 } // namespace android

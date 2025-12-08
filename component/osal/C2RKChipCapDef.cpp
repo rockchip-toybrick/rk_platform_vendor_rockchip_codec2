@@ -245,7 +245,7 @@ static void readChipName(char *name) {
         Log.I("read chip name: %s", name);
     }
 
-    close(fd);
+    std::ignore = close(fd);
 }
 
 static C2ChipCapInfo *checkChipInfo(const char *chipName) {
@@ -341,7 +341,7 @@ int32_t C2RKChipCapDef::getFbcMinStride(int32_t fbcMode) {
     return minStride;
 }
 
-int32_t C2RKChipCapDef::getFbcOutputOffset(
+void C2RKChipCapDef::getFbcOutputOffset(
         MppCodingType codecId, int32_t *offsetX, int32_t *offsetY) {
     *offsetX = *offsetY = 0;
 
@@ -352,8 +352,6 @@ int32_t C2RKChipCapDef::getFbcOutputOffset(
             break;
         }
     }
-
-    return 0;
 }
 
 bool C2RKChipCapDef::preferDureCoreEncoding(int64_t load) {

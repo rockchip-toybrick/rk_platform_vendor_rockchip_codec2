@@ -73,19 +73,16 @@ static IMapper &getGralloc4Mapper() {
 static status_t decodeRkOffsetOfVideoMetadata(
         const hidl_vec<uint8_t>& input, int64_t* offsetOfMetadata) {
     int64_t offset = 0;
-
-    memcpy(&offset, input.data(), sizeof(offset));
+    std::ignore = memcpy(&offset, input.data(), sizeof(offset));
 
     *offsetOfMetadata = offset;
-
     return OK;
 }
 
 static status_t encodeRkOffsetOfVideoMetadata(
         const int64_t offset, hidl_vec<uint8_t>* output) {
     output->resize(1 * sizeof(int64_t));
-
-    memcpy(output->data(), &offset, sizeof(offset));
+    std::ignore = memcpy(output->data(), &offset, sizeof(offset));
 
     return OK;
 }
@@ -290,17 +287,21 @@ status_t C2RKGraphicBufferMapper::importBuffer(
             gHandle, width, height, 1, format, usage,
             stride, outHandle);
     if (err != OK) {
-        Log.E("failed to import buffer %p", gHandle);
+        Log.PostError("importBuffer", static_cast<int32_t>(err));
     }
 
-    native_handle_delete(gHandle);
+    if (native_handle_delete(gHandle) != 0) {
+        Log.PostError("native_handle_delete", 0);
+    }
+
     return err;
 }
 
 status_t C2RKGraphicBufferMapper::freeBuffer(buffer_handle_t handle) {
     if (handle) {
-        GraphicBufferMapper::get().freeBuffer(handle);
+        return GraphicBufferMapper::get().freeBuffer(handle);
     }
+    // ignore null handle
     return OK;
 }
 
@@ -315,7 +316,7 @@ int32_t C2RKGraphicBufferMapper::setDynamicHdrMeta(buffer_handle_t handle, int64
 
         err = encodeRkOffsetOfVideoMetadata(offset, &encodedOffset);
         if (err != OK) {
-            Log.E("Failed to encode offset_of_dynamic_hdr_metadata. err : %d", err);
+            Log.PostError("encodeRkOffsetOfVideoMetadata", static_cast<int32_t>(err));
             return err;
         }
 
@@ -349,7 +350,7 @@ int32_t C2RKGraphicBufferMapper::setDynamicHdrMeta(buffer_handle_t handle, int64
     }
 
     if (err != 0) {
-        Log.E("Failed to set dynamic hdr metadata, err %d", err);
+        Log.PostError("setDynamicHdrMeta", static_cast<int32_t>(err));
     }
     return err;
 }
@@ -363,7 +364,7 @@ int64_t C2RKGraphicBufferMapper::getDynamicHdrMeta(buffer_handle_t handle) {
     } else if (mMapperVersion == 4) {
         auto &mapper = getGralloc4Mapper();
 
-        mapper.get(const_cast<native_handle_t *>(handle),
+        auto ret = mapper.get(const_cast<native_handle_t *>(handle),
                 RkMetadataType_OFFSET_OF_DYNAMIC_HDR_METADATA,
                     [&err, &offset] (Error error, const hidl_vec<uint8_t> &metadata)
                     {
@@ -373,6 +374,9 @@ int64_t C2RKGraphicBufferMapper::getDynamicHdrMeta(buffer_handle_t handle) {
                         }
                         err = decodeRkOffsetOfVideoMetadata(metadata, &offset);
                     });
+        if (!ret.isOk() && err == OK) {
+            err = UNKNOWN_ERROR;
+        }
     } else {
         const gralloc_module_t* module = getGrallocModule();
 
@@ -381,7 +385,7 @@ int64_t C2RKGraphicBufferMapper::getDynamicHdrMeta(buffer_handle_t handle) {
     }
 
     if (err != OK) {
-        Log.E("Failed to get dynamic hdr metadata, err %d", err);
+        Log.PostError("getDynamicHdrMeta", static_cast<int32_t>(err));
         return -1;
     }
 

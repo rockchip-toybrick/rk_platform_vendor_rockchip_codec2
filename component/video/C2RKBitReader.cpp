@@ -15,6 +15,7 @@
 * limitations under the License.
 */
 
+#include <tuple>
 #include <stdlib.h>
 #include <string.h>
 
@@ -254,7 +255,7 @@ uint32_t c2_has_more_rbsp_data(BitReadContext *bitctx) {
 ***********************************************************************
 */
 void c2_set_bitread_ctx(BitReadContext *bitctx, uint8_t *data, int32_t size) {
-    memset(bitctx, 0, sizeof(BitReadContext));
+    std::ignore = memset(bitctx, 0, sizeof(BitReadContext));
     bitctx->data_ = data;
     bitctx->bytes_left_ = size;
     bitctx->num_remaining_bits_in_curr_byte_ = 0;
@@ -285,6 +286,8 @@ void c2_set_pre_detection(BitReadContext *bitctx) {
 uint8_t *c2_align_get_bits(BitReadContext *bitctx) {
     int32_t n = bitctx->num_remaining_bits_in_curr_byte_;
     if (n)
-        c2_skip_bits(bitctx, n);
+        if (!c2_skip_bits(bitctx, n)) {
+            return nullptr;
+        }
     return bitctx->data_;
 }

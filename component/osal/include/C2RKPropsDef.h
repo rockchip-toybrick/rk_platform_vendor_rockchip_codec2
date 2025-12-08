@@ -34,7 +34,7 @@ public:
     static int32_t getLowMemoryMode();
     static int32_t getInputBufferSize();
 
-    static int32_t getEncAsncOutputMode();
+    static int32_t getEncAsyncOutputMode();
 };
 
 #endif  // ANDROID_C2_RK_PROPS_DEF_H__

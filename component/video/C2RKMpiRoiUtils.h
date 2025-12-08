@@ -38,7 +38,7 @@ struct RoiRegionCfg {
 };
 
 MPP_RET mpp_enc_roi_init(MppEncRoiCtx *ctx, int32_t w, int32_t h, MppCodingType type);
-MPP_RET mpp_enc_roi_deinit(MppEncRoiCtx ctx);
+void    mpp_enc_roi_deinit(MppEncRoiCtx ctx);
 
 MPP_RET mpp_enc_roi_add_region(MppEncRoiCtx ctx, RoiRegionCfg *region);
 MPP_RET mpp_enc_roi_setup_meta(MppEncRoiCtx ctx, MppMeta meta);

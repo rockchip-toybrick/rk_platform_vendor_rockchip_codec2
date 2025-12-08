@@ -190,7 +190,7 @@ static uint32_t raster2zscan16[16] = {
     10, 11, 14, 15
 };
 
-static MPP_RET vepu54x_h265_set_roi(void *dst_buf, void *src_buf, int32_t w, int32_t h) {
+static void vepu54x_h265_set_roi(void *dst_buf, void *src_buf, int32_t w, int32_t h) {
     Vepu541RoiCfg *src = (Vepu541RoiCfg *)src_buf;
     Vepu541RoiCfg *dst = (Vepu541RoiCfg *)dst_buf;
     int32_t mb_w = _ALIGN(w, 64) / 64;
@@ -219,8 +219,6 @@ static MPP_RET vepu54x_h265_set_roi(void *dst_buf, void *src_buf, int32_t w, int
             }
         }
     }
-
-    return MPP_OK;
 }
 
 static MPP_RET gen_vepu54x_roi(MppEncRoiImpl *ctx, Vepu541RoiCfg *dst) {
@@ -233,7 +231,7 @@ static MPP_RET gen_vepu54x_roi(MppEncRoiImpl *ctx, Vepu541RoiCfg *dst) {
     MPP_RET ret = MPP_NOK;
     int32_t i;
 
-    memset(ctx->cu_map, 0, ctx->cu_size);
+    std::ignore = memset(ctx->cu_map, 0, ctx->cu_size);
 
     cfg.force_intra = 0;
     cfg.reserved    = 0;
@@ -244,7 +242,7 @@ static MPP_RET gen_vepu54x_roi(MppEncRoiImpl *ctx, Vepu541RoiCfg *dst) {
 
     /* step 1. reset all the config */
     for (i = 0; i < stride_h * stride_v; i++)
-        memcpy(dst + i, &cfg, sizeof(cfg));
+        std::ignore = memcpy(dst + i, &cfg, sizeof(cfg));
 
     if (ctx->w <= 0 || ctx->h <= 0) {
         Log.E("invalid size [%d:%d]", ctx->w, ctx->h);
@@ -297,7 +295,7 @@ static MPP_RET gen_vepu54x_roi(MppEncRoiImpl *ctx, Vepu541RoiCfg *dst) {
         map += pos_y_init * stride_h + pos_x_init;
         for (y = 0; y < roi_height; y++) {
             for (x = 0; x < roi_width; x++) {
-                memcpy(p + x, &cfg, sizeof(cfg));
+                std::ignore = memcpy(p + x, &cfg, sizeof(cfg));
                 if (ctx->type == MPP_VIDEO_CodingAVC) {
                     *(map + x) = 1;
                 }
@@ -347,46 +345,41 @@ done:
 }
 
 
-static MPP_RET set_roi_pos_val(uint32_t *buf, uint32_t pos, uint32_t value) {
+inline void set_roi_pos_val(uint32_t *buf, uint32_t pos, uint32_t value) {
     uint32_t index = pos / 32;
     uint32_t bits  = pos % 32;
 
     buf[index] = buf[index] | (value << bits);
-    return MPP_OK;
 }
 
-#define set_roi_qpadj(buf, index, val) \
-    do { \
-        uint32_t offset = 425 + index; \
-        set_roi_pos_val(buf, offset, val); \
-    } while(0)
+inline void set_roi_qpadj(uint32_t *buf, uint32_t index, uint32_t val) {
+    uint32_t offset = 425 + index;
+    set_roi_pos_val(buf, offset, val);
+}
 
-#define set_roi_force_split(buf, index, val) \
-    do { \
-        uint32_t offset = 340 + index; \
-        set_roi_pos_val(buf, offset, val); \
-    } while(0)
+inline void set_roi_force_split(uint32_t *buf, uint32_t index, uint32_t val) {
+    uint32_t offset = 340 + index;
+    set_roi_pos_val(buf, offset, val);
+}
 
-#define set_roi_force_intra(buf, index, val) \
-    do { \
-        uint32_t offset = 170 + index * 2; \
-        set_roi_pos_val(buf, offset, val); \
-    } while(0)
+inline void set_roi_force_intra(uint32_t *buf, uint32_t index, uint32_t val) {
+    uint32_t offset = 170 + index * 2;
+    set_roi_pos_val(buf, offset, val);
+}
 
-#define set_roi_force_inter(buf, index, val) \
-    do { \
-        uint32_t offset = index * 2; \
-        set_roi_pos_val(buf, offset, val); \
-    } while(0)
+inline void set_roi_force_inter(uint32_t *buf, uint32_t index, uint32_t val) {
+    uint32_t offset = index * 2;
+    set_roi_pos_val(buf, offset, val);
+}
 
-static void set_roi_cu8_base_cfg(uint32_t *buf, uint32_t index, Vepu580RoiH265BsCfg val) {
+void set_roi_cu8_base_cfg(uint32_t *buf, uint32_t index, Vepu580RoiH265BsCfg val) {
     set_roi_qpadj(buf, index, val.qp_adj);
     set_roi_force_split(buf, index, val.force_split);
     set_roi_force_intra(buf, index, val.force_intra);
     set_roi_force_inter(buf, index, val.force_inter);
 }
 
-static void set_roi_cu16_base_cfg(uint32_t *buf, uint32_t index, Vepu580RoiH265BsCfg val) {
+void set_roi_cu16_base_cfg(uint32_t *buf, uint32_t index, Vepu580RoiH265BsCfg val) {
     index += 64;
     set_roi_qpadj(buf, index, val.qp_adj);
     set_roi_force_split(buf, index, val.force_split);
@@ -394,7 +387,7 @@ static void set_roi_cu16_base_cfg(uint32_t *buf, uint32_t index, Vepu580RoiH265B
     set_roi_force_inter(buf, index, val.force_inter);
 }
 
-static void set_roi_cu32_base_cfg(uint32_t *buf, uint32_t index, Vepu580RoiH265BsCfg val) {
+void set_roi_cu32_base_cfg(uint32_t *buf, uint32_t index, Vepu580RoiH265BsCfg val) {
     index += 80;
     set_roi_qpadj(buf, index, val.qp_adj);
     set_roi_force_split(buf, index, val.force_split);
@@ -402,14 +395,14 @@ static void set_roi_cu32_base_cfg(uint32_t *buf, uint32_t index, Vepu580RoiH265B
     set_roi_force_inter(buf, index, val.force_inter);
 }
 
-static void set_roi_cu64_base_cfg(uint32_t *buf, Vepu580RoiH265BsCfg val) {
+void set_roi_cu64_base_cfg(uint32_t *buf, Vepu580RoiH265BsCfg val) {
     set_roi_qpadj(buf, 84, val.qp_adj);
     set_roi_force_split(buf, 84, val.force_split);
     set_roi_force_intra(buf, 84, val.force_intra);
     set_roi_force_inter(buf, 84, val.force_inter);
 }
 
-static void set_roi_qp_cfg(void *buf, uint32_t index, Vepu541RoiCfg *cfg) {
+void set_roi_qp_cfg(void *buf, uint32_t index, Vepu541RoiCfg *cfg) {
     Vepu580RoiQpCfg *qp_cfg_base = (Vepu580RoiQpCfg *)buf;
     Vepu580RoiQpCfg *qp_cfg = &qp_cfg_base[index];
 
@@ -418,32 +411,24 @@ static void set_roi_qp_cfg(void *buf, uint32_t index, Vepu541RoiCfg *cfg) {
     qp_cfg->qp_area_idx = cfg->qp_area_idx;
 }
 
-#define set_roi_cu8_qp_cfg(buf, index, cfg) \
-    do { \
-        uint32_t offset = index; \
-        set_roi_qp_cfg(buf, offset, cfg); \
-    } while(0)
+void set_roi_cu8_qp_cfg(uint8_t *buf, uint32_t index, Vepu541RoiCfg *cfg) {
+    uint32_t offset = index;
+    set_roi_qp_cfg(buf, offset, cfg);
+}
 
-#define set_roi_cu16_qp_cfg(buf, index, cfg) \
-    do { \
-        uint32_t offset = 64 + index; \
-        set_roi_qp_cfg(buf, offset, cfg); \
-    } while(0)
+void set_roi_cu16_qp_cfg(uint8_t *buf, uint32_t index, Vepu541RoiCfg *cfg) {
+    uint32_t offset = 64 + index;
+    set_roi_qp_cfg(buf, offset, cfg);
+}
 
-#define set_roi_cu32_qp_cfg(buf, index, cfg) \
-    do { \
-        uint32_t offset = 80 + index; \
-        set_roi_qp_cfg(buf, offset, cfg); \
-    } while(0)
+void set_roi_cu32_qp_cfg(uint8_t *buf, uint32_t index, Vepu541RoiCfg *cfg) {
+    uint32_t offset = 80 + index;
+    set_roi_qp_cfg(buf, offset, cfg);
+}
 
-#define set_roi_cu64_qp_cfg(buf, cfg) \
-    do { \
-        uint32_t offset = 84; \
-        set_roi_qp_cfg(buf, offset, cfg); \
-    } while(0)
-
-void set_roi_amv(uint32_t *buf, Vepu580RoiH265BsCfg val) {
-    set_roi_pos_val(buf, 511, val.amv_en);
+void set_roi_cu64_qp_cfg(uint8_t *buf, Vepu541RoiCfg *cfg) {
+    uint32_t offset = 84;
+    set_roi_qp_cfg(buf, offset, cfg);
 }
 
 static MPP_RET gen_vepu580_roi_h264(MppEncRoiImpl *ctx) {
@@ -462,8 +447,8 @@ static MPP_RET gen_vepu580_roi_h264(MppEncRoiImpl *ctx) {
     if (!src || !dst_qp || !dst_base)
         return MPP_NOK;
 
-    memset(dst_base, 0, roi_buf_size);
-    memset(dst_qp, 0, roi_qp_size);
+    std::ignore = memset(dst_base, 0, roi_buf_size);
+    std::ignore = memset(dst_qp, 0, roi_qp_size);
 
     for (j = 0; j < mb_h; j++) {
         for (k = 0; k < stride_h; k++) {
@@ -527,8 +512,8 @@ static MPP_RET gen_vepu580_roi_h265(MppEncRoiImpl *ctx) {
     if (!src || !dst_qp || !dst_base)
         return MPP_NOK;
 
-    memset(dst_qp, 0, roi_qp_size);
-    memset(dst_base, 0, roi_buf_size);
+    std::ignore = memset(dst_qp, 0, roi_qp_size);
+    std::ignore = memset(dst_base, 0, roi_buf_size);
 
     for (j = 0; j < ctu_h; j++) {
         for (k = 0; k < ctu_w; k++) {
@@ -544,7 +529,7 @@ static MPP_RET gen_vepu580_roi_h265(MppEncRoiImpl *ctx) {
                     Vepu541RoiCfg *cu16_cfg = NULL;
                     Vepu580RoiH265BsCfg val;
 
-                    memset(&val, 0, sizeof(val));
+                    std::ignore = memset(&val, 0, sizeof(val));
                     cu16_x = cu16cnt & 3;
                     cu16_y = cu16cnt / 4;
                     cu16_x += k * 4;
@@ -616,7 +601,7 @@ MPP_RET mpp_enc_roi_init(MppEncRoiCtx *ctx, int32_t w, int32_t h, MppCodingType 
     C2ChipType chip_type = C2RKChipCapDef::get()->getChipType();
     RoiType roi_type = ROI_TYPE_AUTO;
     MppEncRoiImpl *impl = NULL;
-    MPP_RET ret = MPP_NOK;
+    MPP_RET err = MPP_NOK;
 
     switch (chip_type) {
     case RK_CHIP_1126 :
@@ -657,10 +642,15 @@ MPP_RET mpp_enc_roi_init(MppEncRoiCtx *ctx, int32_t w, int32_t h, MppCodingType 
         Log.D("set to vepu54x roi generation");
 
         impl->base_cfg_size = stride_h * stride_v * sizeof(Vepu541RoiCfg);
-        mpp_buffer_group_get_internal(&impl->roi_grp, MPP_BUFFER_TYPE_ION | MPP_BUFFER_FLAGS_CACHABLE);
-
-        mpp_buffer_get(impl->roi_grp, &impl->roi_cfg.base_cfg_buf, impl->base_cfg_size);
-        if (!impl->roi_cfg.base_cfg_buf) {
+        err = mpp_buffer_group_get_internal(
+                &impl->roi_grp, MPP_BUFFER_TYPE_ION | MPP_BUFFER_FLAGS_CACHABLE);
+        if (err != MPP_OK) {
+            Log.PostError("mpp_buffer_group_get_internal", err);
+            goto done;
+        }
+        err = mpp_buffer_get(impl->roi_grp, &impl->roi_cfg.base_cfg_buf, impl->base_cfg_size);
+        if (err != MPP_OK) {
+            Log.PostError("mpp_buffer_get", err);
             goto done;
         }
         impl->dst_base = mpp_buffer_get_ptr(impl->roi_cfg.base_cfg_buf);
@@ -679,7 +669,7 @@ MPP_RET mpp_enc_roi_init(MppEncRoiCtx *ctx, int32_t w, int32_t h, MppCodingType 
                 goto done;
         }
 
-        ret = MPP_OK;
+        err = MPP_OK;
     } break;
     case ROI_TYPE_2 : {
         if (type == MPP_VIDEO_CodingHEVC) {
@@ -707,24 +697,33 @@ MPP_RET mpp_enc_roi_init(MppEncRoiCtx *ctx, int32_t w, int32_t h, MppCodingType 
         Log.D("set to vepu58x roi generation");
 
         impl->roi_cfg.roi_qp_en = 1;
-        mpp_buffer_group_get_internal(&impl->roi_grp, MPP_BUFFER_TYPE_ION | MPP_BUFFER_FLAGS_CACHABLE);
-        mpp_buffer_get(impl->roi_grp, &impl->roi_cfg.base_cfg_buf, impl->base_cfg_size);
-        if (!impl->roi_cfg.base_cfg_buf) {
+        err = mpp_buffer_group_get_internal(
+                &impl->roi_grp, MPP_BUFFER_TYPE_ION | MPP_BUFFER_FLAGS_CACHABLE);
+        if (err != MPP_OK) {
+            Log.PostError("mpp_buffer_group_get_internal", err);
+            goto done;
+        }
+        err = mpp_buffer_get(impl->roi_grp, &impl->roi_cfg.base_cfg_buf, impl->base_cfg_size);
+        if (err != MPP_OK) {
+            Log.PostError("mpp_buffer_get", err);
             goto done;
         }
         impl->dst_base = mpp_buffer_get_ptr(impl->roi_cfg.base_cfg_buf);
-        mpp_buffer_get(impl->roi_grp, &impl->roi_cfg.qp_cfg_buf, impl->qp_cfg_size);
-        if (!impl->roi_cfg.qp_cfg_buf) {
+        err = mpp_buffer_get(impl->roi_grp, &impl->roi_cfg.qp_cfg_buf, impl->qp_cfg_size);
+        if (err != MPP_OK) {
+            Log.PostError("mpp_buffer_get", err);
             goto done;
         }
         impl->dst_qp = mpp_buffer_get_ptr(impl->roi_cfg.qp_cfg_buf);
-        mpp_buffer_get(impl->roi_grp, &impl->roi_cfg.amv_cfg_buf, impl->amv_cfg_size);
-        if (!impl->roi_cfg.amv_cfg_buf) {
+        err = mpp_buffer_get(impl->roi_grp, &impl->roi_cfg.amv_cfg_buf, impl->amv_cfg_size);
+        if (err != MPP_OK) {
+            Log.PostError("mpp_buffer_get", err);
             goto done;
         }
         impl->dst_amv = mpp_buffer_get_ptr(impl->roi_cfg.amv_cfg_buf);
-        mpp_buffer_get(impl->roi_grp, &impl->roi_cfg.mv_cfg_buf, impl->mv_cfg_size);
-        if (!impl->roi_cfg.mv_cfg_buf) {
+        err = mpp_buffer_get(impl->roi_grp, &impl->roi_cfg.mv_cfg_buf, impl->mv_cfg_size);
+        if (err != MPP_OK) {
+            Log.PostError("mpp_buffer_get", err);
             goto done;
         }
         impl->dst_mv = mpp_buffer_get_ptr(impl->roi_cfg.mv_cfg_buf);
@@ -740,19 +739,19 @@ MPP_RET mpp_enc_roi_init(MppEncRoiCtx *ctx, int32_t w, int32_t h, MppCodingType 
             if (!impl->tmp)
                 goto done;
         }
-        ret = MPP_OK;
+        err = MPP_OK;
     } break;
     case ROI_TYPE_LEGACY : {
         impl->legacy_roi_region = _CALLOC(MppEncROIRegion, MPP_MAX_ROI_REGION_COUNT);
         impl->legacy_roi_cfg.regions = impl->legacy_roi_region;
-        ret = MPP_OK;
+        err = MPP_OK;
     } break;
     default : {
     } break;
     }
 
 done:
-    if (ret) {
+    if (err) {
         if (impl) {
             mpp_enc_roi_deinit(impl);
             impl = NULL;
@@ -760,35 +759,35 @@ done:
     }
 
     *ctx = impl;
-    return ret;
+    return err;
 }
 
-MPP_RET mpp_enc_roi_deinit(MppEncRoiCtx ctx) {
+void mpp_enc_roi_deinit(MppEncRoiCtx ctx) {
     MppEncRoiImpl *impl = (MppEncRoiImpl *)ctx;
 
     if (!impl)
-        return MPP_OK;
+        return;
 
     if (impl->roi_cfg.base_cfg_buf) {
-        mpp_buffer_put(impl->roi_cfg.base_cfg_buf);
+        std::ignore = mpp_buffer_put(impl->roi_cfg.base_cfg_buf);
         impl->roi_cfg.base_cfg_buf = NULL;
     }
 
     if (impl->roi_cfg.qp_cfg_buf) {
-        mpp_buffer_put(impl->roi_cfg.qp_cfg_buf);
+        std::ignore = mpp_buffer_put(impl->roi_cfg.qp_cfg_buf);
         impl->roi_cfg.qp_cfg_buf = NULL;
     }
     if (impl->roi_cfg.amv_cfg_buf) {
-        mpp_buffer_put(impl->roi_cfg.amv_cfg_buf);
+        std::ignore = mpp_buffer_put(impl->roi_cfg.amv_cfg_buf);
         impl->roi_cfg.amv_cfg_buf = NULL;
     }
     if (impl->roi_cfg.mv_cfg_buf) {
-        mpp_buffer_put(impl->roi_cfg.mv_cfg_buf);
+        std::ignore = mpp_buffer_put(impl->roi_cfg.mv_cfg_buf);
         impl->roi_cfg.mv_cfg_buf = NULL;
     }
 
     if (impl->roi_grp) {
-        mpp_buffer_group_put(impl->roi_grp);
+        std::ignore = mpp_buffer_group_put(impl->roi_grp);
         impl->roi_grp = NULL;
     }
     _FREE(impl->cu_map);
@@ -796,61 +795,95 @@ MPP_RET mpp_enc_roi_deinit(MppEncRoiCtx ctx) {
     _FREE(impl->regions);
     _FREE(impl->tmp);
     _FREE(impl);
-
-    return MPP_OK;
 }
 
 MPP_RET mpp_enc_roi_add_region(MppEncRoiCtx ctx, RoiRegionCfg *region) {
     MppEncRoiImpl *impl = (MppEncRoiImpl *)ctx;
 
     if (impl->count >= impl->max_count) {
-        Log.E("can not add more region with max %d\n", impl->max_count);
+        Log.E("can not add more region with max %d", impl->max_count);
         return MPP_NOK;
     }
 
-    memcpy(impl->regions + impl->count, region, sizeof(*impl->regions));
+    std::ignore = memcpy(impl->regions + impl->count, region, sizeof(*impl->regions));
     impl->count++;
 
     return MPP_OK;
 }
 
 MPP_RET mpp_enc_roi_setup_meta(MppEncRoiCtx ctx, MppMeta meta) {
+    MPP_RET err = MPP_NOK;
     MppEncRoiImpl *impl = (MppEncRoiImpl *)ctx;
 
     switch (impl->roi_type) {
     case ROI_TYPE_1 : {
         switch (impl->type) {
         case MPP_VIDEO_CodingAVC : {
-            gen_vepu54x_roi(impl, (Vepu541RoiCfg *)impl->dst_base);
+            err = gen_vepu54x_roi(impl, (Vepu541RoiCfg *)impl->dst_base);
+            if (err != MPP_OK) {
+                Log.PostError("gen_vepu54x_roi", err);
+                return err;
+            }
         } break;
         case MPP_VIDEO_CodingHEVC : {
-            gen_vepu54x_roi(impl, impl->tmp);
+            err = gen_vepu54x_roi(impl, impl->tmp);
+            if (err != MPP_OK) {
+                Log.PostError("gen_vepu54x_roi", err);
+                return err;
+            }
             vepu54x_h265_set_roi(impl->dst_base, impl->tmp, impl->w, impl->h);
         } break;
         default : {
         } break;
         }
 
-        mpp_meta_set_ptr(meta, KEY_ROI_DATA2, (void*)&impl->roi_cfg);
-        dma_sync_cpu_to_device(mpp_buffer_get_fd(impl->roi_cfg.base_cfg_buf));
+        err = mpp_meta_set_ptr(meta, KEY_ROI_DATA2, (void*)&impl->roi_cfg);
+        if (err != MPP_OK) {
+            Log.PostError("mpp_meta_set_ptr", err);
+            return err;
+        }
+        if (!dma_sync_cpu_to_device(mpp_buffer_get_fd(impl->roi_cfg.base_cfg_buf))) {
+            Log.PostError("dma_sync_cpu_to_device", -1);
+        }
     } break;
     case ROI_TYPE_2 : {
-        gen_vepu54x_roi(impl, impl->tmp);
+        err = gen_vepu54x_roi(impl, impl->tmp);
+        if (err != MPP_OK) {
+            Log.PostError("gen_vepu54x_roi", err);
+            return err;
+        }
 
         switch (impl->type) {
         case MPP_VIDEO_CodingAVC : {
-            gen_vepu580_roi_h264(impl);
+            err = gen_vepu580_roi_h264(impl);
+            if (err != MPP_OK) {
+                Log.PostError("gen_vepu580_roi_h264", err);
+                return err;
+            }
         } break;
         case MPP_VIDEO_CodingHEVC : {
-            gen_vepu580_roi_h265(impl);
+            err = gen_vepu580_roi_h265(impl);
+            if (err != MPP_OK) {
+                Log.PostError("gen_vepu580_roi_h265", err);
+                return err;
+            }
         } break;
         default : {
         } break;
         }
 
-        mpp_meta_set_ptr(meta, KEY_ROI_DATA2, (void*)&impl->roi_cfg);
-        dma_sync_cpu_to_device(mpp_buffer_get_fd(impl->roi_cfg.base_cfg_buf));
-        dma_sync_cpu_to_device(mpp_buffer_get_fd(impl->roi_cfg.qp_cfg_buf));
+        err = mpp_meta_set_ptr(meta, KEY_ROI_DATA2, (void*)&impl->roi_cfg);
+        if (err != MPP_OK) {
+            Log.PostError("mpp_meta_set_ptr", err);
+            return err;
+        }
+
+        if (!dma_sync_cpu_to_device(mpp_buffer_get_fd(impl->roi_cfg.base_cfg_buf))) {
+            Log.PostError("dma_sync_cpu_to_device", -1);
+        }
+        if (!dma_sync_cpu_to_device(mpp_buffer_get_fd(impl->roi_cfg.qp_cfg_buf))) {
+            Log.PostError("dma_sync_cpu_to_device", -1);
+        }
     } break;
     case ROI_TYPE_LEGACY : {
         MppEncROIRegion *region = impl->legacy_roi_region;
@@ -874,7 +907,11 @@ MPP_RET mpp_enc_roi_setup_meta(MppEncRoiCtx ctx, MppMeta meta) {
         roi_cfg->number = impl->count;
         roi_cfg->regions = region;
 
-        mpp_meta_set_ptr(meta, KEY_ROI_DATA, (void*)roi_cfg);
+        err = mpp_meta_set_ptr(meta, KEY_ROI_DATA, (void*)roi_cfg);
+        if (err != MPP_OK) {
+            Log.PostError("mpp_meta_set_ptr", err);
+            return err;
+        }
     } break;
     default : {
     } break;

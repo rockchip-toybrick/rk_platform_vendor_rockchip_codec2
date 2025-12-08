@@ -20,6 +20,8 @@
 #include <ui/GraphicBufferMapper.h>
 #include <ui/GraphicBufferAllocator.h>
 #include <cutils/properties.h>
+#include <chrono>
+#include <thread>
 
 #include "mpp_rc_api.h"
 
@@ -41,6 +43,8 @@
 
 namespace android {
 
+using std::ignore;
+
 C2_LOGGER_ENABLE("C2RKMpiEnc");
 
 void ParseGop(
@@ -56,14 +60,14 @@ void ParseGop(
         } else if (syncInt <= UINT32_MAX / (layer.count + 1)) {
             syncInt *= (layer.count + 1);
         }
-        if ((layer.type_ & I_FRAME) == 0) {
+        if ((layer.type_ & C2Config::I_FRAME) == 0) {
             if (layer.count == UINT32_MAX) {
                 iInt = 0;
             } else if (iInt <= UINT32_MAX / (layer.count + 1)) {
                 iInt *= (layer.count + 1);
             }
         }
-        if (layer.type_ == C2Config::picture_type_t(P_FRAME | B_FRAME) && maxBframes) {
+        if (layer.type_ == (C2Config::P_FRAME | C2Config::B_FRAME) && maxBframes) {
             *maxBframes = layer.count;
         }
     }
@@ -183,9 +187,9 @@ public:
                 .withDefault(C2StreamPictureQuantizationTuning::output::AllocShared(
                         0 /* flexCount */, 0u /* stream */))
                 .withFields({C2F(mPictureQuantization, m.values[0].type_).oneOf(
-                                {C2Config::picture_type_t(I_FRAME),
-                                 C2Config::picture_type_t(P_FRAME),
-                                 C2Config::picture_type_t(B_FRAME)}),
+                                {C2Config::I_FRAME,
+                                 C2Config::P_FRAME,
+                                 C2Config::B_FRAME}),
                              C2F(mPictureQuantization, m.values[0].min).any(),
                              C2F(mPictureQuantization, m.values[0].max).any()})
                 .withSetter(PictureQuantizationSetter)
@@ -243,16 +247,20 @@ public:
             addParameter(
                     DefineParam(mProfileLevel, C2_PARAMKEY_PROFILE_LEVEL)
                     .withDefault(new C2StreamProfileLevelInfo::output(
-                            0u, PROFILE_AVC_BASELINE, LEVEL_AVC_3_1))
+                            0u, C2Config::PROFILE_AVC_BASELINE, C2Config::LEVEL_AVC_3_1))
                     .withFields({
                         C2F(mProfileLevel, profile).oneOf({
-                            PROFILE_AVC_BASELINE, PROFILE_AVC_MAIN, PROFILE_AVC_HIGH,
+                            C2Config::PROFILE_AVC_BASELINE,
+                            C2Config::PROFILE_AVC_MAIN,
+                            C2Config::PROFILE_AVC_HIGH,
                         }),
                         C2F(mProfileLevel, level).oneOf({
-                            LEVEL_AVC_1,   LEVEL_AVC_1B,  LEVEL_AVC_1_1,  LEVEL_AVC_1_2,
-                            LEVEL_AVC_1_3, LEVEL_AVC_2,   LEVEL_AVC_2_1,  LEVEL_AVC_2_2,
-                            LEVEL_AVC_3,   LEVEL_AVC_3_1, LEVEL_AVC_3_2,  LEVEL_AVC_4,
-                            LEVEL_AVC_4_1, LEVEL_AVC_4_2, LEVEL_AVC_5,    LEVEL_AVC_5_1,
+                            C2Config::LEVEL_AVC_1,   C2Config::LEVEL_AVC_1B,  C2Config::LEVEL_AVC_1_1,
+                            C2Config::LEVEL_AVC_1_2, C2Config::LEVEL_AVC_1_3, C2Config::LEVEL_AVC_2,
+                            C2Config::LEVEL_AVC_2_1, C2Config::LEVEL_AVC_2_2, C2Config::LEVEL_AVC_3,
+                            C2Config::LEVEL_AVC_3_1, C2Config::LEVEL_AVC_3_2, C2Config::LEVEL_AVC_4,
+                            C2Config::LEVEL_AVC_4_1, C2Config::LEVEL_AVC_4_2, C2Config::LEVEL_AVC_5,
+                            C2Config::LEVEL_AVC_5_1,
                         }),
                     })
                     .withSetter(AVCProfileLevelSetter, mSize, mFrameRate, mBitrate)
@@ -261,15 +269,17 @@ public:
             addParameter(
                     DefineParam(mProfileLevel, C2_PARAMKEY_PROFILE_LEVEL)
                     .withDefault(new C2StreamProfileLevelInfo::output(
-                            0u, PROFILE_HEVC_MAIN, LEVEL_HEVC_MAIN_4_1))
+                            0u, C2Config::PROFILE_HEVC_MAIN, C2Config::LEVEL_HEVC_MAIN_4_1))
                     .withFields({
                         C2F(mProfileLevel, profile).oneOf({
-                            PROFILE_HEVC_MAIN,
+                            C2Config::PROFILE_HEVC_MAIN,
                         }),
                         C2F(mProfileLevel, level).oneOf({
-                            LEVEL_HEVC_MAIN_1,   LEVEL_HEVC_MAIN_2,   LEVEL_HEVC_MAIN_2_1,
-                            LEVEL_HEVC_MAIN_3,   LEVEL_HEVC_MAIN_3_1, LEVEL_HEVC_MAIN_4,
-                            LEVEL_HEVC_MAIN_4_1, LEVEL_HEVC_MAIN_5,   LEVEL_HEVC_MAIN_5_1,
+                            C2Config::LEVEL_HEVC_MAIN_1,   C2Config::LEVEL_HEVC_MAIN_2,
+                            C2Config::LEVEL_HEVC_MAIN_2_1, C2Config::LEVEL_HEVC_MAIN_3,
+                            C2Config::LEVEL_HEVC_MAIN_3_1, C2Config::LEVEL_HEVC_MAIN_4,
+                            C2Config::LEVEL_HEVC_MAIN_4_1, C2Config::LEVEL_HEVC_MAIN_5,
+                            C2Config::LEVEL_HEVC_MAIN_5_1,
                         }),
                     })
                     .withSetter(HEVCProfileLevelSetter, mSize, mFrameRate, mBitrate)
@@ -372,7 +382,7 @@ public:
                 .withSetter(Setter<decltype(*mTimeStretch)>::StrictValueWithNoDeps)
                 .build());
 
-        /* extend parameter definition */
+        // extend parameter definition
         addParameter(
                 DefineParam(mSceneMode, C2_PARAMKEY_ENC_SCENE_MODE)
                 .withDefault(new C2StreamEncSceneModeInfo::input(0))
@@ -681,14 +691,6 @@ public:
         return C2R::Ok();
     }
 
-    uint32_t getSyncFramePeriod_l() const {
-        if (mSyncFramePeriod->value < 0 || mSyncFramePeriod->value == INT64_MAX) {
-            return 0;
-        }
-        double period = mSyncFramePeriod->value / 1e6 * mFrameRate->value;
-        return (uint32_t)c2_max(c2_min(period + 0.5, double(UINT32_MAX)), 1.);
-    }
-
     static C2R AVCProfileLevelSetter(
             bool mayBlock,
             C2P<C2StreamProfileLevelInfo::output> &me,
@@ -697,7 +699,7 @@ public:
             const C2P<C2StreamBitrateInfo::output> &bitrate) {
         (void)mayBlock;
         if (!me.F(me.v.profile).supportsAtAll(me.v.profile)) {
-            me.set().profile = PROFILE_AVC_MAIN;
+            me.set().profile = C2Config::PROFILE_AVC_MAIN;
         }
 
         struct LevelLimits {
@@ -707,22 +709,22 @@ public:
             uint32_t bitrate;
         };
         constexpr LevelLimits kLimits[] = {
-            { LEVEL_AVC_1,     1485,    99,     64000 },
+            { C2Config::LEVEL_AVC_1,     1485,    99,     64000 },
             // Decoder does not properly handle level 1b.
             // { LEVEL_AVC_1B,    1485,   99,   128000 },
-            { LEVEL_AVC_1_1,   3000,   396,    192000 },
-            { LEVEL_AVC_1_2,   6000,   396,    384000 },
-            { LEVEL_AVC_1_3,  11880,   396,    768000 },
-            { LEVEL_AVC_2,    11880,   396,   2000000 },
-            { LEVEL_AVC_2_1,  19800,   792,   4000000 },
-            { LEVEL_AVC_2_2,  20250,  1620,   4000000 },
-            { LEVEL_AVC_3,    40500,  1620,  10000000 },
-            { LEVEL_AVC_3_1, 108000,  3600,  14000000 },
-            { LEVEL_AVC_3_2, 216000,  5120,  20000000 },
-            { LEVEL_AVC_4,   245760,  8192,  20000000 },
-            { LEVEL_AVC_4_1, 245760,  8192,  50000000 },
-            { LEVEL_AVC_4_2, 522240,  8704,  50000000 },
-            { LEVEL_AVC_5,   589824, 22080, 135000000 },
+            { C2Config::LEVEL_AVC_1_1,   3000,   396,    192000 },
+            { C2Config::LEVEL_AVC_1_2,   6000,   396,    384000 },
+            { C2Config::LEVEL_AVC_1_3,  11880,   396,    768000 },
+            { C2Config::LEVEL_AVC_2,    11880,   396,   2000000 },
+            { C2Config::LEVEL_AVC_2_1,  19800,   792,   4000000 },
+            { C2Config::LEVEL_AVC_2_2,  20250,  1620,   4000000 },
+            { C2Config::LEVEL_AVC_3,    40500,  1620,  10000000 },
+            { C2Config::LEVEL_AVC_3_1, 108000,  3600,  14000000 },
+            { C2Config::LEVEL_AVC_3_2, 216000,  5120,  20000000 },
+            { C2Config::LEVEL_AVC_4,   245760,  8192,  20000000 },
+            { C2Config::LEVEL_AVC_4_1, 245760,  8192,  50000000 },
+            { C2Config::LEVEL_AVC_4_2, 522240,  8704,  50000000 },
+            { C2Config::LEVEL_AVC_5,   589824, 22080, 135000000 },
         };
 
         uint64_t mbs = uint64_t((size.v.width + 15) / 16) * ((size.v.height + 15) / 16);
@@ -736,7 +738,8 @@ public:
         // the requirements. For Level 1b, we want to update the level anyway,
         // so we set it to true in that case.
         bool needsUpdate = false;
-        if (me.v.level == LEVEL_AVC_1B || !me.F(me.v.level).supportsAtAll(me.v.level)) {
+        if (me.v.level == C2Config::LEVEL_AVC_1B ||
+                !me.F(me.v.level).supportsAtAll(me.v.level)) {
             needsUpdate = true;
         }
         for (const LevelLimits &limit : kLimits) {
@@ -760,9 +763,9 @@ public:
                 needsUpdate = true;
             }
         }
-        if (!found || me.v.level > LEVEL_AVC_5) {
+        if (!found || me.v.level > C2Config::LEVEL_AVC_5) {
             // We set to the highest supported level.
-            me.set().level = LEVEL_AVC_5;
+            me.set().level = C2Config::LEVEL_AVC_5;
         }
 
         return C2R::Ok();
@@ -776,7 +779,7 @@ public:
             const C2P<C2StreamBitrateInfo::output> &bitrate) {
         (void)mayBlock;
         if (!me.F(me.v.profile).supportsAtAll(me.v.profile)) {
-            me.set().profile = PROFILE_HEVC_MAIN;
+            me.set().profile = C2Config::PROFILE_HEVC_MAIN;
         }
 
         struct LevelLimits {
@@ -787,19 +790,19 @@ public:
         };
 
         constexpr LevelLimits kLimits[] = {
-            { LEVEL_HEVC_MAIN_1,       552960,    36864,    128000 },
-            { LEVEL_HEVC_MAIN_2,      3686400,   122880,   1500000 },
-            { LEVEL_HEVC_MAIN_2_1,    7372800,   245760,   3000000 },
-            { LEVEL_HEVC_MAIN_3,     16588800,   552960,   6000000 },
-            { LEVEL_HEVC_MAIN_3_1,   33177600,   983040,  10000000 },
-            { LEVEL_HEVC_MAIN_4,     66846720,  2228224,  12000000 },
-            { LEVEL_HEVC_MAIN_4_1,  133693440,  2228224,  20000000 },
-            { LEVEL_HEVC_MAIN_5,    267386880,  8912896,  25000000 },
-            { LEVEL_HEVC_MAIN_5_1,  534773760,  8912896,  40000000 },
-            { LEVEL_HEVC_MAIN_5_2, 1069547520,  8912896,  60000000 },
-            { LEVEL_HEVC_MAIN_6,   1069547520, 35651584,  60000000 },
-            { LEVEL_HEVC_MAIN_6_1, 2139095040, 35651584, 120000000 },
-            { LEVEL_HEVC_MAIN_6_2, 4278190080, 35651584, 240000000 },
+            { C2Config::LEVEL_HEVC_MAIN_1,       552960,    36864,    128000 },
+            { C2Config::LEVEL_HEVC_MAIN_2,      3686400,   122880,   1500000 },
+            { C2Config::LEVEL_HEVC_MAIN_2_1,    7372800,   245760,   3000000 },
+            { C2Config::LEVEL_HEVC_MAIN_3,     16588800,   552960,   6000000 },
+            { C2Config::LEVEL_HEVC_MAIN_3_1,   33177600,   983040,  10000000 },
+            { C2Config::LEVEL_HEVC_MAIN_4,     66846720,  2228224,  12000000 },
+            { C2Config::LEVEL_HEVC_MAIN_4_1,  133693440,  2228224,  20000000 },
+            { C2Config::LEVEL_HEVC_MAIN_5,    267386880,  8912896,  25000000 },
+            { C2Config::LEVEL_HEVC_MAIN_5_1,  534773760,  8912896,  40000000 },
+            { C2Config::LEVEL_HEVC_MAIN_5_2, 1069547520,  8912896,  40000000 },
+            { C2Config::LEVEL_HEVC_MAIN_6,   1069547520, 35651584,  60000000 },
+            { C2Config::LEVEL_HEVC_MAIN_6_1, 2139095040, 35651584, 120000000 },
+            { C2Config::LEVEL_HEVC_MAIN_6_2, 4278190080, 35651584, 240000000 },
         };
 
         uint64_t samples = size.v.width * size.v.height;
@@ -1017,6 +1020,14 @@ public:
         return C2R::Ok();
     }
 
+    uint32_t getSyncFramePeriod_l() const {
+        if (mSyncFramePeriod->value < 0 || mSyncFramePeriod->value == INT64_MAX) {
+            return 0;
+        }
+        double period = mSyncFramePeriod->value / 1e6 * mFrameRate->value;
+        return (uint32_t)c2_max(c2_min(period + 0.5, double(UINT32_MAX)), 1.);
+    }
+
     uint32_t getProfile_l(MppCodingType type) const {
         uint32_t cProfile = mProfileLevel->profile;
         uint32_t mProfile = mMlvecParams->profileLevel->profile;
@@ -1172,30 +1183,25 @@ private:
     std::shared_ptr<MlvecParams> mMlvecParams;
 };
 
-status_t postAndAwaitResponse(const sp<AMessage> &msg) {
+void postAndAwaitResponse(const sp<AMessage> &msg) {
     sp<AMessage> response;
-    status_t err = msg->postAndAwaitResponse(&response);
-    if (err != OK) {
-        return err;
-    }
+    CHECK_EQ(msg->postAndAwaitResponse(&response), OK);
+
+    status_t err = OK;
     if (!response->findInt32("err", &err)) {
         err = OK;
     }
 
-    return err;
+    CHECK_EQ(err, OK);
 }
 
 void postReplyWithError(const sp<AMessage> &msg, int32_t err) {
     sp<AReplyToken> replyID;
-    msg->senderAwaitsResponse(&replyID);
+    CHECK(msg->senderAwaitsResponse(&replyID));
 
     sp<AMessage> response = new AMessage;
     response->setInt32("err", err);
-    response->postReply(replyID);
-}
-
-void C2RKMpiEnc::WorkHandler::setComponent(C2RKMpiEnc *thiz) {
-    mThiz = thiz;
+    CHECK_EQ(response->postReply(replyID), OK);
 }
 
 void C2RKMpiEnc::WorkHandler::startWork() {
@@ -1212,21 +1218,19 @@ void C2RKMpiEnc::WorkHandler::stopWork() {
 void C2RKMpiEnc::WorkHandler::onMessageReceived(const sp<AMessage> &msg) {
     switch (msg->what()) {
         case kWhatDrainWork: {
-            if (mRunning && mThiz) {
-                int32_t err = mThiz->onDrainWork();
-                if (err == C2_CORRUPTED) {
+            if (mRunning) {
+                std::shared_ptr<C2RKMpiEnc> thiz = mThiz.lock();
+                CHECK(thiz);
+
+                if (thiz->onDrainWork() == C2_CORRUPTED) {
+                    Log.E("Error DrainWork, stoping work looper...");
                     mRunning = false;
-                    Log.E("got error, quit work looper");
                 }
-            } else {
-                Log.D("Ignore process message as we're not running");
             }
         } break;
         case kWhatStop: {
-            mRunning = false;
-
             /* post response */
-            postReplyWithError(msg, C2_OK);
+            postReplyWithError(msg, OK);
         } break;
         default: {
             Log.E("Unrecognized msg: %d", msg->what());
@@ -1236,32 +1240,39 @@ void C2RKMpiEnc::WorkHandler::onMessageReceived(const sp<AMessage> &msg) {
 
 class C2RKSessionCallbackImpl : public C2RKSessionCallback {
 public:
-    explicit C2RKSessionCallbackImpl(C2RKMpiEnc *thiz) : mThiz(thiz) {}
+    explicit C2RKSessionCallbackImpl(const std::shared_ptr<C2RKMpiEnc> &thiz)
+        : mThiz(thiz) {}
     ~C2RKSessionCallbackImpl() override = default;
 
+    /* TODO: handle session error */
     void onError(const char *error) override {
-        Log.E("got session error %s", error);
+        (void)error;
     }
 
     void onResultReady(ImageBuffer *srcImage, void *result) override {
-        mThiz->onDetectResultReady(srcImage, result);
+        if (auto thiz = mThiz.lock()) {
+            ignore = thiz->onDetectResultReady(srcImage, result);
+        }
     }
 
 private:
-    C2RKMpiEnc *mThiz;
+    std::weak_ptr<C2RKMpiEnc> mThiz;
 };
 
 class C2EncNodeInfoListener : public C2NodeInfoListener {
 public:
-    explicit C2EncNodeInfoListener(C2RKMpiEnc *thiz) : mThiz(thiz) {}
+    explicit C2EncNodeInfoListener(const std::shared_ptr<C2RKMpiEnc> &thiz)
+        : mThiz(thiz) {}
     ~C2EncNodeInfoListener() override = default;
 
     void onNodeSummaryRequest(std::string &summary) override {
-        mThiz->onNodeSummaryRequest(summary);
+        if (auto thiz = mThiz.lock()) {
+            thiz->onNodeSummaryRequest(summary);
+        }
     }
 
 private:
-    C2RKMpiEnc *mThiz;
+    std::weak_ptr<C2RKMpiEnc> mThiz;
 };
 
 C2RKMpiEnc::C2RKMpiEnc(
@@ -1301,59 +1312,56 @@ C2RKMpiEnc::~C2RKMpiEnc() {
     onRelease();
 
     mDumpService->removeNode(this);
-    mDumpService->dumpNodesSummary();
+    mDumpService->logNodesSummary();
 }
 
 c2_status_t C2RKMpiEnc::setupAndStartLooper() {
     status_t err = OK;
-    if (mLooper == nullptr) {
-        status_t err = OK;
-        mLooper = new ALooper;
-        mHandler = new WorkHandler;
-        mHandler->setComponent(this);
 
+    if (mLooper == nullptr) {
+        mLooper = new ALooper;
+        mHandler = new WorkHandler(
+                std::static_pointer_cast<C2RKMpiEnc>(sharedFromComponent()));
         mLooper->setName("C2EncLooper");
+
         err = mLooper->start();
         if (err == OK) {
-            mLooper->registerHandler(mHandler);
+            ALooper::handler_id id = mLooper->registerHandler(mHandler);
+            Log.D("registerHandler: %d", id);
         }
     }
     return (c2_status_t)err;
 }
 
 c2_status_t C2RKMpiEnc::stopAndReleaseLooper() {
+    status_t err = OK;
+
     if (mLooper != nullptr) {
         if (mHandler != nullptr) {
             mHandler->stopWork();
             mLooper->unregisterHandler(mHandler->id());
             mHandler.clear();
         }
-        mLooper->stop();
+        err = mLooper->stop();
         mLooper.clear();
     }
-    return C2_OK;
+    return (c2_status_t)err;
 }
 
 // Implementation of virtual function from C2NodeInfoListener
 void C2RKMpiEnc::onNodeSummaryRequest(std::string &summary) {
-    const size_t SIZE = 256;
-    char buffer[SIZE];
     int64_t inputFrames = 0;
     int64_t outputFrames = 0;
 
-    snprintf(buffer, sizeof(buffer),
-        "| Component   : %s\n"
-        "| Media Format: %s, %.1f fps\n"
-        "| Resolution  : %dx%d (Stride %dx%d)\n"
-        "| Pixel Format: %s\n"
-        "| Profile     : %s\n",
-        mName, mMime, mFrameRate->value,
-        mSize->width, mSize->height, mHorStride, mVerStride,
-        toStr_Format(mInputMppFmt),
-        toStr_Profile(mIntf->getProfile_l(mCodingType), mCodingType)
-    );
+    std::ostringstream oss;
 
-    summary.append(buffer);
+    oss << "| Component   : " << mName << "\n"
+        << "| Media Format: " << mMime << ", " << mFrameRate->value << " fps\n"
+        << "| Resolution  : " << mSize->width << "x" << mSize->height
+        << " (Stride " << mHorStride << "x" << mVerStride << ")\n"
+        << "| Pixel Format: " << toStr_Format(mInputMppFmt) << "\n"
+        << "| Profile     : "
+        << toStr_Profile(mIntf->getProfile_l(mCodingType), mCodingType) << "\n";
 
     if (mEncCfg) {
         int32_t gop = 0;
@@ -1365,61 +1373,54 @@ void C2RKMpiEnc::onNodeSummaryRequest(std::string &summary) {
 
         ColorAspects sfAspects;
 
-        mpp_enc_cfg_get_s32(mEncCfg, "rc:gop", &gop);
-        mpp_enc_cfg_get_s32(mEncCfg, "rc:mode", &rcMode);
-        mpp_enc_cfg_get_s32(mEncCfg, "rc:bps_target", &bps);
-
-        mpp_enc_cfg_get_s32(mEncCfg, "rc:qp_min", &pMin);
-        mpp_enc_cfg_get_s32(mEncCfg, "rc:qp_max", &pMax);
-        mpp_enc_cfg_get_s32(mEncCfg, "rc:qp_min_i", &iMin);
-        mpp_enc_cfg_get_s32(mEncCfg, "rc:qp_max_i", &iMax);
-        mpp_enc_cfg_get_s32(mEncCfg, "rc:qp_init", &qpInit);
-
-        mpp_enc_cfg_get_s32(mEncCfg, "prep:range", &range);
-        mpp_enc_cfg_get_s32(mEncCfg, "prep:colorprim", &primaries);
-        mpp_enc_cfg_get_s32(mEncCfg, "prep:colortrc", &transfer);
-        mpp_enc_cfg_get_s32(mEncCfg, "prep:colorspace", &coeffs);
+        ignore = mpp_enc_cfg_get_s32(mEncCfg, "rc:gop", &gop);
+        ignore = mpp_enc_cfg_get_s32(mEncCfg, "rc:mode", &rcMode);
+        ignore = mpp_enc_cfg_get_s32(mEncCfg, "rc:bps_target", &bps);
+        ignore = mpp_enc_cfg_get_s32(mEncCfg, "rc:qp_min", &pMin);
+        ignore = mpp_enc_cfg_get_s32(mEncCfg, "rc:qp_max", &pMax);
+        ignore = mpp_enc_cfg_get_s32(mEncCfg, "rc:qp_min_i", &iMin);
+        ignore = mpp_enc_cfg_get_s32(mEncCfg, "rc:qp_max_i", &iMax);
+        ignore = mpp_enc_cfg_get_s32(mEncCfg, "rc:qp_init", &qpInit);
+        ignore = mpp_enc_cfg_get_s32(mEncCfg, "prep:range", &range);
+        ignore = mpp_enc_cfg_get_s32(mEncCfg, "prep:colorprim", &primaries);
+        ignore = mpp_enc_cfg_get_s32(mEncCfg, "prep:colortrc", &transfer);
+        ignore = mpp_enc_cfg_get_s32(mEncCfg, "prep:colorspace", &coeffs);
 
         ColorUtils::convertIsoColorAspectsToCodecAspects(
                 primaries, transfer, coeffs, range == 2, sfAspects);
 
-        snprintf(buffer, sizeof(buffer),
-            "| BitRate     : %d kbps (%s)\n"
-            "| GopSize     : %d\n"
-            "| Quality     : Init=%d I-Frame=%d-%d P-Frame=%d-%d\n"
-            "| Color Info  : Range=%d(%s)\n"
-            "|               Primaries=%d(%s)\n"
-            "|               Matrix=%d(%s)\n"
-            "|               Transfer=%d(%s)\n",
-            (bps / 1000), toStr_BitrateMode(rcMode), gop, qpInit,
-            iMin, iMax, pMin, pMax,
-            sfAspects.mRange, asString(sfAspects.mRange),
-            sfAspects.mPrimaries, asString(sfAspects.mPrimaries),
-            sfAspects.mMatrixCoeffs, asString(sfAspects.mMatrixCoeffs),
-            sfAspects.mTransfer, asString(sfAspects.mTransfer)
-        );
-
-        summary.append(buffer);
+        oss << "| BitRate     : " << (bps / 1000) << " kbps ("
+            << toStr_BitrateMode(rcMode) << ")\n"
+            << "| GopSize     : " << gop << "\n"
+            << "| Quality     : Init=" << qpInit << " I-Frame=" << iMin << "-" << iMax
+            << " P-Frame=" << pMin << "-" << pMax << "\n"
+            << "| Color Info  : Range=" << sfAspects.mRange << "("
+            << asString(sfAspects.mRange) << ")\n"
+            << "|               Primaries=" << sfAspects.mPrimaries << "("
+            << asString(sfAspects.mPrimaries) << ")\n"
+            << "|               Matrix=" << sfAspects.mMatrixCoeffs << "("
+            << asString(sfAspects.mMatrixCoeffs) << ")\n"
+            << "|               Transfer=" << sfAspects.mTransfer << "("
+            << asString(sfAspects.mTransfer) << ")\n";
     }
 
     if (mDumpService->getNodePortFrameCount(this, &inputFrames, &outputFrames)
             && inputFrames > 0) {
-        snprintf(buffer, sizeof(buffer),
-            "|\n|--------------Pipeline Runtime State--------------|\n"
-            "| Input Frame : %lld Totals, %lld Encoded\n",
-            (long long)inputFrames, (long long)outputFrames
-        );
-
-        summary.append(buffer);
+        oss << "|\n|--------------Pipeline Runtime State--------------|\n"
+            << "| Input Frame : " << (long long)inputFrames
+            << " Totals, " << (long long)outputFrames << " Encoded\n";
     }
+
+    summary += oss.str();
 }
 
 c2_status_t C2RKMpiEnc::onInit() {
     Log.Enter();
 
-    uint32_t  width = mIntf->getSize_l()->width;
+    uint32_t width  = mIntf->getSize_l()->width;
     uint32_t height = mIntf->getSize_l()->height;
     float frameRate = mIntf->getFrameRate_l()->value;
+    int64_t loading = static_cast<int64_t>(width * height * frameRate);
 
     std::shared_ptr<C2NodeInfo> nodeInfo =
             std::make_shared<C2NodeInfo>(
@@ -1430,32 +1431,43 @@ c2_status_t C2RKMpiEnc::onInit() {
                 frameRate // frameRate
             );
 
-    nodeInfo->setListener(std::make_shared<C2EncNodeInfoListener>(this));
+    nodeInfo->setListener(
+            std::make_shared<C2EncNodeInfoListener>(
+                std::static_pointer_cast<C2RKMpiEnc>(sharedFromComponent())));
 
     if (!mDumpService->addNode(nodeInfo)) {
-        mDumpService->dumpNodesSummary();
+        mDumpService->logNodesSummary();
         return C2_NO_MEMORY;
     }
 
-    if (C2RKChipCapDef::get()->preferDureCoreEncoding(width * height * frameRate) ||
-        C2RKPropsDef::getEncAsncOutputMode() ||
-        mDumpService->hasFeatures(C2_FEATURE_ENC_ASYNC_OUTPUT)) {
-        Log.I("use async output mode");
-        c2_status_t err = setupAndStartLooper();
+    bool loadingPreferred = C2RKChipCapDef::get()->preferDureCoreEncoding(loading);
+    bool propertyEnabled = C2RKPropsDef::getEncAsyncOutputMode();
+    bool featureEnabled = mDumpService->hasFeatures(C2_FEATURE_ENC_ASYNC_OUTPUT);
+
+    if (loadingPreferred || propertyEnabled || featureEnabled) {
+        Log.I("start output work looper");
+        status_t err = setupAndStartLooper();
         if (err != C2_OK) {
-            Log.E("failed to start looper, fallback sync output");
+            Log.PostError("setupAndStartLooper", static_cast<int32_t>(err));
+            return C2_CORRUPTED;
         }
     }
 
     return C2_OK;
 }
 
+c2_status_t C2RKMpiEnc::onFlush_sm() {
+    Log.Enter();
+    return C2_OK;
+}
+
 c2_status_t C2RKMpiEnc::onStop() {
+    Log.Enter();
     return C2_OK;
 }
 
 void C2RKMpiEnc::onReset() {
-    onStop();
+    Log.Enter();
 }
 
 void C2RKMpiEnc::onRelease() {
@@ -1464,43 +1476,14 @@ void C2RKMpiEnc::onRelease() {
 
     Log.Enter();
 
-    /* set flushing state to discard all work output */
-    setFlushingState();
-
-    if (mMppMpi) {
-        mMppMpi->reset(mMppCtx);
+    if (mMppMpi != nullptr) {
+        CHECK(mMppMpi->reset(mMppCtx) == MPP_OK);
     }
 
-    if (mHandler) {
-        stopAndReleaseLooper();
-    }
-
-    if (mBlockPool) {
-        mBlockPool.reset();
-    }
-
-    if (mMdInfo) {
-        mpp_buffer_put(mMdInfo);
-        mMdInfo = nullptr;
-    }
-
-    if (mGroup != nullptr) {
-        mpp_buffer_group_put(mGroup);
-        mGroup = nullptr;
-    }
-
-    if (mEncCfg) {
-        mpp_enc_cfg_deinit(mEncCfg);
-        mEncCfg = nullptr;
-    }
-
-    if (mMppCtx) {
-        mpp_destroy(mMppCtx);
-        mMppCtx = nullptr;
-    }
+    CHECK(stopAndReleaseLooper() == C2_OK);
 
     if (mDmaMem != nullptr) {
-        GraphicBufferAllocator::get().free((buffer_handle_t)mDmaMem->handler);
+        CHECK(GraphicBufferAllocator::get().free((buffer_handle_t)mDmaMem->handler) == OK);
         mDmaMem.reset();
     }
 
@@ -1509,7 +1492,22 @@ void C2RKMpiEnc::onRelease() {
         mRoiCtx = nullptr;
     }
 
-    stopFlushingState();
+    if (mMdInfo != nullptr) {
+        CHECK(mpp_buffer_put(mMdInfo) == MPP_OK);
+        mMdInfo = nullptr;
+    }
+    if (mGroup != nullptr) {
+        CHECK(mpp_buffer_group_put(mGroup) == MPP_OK);
+        mGroup = nullptr;
+    }
+    if (mEncCfg != nullptr) {
+        CHECK(mpp_enc_cfg_deinit(mEncCfg) == MPP_OK);
+        mEncCfg = nullptr;
+    }
+    if (mMppCtx != nullptr) {
+        CHECK(mpp_destroy(mMppCtx) == MPP_OK);
+        mMppCtx = nullptr;
+    }
 
     mStarted = false;
     mInputScalar = false;
@@ -1517,11 +1515,6 @@ void C2RKMpiEnc::onRelease() {
     mSawInputEOS = false;
     mOutputEOS = false;
     mSignalledError = false;
-}
-
-c2_status_t C2RKMpiEnc::onFlush_sm() {
-    Log.Enter();
-    return C2_OK;
 }
 
 c2_status_t C2RKMpiEnc::setupBaseCodec() {
@@ -1533,21 +1526,21 @@ c2_status_t C2RKMpiEnc::setupBaseCodec() {
         mVerStride = C2_ALIGN(mSize->height, 8);
     }
 
-    Log.I("setupBaseCodec: coding %s w %d h %d hor %d ver %d",
-           toStr_Coding(mCodingType), mSize->width, mSize->height, mHorStride, mVerStride);
+    Log.I("setupBaseCodec: coding %s w %d h %d hor %d ver %d", toStr_Coding(mCodingType),
+           mSize->width, mSize->height, mHorStride, mVerStride);
 
-    mpp_enc_cfg_set_s32(mEncCfg, "codec:type", mCodingType);
-    mpp_enc_cfg_set_s32(mEncCfg, "vp8:disable_ivf", 1);
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "codec:type", mCodingType);
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "vp8:disable_ivf", 1);
 
-    mpp_enc_cfg_set_s32(mEncCfg, "prep:width", mSize->width);
-    mpp_enc_cfg_set_s32(mEncCfg, "prep:height", mSize->height);
-    mpp_enc_cfg_set_s32(mEncCfg, "prep:ver_stride", mVerStride);
-    mpp_enc_cfg_set_s32(mEncCfg, "prep:format", mInputMppFmt);
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:width", mSize->width);
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:height", mSize->height);
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:ver_stride", mVerStride);
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:format", mInputMppFmt);
 
     if (mInputMppFmt == MPP_FMT_RGBA8888) {
-        mpp_enc_cfg_set_s32(mEncCfg, "prep:hor_stride", mHorStride * 4);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:hor_stride", mHorStride * 4);
     } else {
-        mpp_enc_cfg_set_s32(mEncCfg, "prep:hor_stride", mHorStride);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:hor_stride", mHorStride);
     }
 
     return C2_OK;
@@ -1566,7 +1559,7 @@ c2_status_t C2RKMpiEnc::setupInputScalar() {
         mSize->height = c2Scalar->height;
 
         // set encoder to new size config
-        setupBaseCodec();
+        ignore = setupBaseCodec();
 
         mInputScalar  = true;
     }
@@ -1590,13 +1583,13 @@ c2_status_t C2RKMpiEnc::setupPreProcess() {
 
         switch (degrees) {
         case 90:
-            mpp_enc_cfg_set_s32(mEncCfg, "prep:rotation", MPP_ENC_ROT_90);
+            ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:rotation", MPP_ENC_ROT_90);
             break;
         case 180:
-            mpp_enc_cfg_set_s32(mEncCfg, "prep:rotation", MPP_ENC_ROT_180);
+            ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:rotation", MPP_ENC_ROT_180);
             break;
         case 270:
-            mpp_enc_cfg_set_s32(mEncCfg, "prep:rotation", MPP_ENC_ROT_270);
+            ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:rotation", MPP_ENC_ROT_270);
             break;
         default:
             Log.W("We only support 0,90,180,270 degree rotation");
@@ -1606,11 +1599,11 @@ c2_status_t C2RKMpiEnc::setupPreProcess() {
 
     if (mirror > 0) {
         Log.I("setupPreProcess: mirroring");
-        mpp_enc_cfg_set_s32(mEncCfg, "prep:mirroring", 1);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:mirroring", 1);
     }
     if (flip > 0) {
         Log.I("setupPreProcess: flip");
-        mpp_enc_cfg_set_s32(mEncCfg, "prep:flip", 1);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:flip", 1);
     }
 
     return C2_OK;
@@ -1637,12 +1630,12 @@ c2_status_t C2RKMpiEnc::setupSuperProcess() {
     int32_t reencTimes = c2SuperProcess->reencTimes;
 
     if (mode > 0 && iThd > 0 && pThd > 0) {
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:super_mode",  mode);
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:super_i_thd", iThd);
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:super_p_thd", pThd);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:super_mode",  mode);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:super_i_thd", iThd);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:super_p_thd", pThd);
 
         if (reencTimes > 0) {
-            mpp_enc_cfg_set_s32(mEncCfg, "rc:max_reenc_times", reencTimes);
+            ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:max_reenc_times", reencTimes);
         }
 
         Log.I("setupSuperProcess, mode %d iThd %d pThd %d reencTimes %d",
@@ -1657,14 +1650,15 @@ c2_status_t C2RKMpiEnc::setupSceneMode() {
 
     std::shared_ptr<C2StreamEncSceneModeInfo::input> c2Mode = mIntf->getSceneMode_l();
 
-    Log.I("setupSceneMode: scene-mode %d", c2Mode->value);
-
     /*
      * scene-mode of encoder, this feature only support on rk3588
      *   - 0: deault none ipc mode
      *   - 1: ipc mode
      */
-    mpp_enc_cfg_set_s32(mEncCfg, "tune:scene_mode", c2Mode->value);
+    if (c2Mode->value > 0) {
+        Log.I("setupSceneMode: scene-mode %d", c2Mode->value);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "tune:scene_mode", c2Mode->value);
+    }
 
     return C2_OK;
 }
@@ -1676,8 +1670,8 @@ c2_status_t C2RKMpiEnc::setupSliceSize() {
 
     if (c2Size->value > 0) {
         Log.I("setupSliceSize: slice-size %d", c2Size->value);
-        mpp_enc_cfg_set_s32(mEncCfg, "split:mode", MPP_ENC_SPLIT_BY_BYTE);
-        mpp_enc_cfg_set_s32(mEncCfg, "split:arg", c2Size->value);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "split:mode", MPP_ENC_SPLIT_BY_BYTE);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "split:arg", c2Size->value);
     }
 
     return C2_OK;
@@ -1724,19 +1718,19 @@ c2_status_t C2RKMpiEnc::setupFrameRate() {
 
     if (gop >= 0xFFFFFF) {
         // Disable IDR in Infinite GOP Mode
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_chg_no_idr", 1);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_chg_no_idr", 1);
         gop = 0;
     }
 
-    mpp_enc_cfg_set_s32(mEncCfg, "rc:gop", gop);
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:gop", gop);
 
     /* fix input / output frame rate */
-    mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_in_flex", 0);
-    mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_in_num", frameRate / c2Stretch->value);
-    mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_in_denorm", 1);
-    mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_out_flex", 0);
-    mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_out_num", frameRate);
-    mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_out_denorm", 1);
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_in_flex", 0);
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_in_num", frameRate / c2Stretch->value);
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_in_denorm", 1);
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_out_flex", 0);
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_out_num", frameRate);
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_out_denorm", 1);
 
     return C2_OK;
 }
@@ -1781,13 +1775,11 @@ c2_status_t C2RKMpiEnc::setupBitRate() {
     Log.I("setupBitRate: mode %s bps %d range [%d:%d:%d]",
            toStr_BitrateMode(bitrateMode), bitrate, bpsMin, bpsTarget, bpsMax);
 
-    mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_target", bpsTarget);
-    mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_max", bpsMax);
-    mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_min", bpsMin);
-
-    if (!mRknnSession) {
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:mode", bitrateMode);
-    }
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_target", bpsTarget);
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_max", bpsMax);
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_min", bpsMin);
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_min", bpsMin);
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:mode", bitrateMode);
 
     return C2_OK;
 }
@@ -1805,17 +1797,17 @@ c2_status_t C2RKMpiEnc::setupProfileParams() {
 
     switch (mCodingType) {
     case MPP_VIDEO_CodingAVC : {
-        mpp_enc_cfg_set_s32(mEncCfg, "h264:profile", profile);
-        mpp_enc_cfg_set_s32(mEncCfg, "h264:level", level);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "h264:profile", profile);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "h264:level", level);
         if (profile >= MPP_H264_HIGH) {
-            mpp_enc_cfg_set_s32(mEncCfg, "h264:cabac_en", 1);
-            mpp_enc_cfg_set_s32(mEncCfg, "h264:cabac_idc", 0);
-            mpp_enc_cfg_set_s32(mEncCfg, "h264:trans8x8", 1);
+            ignore = mpp_enc_cfg_set_s32(mEncCfg, "h264:cabac_en", 1);
+            ignore = mpp_enc_cfg_set_s32(mEncCfg, "h264:cabac_idc", 0);
+            ignore = mpp_enc_cfg_set_s32(mEncCfg, "h264:trans8x8", 1);
         }
     } break;
     case MPP_VIDEO_CodingHEVC : {
-        mpp_enc_cfg_set_s32(mEncCfg, "h265:profile", profile);
-        mpp_enc_cfg_set_s32(mEncCfg, "h265:level", level);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "h265:profile", profile);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "h265:level", level);
     } break;
     default : {
         Log.E("setupProfileParams: unsupport coding type %d", mCodingType);
@@ -1878,11 +1870,11 @@ c2_status_t C2RKMpiEnc::setupQp() {
     for (size_t i = 0; i < qp->flexCount(); ++i) {
         const C2PictureQuantizationStruct &layer = qp->m.values[i];
 
-        if (layer.type_ == C2Config::picture_type_t(I_FRAME)) {
+        if (layer.type_ == C2Config::I_FRAME) {
             iMax = layer.max;
             iMin = layer.min;
             Log.I("PictureQuanlitySetter: iMin %d iMax %d", iMin, iMax);
-        } else if (layer.type_ == C2Config::picture_type_t(P_FRAME)) {
+        } else if (layer.type_ == C2Config::P_FRAME) {
             pMax = layer.max;
             pMin = layer.min;
             Log.I("PictureQuanlitySetter: pMin %d pMax %d", pMin, pMax);
@@ -1898,8 +1890,8 @@ c2_status_t C2RKMpiEnc::setupQp() {
 
     switch (mCodingType) {
     case MPP_VIDEO_CodingAVC:
-        mpp_enc_cfg_set_s32(mEncCfg, "h264:cb_qp_offset", 0);
-        mpp_enc_cfg_set_s32(mEncCfg, "h264:cr_qp_offset", 0);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "h264:cb_qp_offset", 0);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "h264:cr_qp_offset", 0);
         [[fallthrough]];
     case MPP_VIDEO_CodingHEVC: {
         /*
@@ -1908,20 +1900,20 @@ c2_status_t C2RKMpiEnc::setupQp() {
          */
         // mpp_enc_cfg_set_s32(mEncCfg, "hw:mb_rc_disable", 1);
 
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_min", pMin);
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_max", pMax);
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_min_i", iMin);
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_max_i", iMax);
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_init", qpInit);
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_ip", 2);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_min", pMin);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_max", pMax);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_min_i", iMin);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_max_i", iMax);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_init", qpInit);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_ip", 2);
     } break;
     case MPP_VIDEO_CodingVP8: {
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_min", pMin);
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_max", pMax);
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_min_i", iMin);
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_max_i", iMax);
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_init", qpInit);
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_ip", 6);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_min", pMin);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_max", pMax);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_min_i", iMin);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_max_i", iMax);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_init", qpInit);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_ip", 6);
     } break;
     default: {
         Log.E("setupQp: unsupport coding type %d", mCodingType);
@@ -1965,23 +1957,20 @@ c2_status_t C2RKMpiEnc::setupVuiParams() {
            sfAspects.mMatrixCoeffs, asString(sfAspects.mMatrixCoeffs),
            sfAspects.mTransfer, asString(sfAspects.mTransfer));
 
-    mpp_enc_cfg_set_s32(mEncCfg, "prep:range", range ? 2 : 0);
-    mpp_enc_cfg_set_s32(mEncCfg, "prep:colorprim", primaries);
-    mpp_enc_cfg_set_s32(mEncCfg, "prep:colortrc", transfer);
-    mpp_enc_cfg_set_s32(mEncCfg, "prep:colorspace", matrixCoeffs);
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:range", range ? 2 : 0);
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:colorprim", primaries);
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:colortrc", transfer);
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:colorspace", matrixCoeffs);
 
     return C2_OK;
 }
 
 c2_status_t C2RKMpiEnc::setupTemporalLayers() {
-    int32_t layerCount = 0;
-
     IntfImpl::Lock lock = mIntf->lock();
 
     std::shared_ptr<C2StreamTemporalLayeringTuning::output> layering =
             mIntf->getTemporalLayers_l();
-
-    layerCount = layering->m.layerCount;
+    uint32_t layerCount = layering->m.layerCount;
     if (layerCount == 0 || layerCount == 1) {
         return C2_OK;
     }
@@ -1999,17 +1988,21 @@ c2_status_t C2RKMpiEnc::setupTemporalLayers() {
      * 2. only support tsvc layer 2 ~ 4.
      */
 
-    MPP_RET err = MPP_OK;
+    int32_t err = MPP_OK;
     MppEncRefCfg ref;
     MppEncRefLtFrmCfg ltRef[4];
     MppEncRefStFrmCfg stRef[16];
     RK_S32 ltCnt = 0;
     RK_S32 stCnt = 0;
 
-    memset(&ltRef, 0, sizeof(ltRef));
-    memset(&stRef, 0, sizeof(stRef));
+    ignore = memset(&ltRef, 0, sizeof(ltRef));
+    ignore = memset(&stRef, 0, sizeof(stRef));
 
-    mpp_enc_ref_cfg_init(&ref);
+    err = mpp_enc_ref_cfg_init(&ref);
+    if (err != MPP_OK) {
+        Log.PostError("mpp_enc_ref_cfg_init", static_cast<int32_t>(err));
+        return C2_CORRUPTED;
+    }
 
     Log.I("setupTemporalLayers: layers %d", layerCount);
 
@@ -2164,21 +2157,21 @@ c2_status_t C2RKMpiEnc::setupTemporalLayers() {
     }
 
     if (ltCnt || stCnt) {
-        mpp_enc_ref_cfg_set_cfg_cnt(ref, ltCnt, stCnt);
+        err |= mpp_enc_ref_cfg_set_cfg_cnt(ref, ltCnt, stCnt);
 
         if (ltCnt)
-            mpp_enc_ref_cfg_add_lt_cfg(ref, ltCnt, ltRef);
+            err |= mpp_enc_ref_cfg_add_lt_cfg(ref, ltCnt, ltRef);
 
         if (stCnt)
-            mpp_enc_ref_cfg_add_st_cfg(ref, stCnt, stRef);
+            err |= mpp_enc_ref_cfg_add_st_cfg(ref, stCnt, stRef);
 
         /* check and get dpb size */
-        mpp_enc_ref_cfg_check(ref);
+        err |= mpp_enc_ref_cfg_check(ref);
     }
 
-    err = mMppMpi->control(mMppCtx, MPP_ENC_SET_REF_CFG, ref);
+    err |= mMppMpi->control(mMppCtx, MPP_ENC_SET_REF_CFG, ref);
     if (err != MPP_OK) {
-        Log.E("setupTemporalLayers: failed to set ref cfg, err %d", err);
+        Log.PostError("setRefCfg", static_cast<int32_t>(err));
         return C2_CORRUPTED;
     }
 
@@ -2188,24 +2181,24 @@ c2_status_t C2RKMpiEnc::setupTemporalLayers() {
 }
 
 c2_status_t C2RKMpiEnc::setupPrependHeaderSetting() {
-    MPP_RET err = MPP_OK;
-    MppEncHeaderMode mode = MPP_ENC_HEADER_MODE_DEFAULT;
-    std::shared_ptr<C2PrependHeaderModeSetting> prepend;
-
     IntfImpl::Lock lock = mIntf->lock();
 
-    prepend = mIntf->getPrependHeaderMode_l();
+    std::shared_ptr<C2PrependHeaderModeSetting> prepend
+            = mIntf->getPrependHeaderMode_l();
+    MppEncHeaderMode mode = MPP_ENC_HEADER_MODE_DEFAULT;
 
     if (prepend->value == C2Config::PREPEND_HEADER_TO_ALL_SYNC) {
         Log.I("setupPrependHeaderSetting: prepend sps pps to idr frames.");
         mode = MPP_ENC_HEADER_MODE_EACH_IDR;
     }
 
-    err = mMppMpi->control(mMppCtx, MPP_ENC_SET_HEADER_MODE, &mode);
+    MPP_RET err = mMppMpi->control(mMppCtx, MPP_ENC_SET_HEADER_MODE, &mode);
     if (err != MPP_OK) {
-        Log.E("setupPrependHeaderSetting: failed to set mode, err %d", err);
+        Log.PostError("setHeaderMode", static_cast<int32_t>(err));
         return C2_CORRUPTED;
-    } else if (mode == MPP_ENC_HEADER_MODE_EACH_IDR) {
+    }
+
+    if (mode == MPP_ENC_HEADER_MODE_EACH_IDR) {
         // disable csd to avoid duplicated sps/pps in stream header
         mSpsPpsHeaderReceived = true;
     }
@@ -2219,7 +2212,7 @@ c2_status_t C2RKMpiEnc::setupIntraRefresh() {
             = mIntf->getIntraRefresh_l();
 
     int32_t gop = 0;
-    mpp_enc_cfg_get_s32(mEncCfg, "rc:gop", &gop);
+    ignore = mpp_enc_cfg_get_s32(mEncCfg, "rc:gop", &gop);
 
     if (gop && intraRefresh->period > gop) {
         Log.W("setupIntraRefresh: period %.1f is larger than gop %d, ignored",
@@ -2231,9 +2224,9 @@ c2_status_t C2RKMpiEnc::setupIntraRefresh() {
         int32_t mbs = std::ceil(mSize->height / this->getCtuSize());
         int32_t refreshRowsPerFrame = std::ceil(mbs / intraRefresh->period);
 
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:refresh_en", 1);
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:refresh_mode", MPP_ENC_RC_INTRA_REFRESH_ROW);
-        mpp_enc_cfg_set_s32(mEncCfg, "rc:refresh_num", refreshRowsPerFrame);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:refresh_en", 1);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:refresh_mode", MPP_ENC_RC_INTRA_REFRESH_ROW);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:refresh_num", refreshRowsPerFrame);
 
         Log.I("setupIntraRefresh: period(frames) %.1f refreshRowsPerFrame %d",
                intraRefresh->period, refreshRowsPerFrame);
@@ -2247,24 +2240,10 @@ c2_status_t C2RKMpiEnc::setupSuperModeIfNeeded() {
     std::shared_ptr<C2StreamEncSEModeSetting::input> settings
             = mIntf->getSuperEncodingSettings_l();
 
-    int32_t superMode = settings->mode;
-    // only valid in super mode v3.0
-    // bgDeltaQp: delta qp of background
-    // fgDeltaQp: delta qp of foreground
-    // mapMinQp:  the min qp of that can be set
-    // mapMaxQp:  the max qp of that can be set
-    int32_t bgDeltaQp = settings->bgDeltaQp;
-    int32_t fgDeltaQp = settings->fgDeltaQp;
-    int32_t mapMinQp  = settings->mapMinQp;
-    int32_t mapMaxQp  = settings->mapMaxQp;
-
+    int32_t superMode = (settings->mode == 0) ?
+            property_get_int32("codec2_enc_super_mode", 0) : settings->mode;
     if (superMode <= 0 || superMode >= C2_SUPER_MODE_BUTT) {
-        superMode = property_get_int32("codec2_enc_super_mode", 0);
-        if (superMode) {
-            Log.I("config super mode, property %d", superMode);
-        } else {
-            return C2_OK;
-        }
+        return C2_OK;
     }
 
     if (C2RKChipCapDef::get()->getChipType() != RK_CHIP_3588 &&
@@ -2292,7 +2271,8 @@ c2_status_t C2RKMpiEnc::setupSuperModeIfNeeded() {
         mRknnSession = std::make_shared<C2RKYolov5Session>();
 
         if (!mRknnSession->createSession(
-                    std::make_shared<C2RKSessionCallbackImpl>(this),
+                    std::make_shared<C2RKSessionCallbackImpl>(
+                        std::static_pointer_cast<C2RKMpiEnc>(sharedFromComponent())),
                     this->getCtuSize())) {
             Log.E("failed to create rknn session, fallback..");
             mRknnSession.reset();
@@ -2306,7 +2286,7 @@ c2_status_t C2RKMpiEnc::setupSuperModeIfNeeded() {
     RcApiBrief rcApiBrief;
     MPP_RET err = mMppMpi->control(mMppCtx, MPP_ENC_GET_RC_API_CURRENT, &rcApiBrief);
     if (err != MPP_OK) {
-        Log.W("setupSuperMode: failed to get rcApi, err %d", err);
+        Log.PostError("getRcApiCurrent", static_cast<int32_t>(err));
         return C2_OK;
     }
 
@@ -2318,71 +2298,78 @@ c2_status_t C2RKMpiEnc::setupSuperModeIfNeeded() {
         return C2_OK;
     }
 
-    mpp_enc_cfg_set_s32(mEncCfg, "rc:mode", isV3Mode ? 5 : 4);
-    mpp_enc_cfg_set_u32(mEncCfg, "rc:max_reenc_times", 0);
-    mpp_enc_cfg_set_u32(mEncCfg, "rc:super_mode", 0);
-    mpp_enc_cfg_set_s32(mEncCfg, "hw:qbias_i", 200);
-    mpp_enc_cfg_set_s32(mEncCfg, "hw:qbias_p", 100);
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:mode", isV3Mode ? 5 : 4);
+    ignore = mpp_enc_cfg_set_u32(mEncCfg, "rc:max_reenc_times", 0);
+    ignore = mpp_enc_cfg_set_u32(mEncCfg, "rc:super_mode", 0);
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "hw:qbias_i", 200);
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "hw:qbias_p", 100);
 
-    mpp_enc_cfg_set_s32(mEncCfg, "tune:deblur_en",   1);
-    mpp_enc_cfg_set_s32(mEncCfg, "tune:deblur_str",  3);
-    mpp_enc_cfg_set_s32(mEncCfg, "tune:lgt_chg_lvl", 0);
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "tune:deblur_en",   1);
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "tune:deblur_str",  3);
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "tune:lgt_chg_lvl", 0);
 
-    mpp_enc_cfg_set_st(mEncCfg,  "hw:aq_thrd_i", aqThdSmart);
-    mpp_enc_cfg_set_st(mEncCfg,  "hw:aq_thrd_p", aqThdSmart);
-    mpp_enc_cfg_set_st(mEncCfg,  "hw:aq_step_i", aqStepSmart);
-    mpp_enc_cfg_set_st(mEncCfg,  "hw:aq_step_p", aqStepSmart);
+    ignore = mpp_enc_cfg_set_st(mEncCfg,  "hw:aq_thrd_i", aqThdSmart);
+    ignore = mpp_enc_cfg_set_st(mEncCfg,  "hw:aq_thrd_p", aqThdSmart);
+    ignore = mpp_enc_cfg_set_st(mEncCfg,  "hw:aq_step_i", aqStepSmart);
+    ignore = mpp_enc_cfg_set_st(mEncCfg,  "hw:aq_step_p", aqStepSmart);
     // default ipc mode
-    mpp_enc_cfg_set_s32(mEncCfg, "tune:scene_mode", 1);
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "tune:scene_mode", 1);
 
-    mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_min_i", 10);
-    mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_min_p", 10);
-    mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_max_p", 42);
-    mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_max_i", 42);
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_min_i", 10);
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_min_p", 10);
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_max_p", 42);
+    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_max_i", 42);
 
     if (isV3Mode) {
-        if (bgDeltaQp == 0) {
-            bgDeltaQp = property_get_int32("codec2_enc_super_bg_delta_qp", 0);
-        }
-        if (fgDeltaQp == 0) {
-            fgDeltaQp = property_get_int32("codec2_enc_super_fg_delta_qp", 0);
-        }
-        if (mapMinQp == 0) {
-            mapMinQp = property_get_int32("codec2_enc_super_map_min_qp", 0);
-        }
-        if (mapMaxQp == 0) {
-            mapMaxQp = property_get_int32("codec2_enc_super_map_max_qp", 0);
-        }
+        // bgDeltaQp: delta qp of background
+        // fgDeltaQp: delta qp of foreground
+        // mapMinQp:  the min qp of that can be set
+        // mapMaxQp:  the max qp of that can be set
+        int32_t bgDeltaQp = settings->bgDeltaQp;
+        int32_t fgDeltaQp = settings->fgDeltaQp;
+        int32_t mapMinQp  = settings->mapMinQp;
+        int32_t mapMaxQp  = settings->mapMaxQp;
 
-        // set default config settings
-        if (bgDeltaQp == 0)  bgDeltaQp = -8;
-        if (fgDeltaQp == 0)  fgDeltaQp = 6;
-        if (mapMinQp == 0)   mapMinQp  = 10;
-        if (mapMaxQp == 0)   mapMaxQp  = 42;
+        struct SmartV3Param {
+            int32_t &value;
+            std::string prop;
+            int32_t def;
+        } params[] = {
+            { bgDeltaQp,  "codec2_enc_super_bg_delta_qp",   -8 },
+            { fgDeltaQp,  "codec2_enc_super_fg_delta_qp",    6 },
+            { mapMinQp,   "codec2_enc_super_map_min_qp",    10 },
+            { mapMaxQp,   "codec2_enc_super_map_max_qp",    42 },
+        };
+
+        for (auto &param : params) {
+            if (param.value == 0) {
+                param.value = property_get_int32(param.prop.c_str(), param.def);
+            }
+        }
 
         Log.I("setupSuperMode: bgDeltaQp %d fgDeltaQp %d mapMinQp %d mapMaxQp %d",
                bgDeltaQp, fgDeltaQp, mapMinQp, mapMaxQp);
 
         // 0:balance  1:quality_first  2:bitrate_first 3:external_se_mode
-        mpp_enc_cfg_set_s32(mEncCfg, "tune:se_mode", 3);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "tune:se_mode", 3);
 
-        mpp_enc_cfg_set_s32(mEncCfg, "tune:bg_delta_qp_i",  bgDeltaQp);
-        mpp_enc_cfg_set_s32(mEncCfg, "tune:bg_delta_qp_p",  bgDeltaQp);
-        mpp_enc_cfg_set_s32(mEncCfg, "tune:fg_delta_qp_i",  fgDeltaQp);
-        mpp_enc_cfg_set_s32(mEncCfg, "tune:fg_delta_qp_p",  fgDeltaQp);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "tune:bg_delta_qp_i",  bgDeltaQp);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "tune:bg_delta_qp_p",  bgDeltaQp);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "tune:fg_delta_qp_i",  fgDeltaQp);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "tune:fg_delta_qp_p",  fgDeltaQp);
 
-        mpp_enc_cfg_set_s32(mEncCfg, "tune:bmap_qpmin_i",   mapMinQp);
-        mpp_enc_cfg_set_s32(mEncCfg, "tune:bmap_qpmin_p",   mapMinQp);
-        mpp_enc_cfg_set_s32(mEncCfg, "tune:bmap_qpmax_i",   mapMaxQp);
-        mpp_enc_cfg_set_s32(mEncCfg, "tune:bmap_qpmax_p",   mapMaxQp);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "tune:bmap_qpmin_i",   mapMinQp);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "tune:bmap_qpmin_p",   mapMinQp);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "tune:bmap_qpmax_i",   mapMaxQp);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "tune:bmap_qpmax_p",   mapMaxQp);
     }  else {
         // smart v1 mode
         if (compressFirst) {
             uint32_t bitrate = mIntf->getBitrate_l()->value;
 
-            mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_target", bitrate * 13 / 10);
-            mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_max",    bitrate * 13 / 10);
-            mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_min",    bitrate * 13 / 10 / 2);
+            ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_target", bitrate * 13 / 10);
+            ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_max",    bitrate * 13 / 10);
+            ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_min",    bitrate * 13 / 10 / 2);
         }
     }
 
@@ -2437,7 +2424,7 @@ c2_status_t C2RKMpiEnc::setupMlvecIfNeeded() {
 
         mMlvec = std::make_shared<C2RKMlvecLegacy>(mMppCtx, mMppMpi, mEncCfg);
 
-        memset(&stCfg, 0, sizeof(stCfg));
+        ignore = memset(&stCfg, 0, sizeof(stCfg));
 
         stCfg.magic = ((int32_t)'M') << 24;
         stCfg.magic |= ((int32_t)'0') << 16;
@@ -2451,14 +2438,14 @@ c2_status_t C2RKMpiEnc::setupMlvecIfNeeded() {
         stCfg.sliceMbs = spacing;
 
         if (!mMlvec->setupStaticConfig(&stCfg)) {
-            Log.E("failed to setup mlvec static config");
+            Log.PostError("setupMlvecStaticConfig", -1);
         } else {
             mCurLayerCount = layerCount;
         }
 
         if (mCodingType == MPP_VIDEO_CodingAVC) {
             // mlvec need pic_order_cnt_type equal to 2
-            mpp_enc_cfg_set_s32(mEncCfg, "h264:poc_type", 2);
+            ignore = mpp_enc_cfg_set_s32(mEncCfg, "h264:poc_type", 2);
         }
     }
 
@@ -2466,85 +2453,87 @@ c2_status_t C2RKMpiEnc::setupMlvecIfNeeded() {
 }
 
 c2_status_t C2RKMpiEnc::setupEncCfg() {
-    MPP_RET err = MPP_OK;
-
-    err = mpp_enc_cfg_init(&mEncCfg);
+    MPP_RET err = mpp_enc_cfg_init(&mEncCfg);
     if (err != MPP_OK) {
-        Log.E("failed to get enc_cfg, err %d", err);
-        return C2_CORRUPTED;
+        Log.PostError("mpp_enc_cfg_init", static_cast<int32_t>(err));
+        return C2_NO_MEMORY;
     }
 
     err = mMppMpi->control(mMppCtx, MPP_ENC_GET_CFG, mEncCfg);
     if (err != MPP_OK) {
-        Log.E("failed to get codec cfg, err %d", err);
+        Log.PostError("getCodecCfg", static_cast<int32_t>(err));
         return C2_CORRUPTED;
     }
 
     /* Video control Set Base Codec */
-    setupBaseCodec();
+    ignore = setupBaseCodec();
 
     /* Video control Ser input scaler */
-    setupInputScalar();
+    ignore = setupInputScalar();
 
     /* Video control PreProcess, rotation\mirror\flip */
-    setupPreProcess();
+    ignore = setupPreProcess();
 
     /* Video Large Frame Process, drop or reenc */
-    setupSuperProcess();
+    ignore = setupSuperProcess();
 
     /* Video control Set Scene Mode */
-    setupSceneMode();
+    ignore = setupSceneMode();
 
     /* Video control Set Slice Size */
-    setupSliceSize();
+    ignore = setupSliceSize();
 
     /* Video control Set FrameRates and gop */
-    setupFrameRate();
+    ignore = setupFrameRate();
 
     /* Video control Set Bitrate */
-    setupBitRate();
+    ignore = setupBitRate();
 
     /* Video control Set Profile params */
-    setupProfileParams();
+    ignore = setupProfileParams();
 
     /* Video control Set QP */
-    setupQp();
+    ignore = setupQp();
 
     /* Video control Set VUI params */
-    setupVuiParams();
+    ignore = setupVuiParams();
 
     /* Video control Set Temporal Layers */
-    setupTemporalLayers();
+    ignore = setupTemporalLayers();
 
     /* Video control Set Prepend Header Setting */
-    setupPrependHeaderSetting();
+    ignore = setupPrependHeaderSetting();
 
     /*  Video control Set Intra Refresh */
-    setupIntraRefresh();
+    ignore = setupIntraRefresh();
 
     /* Video control Set Super Encoding Mode */
-    setupSuperModeIfNeeded();
+    ignore = setupSuperModeIfNeeded();
 
     /* Video control Set MLVEC encoder */
-    setupMlvecIfNeeded();
+    ignore = setupMlvecIfNeeded();
 
     err = mMppMpi->control(mMppCtx, MPP_ENC_SET_CFG, mEncCfg);
     if (err != MPP_OK) {
-        Log.E("failed to setup codec cfg, ret %d", err);
+        Log.PostError("setCodecCfg", static_cast<int32_t>(err));
         return C2_CORRUPTED;
     } else {
         /* Video control Set SEI config */
         IntfImpl::Lock lock = mIntf->lock();
         MppEncSeiMode seiMode = MPP_ENC_SEI_MODE_ONE_FRAME;
         if (mIntf->getIsDisableSEI()) {
-            Log.I("disable sei info output");
+            Log.I("disable SEI info output");
             seiMode = MPP_ENC_SEI_MODE_DISABLE;
         }
         // FIXME: MLVEC not support HEVC SEI parser currently
         if (mMlvec && mCodingType == MPP_VIDEO_CodingHEVC) {
             seiMode = MPP_ENC_SEI_MODE_DISABLE;
         }
-        mMppMpi->control(mMppCtx, MPP_ENC_SET_SEI_CFG, &seiMode);
+        err = mMppMpi->control(mMppCtx, MPP_ENC_SET_SEI_CFG, &seiMode);
+        if (err != MPP_OK) {
+            Log.PostError("setSeiCfg", static_cast<int32_t>(err));
+            return C2_CORRUPTED;
+        }
     }
 
     return C2_OK;
@@ -2565,11 +2554,11 @@ c2_status_t C2RKMpiEnc::initEncoder() {
     }
 
     /*
-     * NOTE: A temporary buffer is required to store the RGA NV12 output
-     * when processing specific RGBA input formats, because MPP lacks proper
-     * support for RGBA input handling.
-     * Furthermore, the buffer is allocated within the 4GB address space to
-     * maximize RGA hardware acceleration efficiency and ensure DMA compatibility.
+     * Note: To handle certain RGBA input formats, a temporary NV12 buffer is
+     * allocated to hold the output from RGA conversion since MPP does not support
+     * RGBA input directly. Additionally, this buffer is allocated within the 4GB
+     * address space to ensure optimal efficiency for RGA hardware access and DMA
+     * compatibility.
      */
     uint32_t stride = 0;
     uint64_t usage = (GRALLOC_USAGE_SW_READ_OFTEN | GRALLOC_USAGE_SW_WRITE_OFTEN);
@@ -2585,30 +2574,26 @@ c2_status_t C2RKMpiEnc::initEncoder() {
             0x15 /* NV12 */, 1u /* layer count */,
             usage, &bufferHandle, &stride, "C2RKMpiEnc");
     if (status) {
-        Log.E("failed transaction: allocate");
+        Log.PostError("allocateDmaMem", static_cast<int32_t>(status));
         goto error;
     }
 
     mDmaMem = std::make_unique<MyDmaBuffer_t>();
     mDmaMem->fd = C2RKGraphicBufferMapper::get()->getShareFd(bufferHandle);
     mDmaMem->size = C2RKGraphicBufferMapper::get()->getAllocationSize(bufferHandle);
-    mDmaMem->handler = (void *)bufferHandle;
+    mDmaMem->handler = bufferHandle;
 
     Log.I("alloc temporary DmaMem fd %d size %d", mDmaMem->fd, mDmaMem->size);
 
     // create mpp and init mpp
-    err = mpp_create(&mMppCtx, &mMppMpi);
-    if (err != MPP_OK) {
-        Log.E("failed to mpp_create, err %d", err);
-        goto error;
-    }
+    CHECK(mpp_create(&mMppCtx, &mMppMpi) == MPP_OK);
 
     {
         // Update the block timeout settings for output.
         MppPollType timeout = MPP_POLL_BLOCK;
         err = mMppMpi->control(mMppCtx, MPP_SET_OUTPUT_TIMEOUT, &timeout);
         if (err != MPP_OK) {
-            Log.E("failed to set output timeout %d, err %d", timeout, err);
+            Log.PostError("setOutputTimeout", static_cast<int32_t>(err));
             goto error;
         }
         // Enable non-blocking input mode under asynchronous operation, so as
@@ -2617,7 +2602,7 @@ c2_status_t C2RKMpiEnc::initEncoder() {
             timeout = MPP_POLL_NON_BLOCK;
             err = mMppMpi->control(mMppCtx, MPP_SET_INPUT_TIMEOUT, &timeout);
             if (err != MPP_OK) {
-                Log.E("failed to set input timeout %d, err %d", timeout, err);
+                Log.PostError("setInputTimeout", static_cast<int32_t>(err));
                 goto error;
             }
         }
@@ -2625,24 +2610,23 @@ c2_status_t C2RKMpiEnc::initEncoder() {
 
     err = mpp_init(mMppCtx, MPP_CTX_ENC, mCodingType);
     if (err != MPP_OK) {
-        Log.E("failed to mpp_init, err %d", err);
+        Log.PostError("mpp_init", static_cast<int32_t>(err));
         goto error;
     }
 
     if (setupEncCfg() != C2_OK) {
-        Log.E("failed to set config");
         goto error;
     }
 
     err = mpp_buffer_group_get_internal(&mGroup, MPP_BUFFER_TYPE_ION);
     if (err != MPP_OK) {
-        Log.E("failed to get mpp buffer group, err %d", err);
+        Log.PostError("getMppBufferGroup", static_cast<int32_t>(err));
         goto error;
     }
 
     err = mpp_buffer_get(mGroup, &mMdInfo, mSize->width * mSize->height);
     if (err != MPP_OK) {
-        Log.E("failed to get motion info buffer, err %d", err);
+        Log.PostError("getMotionInfoBuffer", static_cast<int32_t>(err));
         goto error;
     }
 
@@ -2650,7 +2634,7 @@ c2_status_t C2RKMpiEnc::initEncoder() {
 
 error:
     if (mMppCtx) {
-        mpp_destroy(mMppCtx);
+        CHECK(mpp_destroy(mMppCtx) == MPP_OK);
         mMppCtx = nullptr;
     }
 
@@ -2686,20 +2670,20 @@ void C2RKMpiEnc::finishWork(
 
         c2_status_t ret = mBlockPool->fetchLinearBlock(size, usage, &block);
         if (ret != C2_OK) {
-            Log.E("failed to fetch block for output, ret 0x%x", ret);
+            Log.PostError("fetchLinearBlock", static_cast<int32_t>(ret));
             mSignalledError = true;
             return;
         }
 
         C2WriteView wView = block->map().get();
         if (C2_OK != wView.error()) {
-            Log.E("write view map failed with status 0x%x", wView.error());
+            Log.PostError("mapBlock", static_cast<int32_t>(wView.error()));
             mSignalledError = true;
             return;
         }
 
         // copy mpp output to c2 output
-        memcpy(wView.data(), data, len);
+        ignore = memcpy(wView.data(), data, len);
 
         buffer = createLinearBuffer(block, 0, len);
         MppMeta meta = mpp_packet_get_meta(entry);
@@ -2707,23 +2691,24 @@ void C2RKMpiEnc::finishWork(
             int32_t isIntra = 0;
             MppFrame frame = nullptr;
 
-            mpp_meta_get_s32(meta, KEY_OUTPUT_INTRA, &isIntra);
+            ignore = mpp_meta_get_s32(meta, KEY_OUTPUT_INTRA, &isIntra);
             if (isIntra) {
                 Log.I("IDR frame produced");
-                buffer->setInfo(std::make_shared<C2StreamPictureTypeMaskInfo::output>(
+                ignore = buffer->setInfo(
+                        std::make_shared<C2StreamPictureTypeMaskInfo::output>(
                         0u /* stream id */, C2Config::SYNC_FRAME));
             }
 
-            mpp_meta_get_frame(meta, KEY_INPUT_FRAME, &frame);
+            ignore = mpp_meta_get_frame(meta, KEY_INPUT_FRAME, &frame);
             if (frame != nullptr) {
-                mpp_frame_deinit(&frame);
+                ignore = mpp_frame_deinit(&frame);
             } else if (mHandler) {
                 Log.W("unexpected null frame pointer");
             }
         }
     }
 
-    mpp_packet_deinit(&entry);
+    ignore = mpp_packet_deinit(&entry);
 
     auto fillWork = [buffer](const std::unique_ptr<C2Work> &work) {
         work->worklets.front()->output.flags = (C2FrameData::flags_t)0;
@@ -2766,7 +2751,7 @@ c2_status_t C2RKMpiEnc::drainEOS(const std::unique_ptr<C2Work> &work) {
             Log.W("failed to get output eos within 2 seconds");
             goto error;
         } else {
-            usleep(1000);
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
     }
 
@@ -2792,7 +2777,7 @@ c2_status_t C2RKMpiEnc::onDrainWork(const std::unique_ptr<C2Work> &work) {
     if (mSignalledError) return C2_BAD_STATE;
 
     MppPacket entry;
-    memset(&entry, 0, sizeof(entry));
+    ignore = memset(&entry, 0, sizeof(entry));
 
     c2_status_t err = getoutpacket(&entry);
     if (err == C2_OK) {
@@ -2820,7 +2805,7 @@ void C2RKMpiEnc::process(
         err = initEncoder();
         if (err != C2_OK) {
             work->result = C2_BAD_VALUE;
-            Log.I("failed to initialize, signalled Error");
+            Log.PostError("initEncoder", static_cast<int32_t>(err));
             return;
         }
         // start output looper
@@ -2834,7 +2819,6 @@ void C2RKMpiEnc::process(
     if (mSignalledError) {
         Log.I("Signalled Error");
         work->result = C2_BAD_VALUE;
-        work->workletsProcessed = 1u;
         return;
     }
 
@@ -2851,10 +2835,9 @@ void C2RKMpiEnc::process(
         view = std::make_shared<const C2GraphicView>(
                 inputBuffer->data().graphicBlocks().front().map().get());
         if (view->error() != C2_OK) {
-            Log.E("graphic view map err = %d", view->error());
+            Log.PostError("mapInputBuffer", static_cast<int32_t>(view->error()));
             mSignalledError = true;
             work->result = C2_CORRUPTED;
-            work->workletsProcessed = 1u;
             return;
         }
     }
@@ -2871,19 +2854,21 @@ void C2RKMpiEnc::process(
 
         hdrBuf = malloc(hdrSize * sizeof(uint8_t));
         if (hdrBuf)
-            mpp_packet_init(&hdrPkt, hdrBuf, hdrSize);
+            ignore = mpp_packet_init(&hdrPkt, hdrBuf, hdrSize);
 
         if (hdrPkt) {
-            mMppMpi->control(mMppCtx, MPP_ENC_GET_HDR_SYNC, hdrPkt);
-            data = mpp_packet_get_data(hdrPkt);
-            dataSize = mpp_packet_get_length(hdrPkt);
+            MPP_RET err = mMppMpi->control(mMppCtx, MPP_ENC_GET_HDR_SYNC, hdrPkt);
+            if (err == MPP_OK) {
+                data = mpp_packet_get_data(hdrPkt);
+                dataSize = mpp_packet_get_length(hdrPkt);
+            }
         }
 
         if (data) {
             std::unique_ptr<C2StreamInitDataInfo::output> csd =
                     C2StreamInitDataInfo::output::AllocUnique(dataSize, 0u);
 
-            memcpy(csd->m.value, data, dataSize);
+            ignore = memcpy(csd->m.value, data, dataSize);
             work->worklets.front()->output.configUpdate.push_back(std::move(csd));
 
             /* record output packet buffer */
@@ -2893,26 +2878,28 @@ void C2RKMpiEnc::process(
         }
 
         if (hdrPkt) {
-            mpp_packet_deinit(&hdrPkt);
-            hdrPkt = nullptr;
+            ignore = mpp_packet_deinit(&hdrPkt);
         }
         if (hdrBuf) {
             free(hdrBuf);
-            hdrBuf = nullptr;
         }
     }
 
     // handle common dynamic config change
-    handleCommonDynamicCfg();
-
-    MyDmaBuffer_t inDmaBuf;
-    memset(&inDmaBuf, 0, sizeof(MyDmaBuffer_t));
-
-    err = getInBufferFromWork(work, &inDmaBuf);
+    err = handleCommonDynamicCfg();
     if (err != C2_OK) {
         mSignalledError = true;
         work->result = C2_CORRUPTED;
-        work->workletsProcessed = 1u;
+        return;
+    }
+
+    MyDmaBuffer_t dmaBuf;
+    ignore = memset(&dmaBuf, 0, sizeof(MyDmaBuffer_t));
+
+    err = getInBufferFromWork(work, &dmaBuf);
+    if (err != C2_OK) {
+        mSignalledError = true;
+        work->result = C2_CORRUPTED;
         return;
     }
 
@@ -2920,19 +2907,20 @@ void C2RKMpiEnc::process(
     // not set workletsProcessed to indicates that the current work incomplete.
     // and will finish this work later in sesssion callback.
     if (mRknnSession) {
-        err = handleRknnDetection(work, inDmaBuf);
-        if (err == C2_OK) {
-            return;
+        err = handleRknnDetection(work, dmaBuf);
+        if (err != C2_OK) {
+            mSignalledError = true;
+            work->result = C2_CORRUPTED;
         }
+        return;
     }
 
     /* send frame to mpp */
-    err = sendframe(inDmaBuf, frameIndex, flags);
+    err = sendframe(dmaBuf, frameIndex, flags);
     if (C2_OK != err) {
-        Log.E("failed to enqueue frame, err %d", err);
+        Log.PostError("sendFrame", static_cast<int32_t>(err));
         mSignalledError = true;
         work->result = C2_CORRUPTED;
-        work->workletsProcessed = 1u;
         return;
     }
 
@@ -2941,10 +2929,10 @@ void C2RKMpiEnc::process(
     // it later in output looper.
     if (mHandler) {
         sp<AMessage> msg = new AMessage(WorkHandler::kWhatDrainWork, mHandler);
-        msg->post();
+        ignore = msg->post();
 
         if (mSawInputEOS) {
-            drainEOS(work);
+            ignore = drainEOS(work);
         }
     } else {
         err = onDrainWork(work);
@@ -2955,7 +2943,7 @@ void C2RKMpiEnc::process(
 }
 
 c2_status_t C2RKMpiEnc::handleCommonDynamicCfg() {
-    bool change = false;
+    bool configChanged = false;
 
     IntfImpl::Lock lock = mIntf->lock();
     std::shared_ptr<C2StreamPictureSizeInfo::input> size = mIntf->getSize_l();
@@ -2969,46 +2957,47 @@ c2_status_t C2RKMpiEnc::handleCommonDynamicCfg() {
     if (size != mSize) {
         Log.I("new size request, w %d h %d", size->width, size->height);
         mSize = size;
-        setupBaseCodec();
-        change = true;
+        ignore = setupBaseCodec();
+        configChanged = true;
     }
 
     // handle dynamic bitrate config.
     if (bitrate != mBitrate) {
         Log.I("new bitrate request, value %d", bitrate->value);
         mBitrate = bitrate;
-        setupBitRate();
-        change = true;
+        ignore = setupBitRate();
+        configChanged = true;
     }
 
     // handle dynamic frameRate config.
     if (frameRate != mFrameRate) {
         Log.I("new frameRate request, value %.2f", frameRate->value);
         mFrameRate = frameRate;
-        setupFrameRate();
-        change = true;
+        ignore = setupFrameRate();
+        configChanged = true;
     }
 
     // handle dynamic profile config.
     if (profile != mProfile) {
         Log.I("new profile request, value %s", toStr_Profile(profile, mCodingType));
         mProfile = profile;
-        setupProfileParams();
-        change = true;
+        ignore = setupProfileParams();
+        configChanged = true;
     }
 
     // handle dynamic intra refresh config.
     if (intraRefresh != mIntraRefresh) {
         Log.I("new intra refresh request, period %.1f", intraRefresh->period);
         mIntraRefresh = intraRefresh;
-        setupIntraRefresh();
-        change = true;
+        ignore = setupIntraRefresh();
+        configChanged = true;
     }
 
-    if (change) {
+    if (configChanged) {
         MPP_RET err = mMppMpi->control(mMppCtx, MPP_ENC_SET_CFG, mEncCfg);
         if (err != MPP_OK) {
-            Log.E("failed to setup dynamic config, ret %d", err);
+            Log.PostError("setupDynamicConfig", static_cast<int32_t>(err));
+            return C2_CORRUPTED;
         }
 
         // update node params of service
@@ -3039,9 +3028,9 @@ c2_status_t C2RKMpiEnc::handleRequestSyncFrame() {
             // unset request
             C2StreamRequestSyncFrameTuning::output clearSync(0u, C2_FALSE);
             std::vector<std::unique_ptr<C2SettingResult>> failures;
-            mIntf->config({ &clearSync }, C2_MAY_BLOCK, &failures);
+            ignore = mIntf->config({ &clearSync }, C2_MAY_BLOCK, &failures);
             // force set IDR frame
-            mMppMpi->control(mMppCtx, MPP_ENC_SET_IDR_FRAME, nullptr);
+            ignore = mMppMpi->control(mMppCtx, MPP_ENC_SET_IDR_FRAME, nullptr);
         }
     }
 
@@ -3065,7 +3054,7 @@ c2_status_t C2RKMpiEnc::handleMlvecDynamicCfg(MppMeta meta) {
 
     layerCount = layering->m.layerCount;
 
-    memset(&cfg, 0, sizeof(cfg));
+    ignore = memset(&cfg, 0, sizeof(cfg));
 
     /* count layer position */
     if (layerCount >= 2) {
@@ -3075,8 +3064,11 @@ c2_status_t C2RKMpiEnc::handleMlvecDynamicCfg(MppMeta meta) {
 
     if (layerPos == 0) {
         if (mCurLayerCount != layerCount) {
+            if (!mMlvec->setupMaxTid(layerCount)) {
+                Log.PostError("setupMlvecMaxTid", -1);
+                return C2_CORRUPTED;
+            }
             Log.I("temporalLayers change, %d to %d", mCurLayerCount, layerCount);
-            mMlvec->setupMaxTid(layerCount);
             mCurLayerCount = layerCount;
         }
 
@@ -3117,7 +3109,10 @@ c2_status_t C2RKMpiEnc::handleMlvecDynamicCfg(MppMeta meta) {
     }
 
     if (cfg.updated) {
-        mMlvec->setupDynamicConfig(&cfg, meta);
+        if (!mMlvec->setupDynamicConfig(&cfg, meta)) {
+            Log.PostError("setupMlvecDynamicConfig", -1);
+            return C2_CORRUPTED;
+        }
     }
 
     return C2_OK;
@@ -3125,11 +3120,15 @@ c2_status_t C2RKMpiEnc::handleMlvecDynamicCfg(MppMeta meta) {
 
 c2_status_t C2RKMpiEnc::handleRoiRegionRequest(
         MppMeta meta, Vector<RoiRegionCfg> regions) {
-    if (regions.size() == 0) return C2_OK;
+    if (regions.size() == 0)
+        return C2_OK;
+
+    MPP_RET err = MPP_OK;
 
     if (mRoiCtx == nullptr) {
-        if (mpp_enc_roi_init(&mRoiCtx, mSize->width, mSize->height, mCodingType)) {
-            Log.E("failed to init roi context");
+        err = mpp_enc_roi_init(&mRoiCtx, mSize->width, mSize->height, mCodingType);
+        if (err != MPP_OK) {
+            Log.PostError("initRoiContext", static_cast<int32_t>(err));
             return C2_CORRUPTED;
         }
         Log.I("setup roi done, ctx %p", mRoiCtx);
@@ -3146,7 +3145,7 @@ c2_status_t C2RKMpiEnc::handleRoiRegionRequest(
                    region->x, region->y, region->w, region->h,
                    region->force_intra, region->qp_mode, region->qp_val);
         } else {
-            mpp_enc_roi_add_region(mRoiCtx, region);
+            ignore = mpp_enc_roi_add_region(mRoiCtx, region);
             Log.D("setup roi region[%d] rect [%d,%d,%d,%d] intra %d mode %d qp %d",
                    i, region->x, region->y, region->w, region->h,
                    region->force_intra, region->qp_mode, region->qp_val);
@@ -3154,9 +3153,9 @@ c2_status_t C2RKMpiEnc::handleRoiRegionRequest(
     }
 
     // send roi info by metadata
-    mpp_enc_roi_setup_meta(mRoiCtx, meta);
+    err = mpp_enc_roi_setup_meta(mRoiCtx, meta);
 
-    return C2_OK;
+    return (err == MPP_OK) ? C2_OK : C2_CORRUPTED;
 }
 
 c2_status_t C2RKMpiEnc::onDetectResultReady(ImageBuffer *srcImage, void *result) {
@@ -3170,17 +3169,17 @@ c2_status_t C2RKMpiEnc::onDetectResultReady(ImageBuffer *srcImage, void *result)
         return C2_OK;
     }
 
-    MyDmaBuffer_t inDmaBuf;
-    memset(&inDmaBuf, 0, sizeof(MyDmaBuffer_t));
+    MyDmaBuffer_t dmaBuf;
+    ignore = memset(&dmaBuf, 0, sizeof(MyDmaBuffer_t));
 
-    inDmaBuf.fd   = srcImage->fd;
-    inDmaBuf.size = srcImage->size;
-    inDmaBuf.npuMaps = result;
+    dmaBuf.fd   = srcImage->fd;
+    dmaBuf.size = srcImage->size;
+    dmaBuf.npuMaps = result;
 
     /* send frame to mpp */
-    c2_status_t err = sendframe(inDmaBuf, srcImage->pts, srcImage->flags);
+    c2_status_t err = sendframe(dmaBuf, srcImage->pts, srcImage->flags);
     if (err != C2_OK) {
-        Log.E("failed to enqueue frame, err %d", err);
+        Log.PostError("sendFrame", static_cast<int32_t>(err));
         mSignalledError = true;
         return C2_CORRUPTED;
     }
@@ -3193,13 +3192,10 @@ c2_status_t C2RKMpiEnc::onDetectResultReady(ImageBuffer *srcImage, void *result)
 
 c2_status_t C2RKMpiEnc::handleRknnDetection(
         const std::unique_ptr<C2Work> &work, MyDmaBuffer_t dbuffer) {
-    if (!mRknnSession || dbuffer.fd <= 0) {
-        return C2_CORRUPTED;
-    }
-
     int32_t flags = work->input.flags;
     uint64_t frameIndex = work->input.ordinal.frameIndex.peekull();
     ImageFormat format = IMAGE_FORMAT_RGBA8888;
+
     if (mInputMppFmt != MPP_FMT_RGBA8888) {
         format = IMAGE_FORMAT_YUV420SP_NV12;
     }
@@ -3218,7 +3214,7 @@ c2_status_t C2RKMpiEnc::handleRknnDetection(
     };
 
     if (!mRknnSession->startDetect(&srcImage)) {
-        Log.E("failed to start detection");
+        Log.PostError("startRknnDetection", -1);
         return C2_CORRUPTED;
     }
 
@@ -3262,7 +3258,7 @@ int32_t C2RKMpiEnc::getCtuSize() {
 
     if (mCodingType == MPP_VIDEO_CodingHEVC) {
         int32_t hevcLcuSize = 0;
-        mpp_enc_cfg_get_s32(mEncCfg, "h265:lcu_size", &hevcLcuSize);
+        ignore = mpp_enc_cfg_get_s32(mEncCfg, "h265:lcu_size", &hevcLcuSize);
         if (hevcLcuSize > 0) {
             ctuSize = hevcLcuSize;
         } else {
@@ -3270,46 +3266,6 @@ int32_t C2RKMpiEnc::getCtuSize() {
         }
     }
     return ctuSize;
-}
-
-int32_t C2RKMpiEnc::getRgaColorSpaceMode() {
-    int32_t mode = RGA_COLOR_SPACE_DEFAULT;
-    int32_t setRange = 0, setStandard = 0, setTransfer = 0;
-
-    IntfImpl::Lock lock = mIntf->lock();
-
-    ColorAspects sfAspects;
-    std::shared_ptr<C2StreamColorAspectsInfo::output> colorAspects
-            = mIntf->getCodedColorAspects_l();
-
-    if (!C2Mapper::map(colorAspects->primaries, &sfAspects.mPrimaries)) {
-        sfAspects.mPrimaries = android::ColorAspects::PrimariesUnspecified;
-    }
-    if (!C2Mapper::map(colorAspects->range, &sfAspects.mRange)) {
-        sfAspects.mRange = android::ColorAspects::RangeUnspecified;
-    }
-    if (!C2Mapper::map(colorAspects->matrix, &sfAspects.mMatrixCoeffs)) {
-        sfAspects.mMatrixCoeffs = android::ColorAspects::MatrixUnspecified;
-    }
-    if (!C2Mapper::map(colorAspects->transfer, &sfAspects.mTransfer)) {
-        sfAspects.mTransfer = android::ColorAspects::TransferUnspecified;
-    }
-
-    // aspects are normally communicated in ColorAspects
-    ColorUtils::convertCodecColorAspectsToPlatformAspects(
-            sfAspects, &setRange, &setStandard, &setTransfer);
-
-    if (setStandard == ColorUtils::kColorStandardBT709) {
-        mode = RGA_RGB_TO_YUV_BT709_LIMIT;
-    } else if (setStandard == ColorUtils::kColorStandardBT601_625 ||
-               setStandard == ColorUtils::kColorStandardBT601_525) {
-        if (setRange == ColorUtils::kColorRangeFull)
-            mode = RGA_RGB_TO_YUV_BT601_FULL;
-        else
-            mode = RGA_RGB_TO_YUV_BT601_LIMIT;
-    }
-
-    return mode;
 }
 
 c2_status_t C2RKMpiEnc::getInBufferFromWork(
@@ -3325,9 +3281,6 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
     bool configChanged = false;
     std::shared_ptr<const C2GraphicView> view;
     std::shared_ptr<C2Buffer> inputBuffer = nullptr;
-
-    /* dump frame time consuming if neccessary */
-    mDumpService->recordFrameTime(this, frameIndex);
 
     inputBuffer = work->input.buffers[0];
     view = std::make_shared<const C2GraphicView>(
@@ -3350,19 +3303,24 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
         native_handle_t *grallocHandle = UnwrapNativeCodec2GrallocHandle(c2Handle);
 
         GraphicBufferMapper &gm(GraphicBufferMapper::get());
-        gm.importBuffer(const_cast<native_handle_t *>(grallocHandle),
-                        width, height, 1, format, usage,
-                        stride, &bufferHandle);
-        gm.getPlaneLayouts(const_cast<native_handle_t *>(bufferHandle), &layouts);
-        if (layouts[0].sampleIncrementInBits != 0) {
+        status_t err = gm.importBuffer(const_cast<native_handle_t *>(grallocHandle),
+                                       width, height, 1, format, usage,
+                                       stride, &bufferHandle);
+        if (err == OK) {
+            err = gm.getPlaneLayouts(const_cast<native_handle_t *>(bufferHandle), &layouts);
+        }
+        if (err == OK && layouts[0].sampleIncrementInBits != 0) {
             stride = layouts[0].strideInBytes * 8 / layouts[0].sampleIncrementInBits;
         } else {
             Log.E("layouts[0].sampleIncrementInBits = 0");
             stride = mHorStride;
         }
-        gm.freeBuffer(bufferHandle);
-        native_handle_delete(grallocHandle);
+        ignore = gm.freeBuffer(bufferHandle);
+        ignore = native_handle_delete(grallocHandle);
     }
+
+    /* dump frame time consuming if neccessary */
+    mDumpService->recordFrameTime(this, frameIndex);
 
     Log.D("in buffer attr. w %d h %d stride %d layout 0x%x frameIndex %lld",
            width, height, stride, layout.type, frameIndex);
@@ -3397,8 +3355,6 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
             outBuffer->size = mHorStride * mVerStride * 4;
         } else {
             RgaInfo srcInfo, dstInfo;
-            // get RGA color space mode for rgba->yuv conversion
-            int32_t colorSpaceMode = getRgaColorSpaceMode();
 
             C2RKRgaDef::SetRgaInfo(
                     &srcInfo, fd, HAL_PIXEL_FORMAT_RGBA_8888,
@@ -3406,7 +3362,7 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
             C2RKRgaDef::SetRgaInfo(
                     &dstInfo, mDmaMem->fd, HAL_PIXEL_FORMAT_YCrCb_NV12,
                     mSize->width, mSize->height, mHorStride, mVerStride);
-            if (!C2RKRgaDef::DoBlit(srcInfo, dstInfo, colorSpaceMode)) {
+            if (!C2RKRgaDef::DoBlit(srcInfo, dstInfo)) {
                 Log.E("failed to RgaConver(RGBA->NV12)");
                 ret = C2_CORRUPTED;
             }
@@ -3465,12 +3421,12 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
 
     if (configChanged) {
         if (mInputMppFmt == MPP_FMT_RGBA8888) {
-            mpp_enc_cfg_set_s32(mEncCfg, "prep:hor_stride", mHorStride * 4);
+            ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:hor_stride", mHorStride * 4);
         } else {
-            mpp_enc_cfg_set_s32(mEncCfg, "prep:hor_stride", mHorStride);
+            ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:hor_stride", mHorStride);
         }
-        mpp_enc_cfg_set_s32(mEncCfg, "prep:ver_stride", mVerStride);
-        mpp_enc_cfg_set_s32(mEncCfg, "prep:format", mInputMppFmt);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:ver_stride", mVerStride);
+        ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:format", mInputMppFmt);
 
         MPP_RET err = mMppMpi->control(mMppCtx, MPP_ENC_SET_CFG, mEncCfg);
         if (err != MPP_OK) {
@@ -3492,7 +3448,11 @@ c2_status_t C2RKMpiEnc::sendframe(
 
     static uint32_t kMaxRetryCnt = 1000;
 
-    mpp_frame_init(&frame);
+    err = mpp_frame_init(&frame);
+    if (err != MPP_OK) {
+        Log.PostError("mpp_frame_init", static_cast<int32_t>(err));
+        return C2_NO_MEMORY;
+    }
 
     meta = mpp_frame_get_meta(frame);
 
@@ -3505,21 +3465,20 @@ c2_status_t C2RKMpiEnc::sendframe(
         MppBuffer buffer = nullptr;
         MppBufferInfo commit;
 
-        memset(&commit, 0, sizeof(commit));
+        ignore = memset(&commit, 0, sizeof(commit));
 
         commit.type = MPP_BUFFER_TYPE_ION;
         commit.fd   = dBuffer.fd;
         commit.size = dBuffer.size;
 
         err = mpp_buffer_import(&buffer, &commit);
-        if (err) {
-            Log.E("failed to import input buffer");
+        if (err != MPP_OK) {
+            Log.PostError("mpp_buffer_import", static_cast<int32_t>(err));
             ret = C2_NOT_FOUND;
             goto error;
         }
         mpp_frame_set_buffer(frame, buffer);
-        mpp_buffer_put(buffer);
-        buffer = nullptr;
+        ignore = mpp_buffer_put(buffer);
     } else {
         mpp_frame_set_buffer(frame, nullptr);
     }
@@ -3542,22 +3501,22 @@ c2_status_t C2RKMpiEnc::sendframe(
          break;
     }
 
-    mpp_meta_set_buffer(meta, KEY_MOTION_INFO, mMdInfo);
+    ignore = mpp_meta_set_buffer(meta, KEY_MOTION_INFO, mMdInfo);
 
     /* handle dynamic configurations from teams mlvec */
     if (mMlvec) {
-        handleMlvecDynamicCfg(meta);
+        ignore = handleMlvecDynamicCfg(meta);
     }
 
     /* handle IDR request */
-    handleRequestSyncFrame();
+    ignore = handleRequestSyncFrame();
 
     /* handle ROI region setup from user */
     {
         IntfImpl::Lock lock = mIntf->lock();
         Vector<RoiRegionCfg> regions = mIntf->getRoiRegionCfg();
         if (regions.size() > 0) {
-            handleRoiRegionRequest(meta, regions);
+            ignore = handleRoiRegionRequest(meta, regions);
         }
     }
 
@@ -3586,12 +3545,12 @@ c2_status_t C2RKMpiEnc::sendframe(
                 };
                 regions.push(region);
             }
-            handleRoiRegionRequest(meta, regions);
+            ignore = handleRoiRegionRequest(meta, regions);
         }
     }
 
     while (true) {
-        MPP_RET err = mMppMpi->encode_put_frame(mMppCtx, frame);
+        err = mMppMpi->encode_put_frame(mMppCtx, frame);
         if (err == MPP_OK) {
             Log.D("send frame fd %d size %d pts %lld", dBuffer.fd, dBuffer.size, pts);
             mInputCount++;
@@ -3603,12 +3562,12 @@ c2_status_t C2RKMpiEnc::sendframe(
             goto error;
         }
 
-        usleep(3 * 1000);
+        std::this_thread::sleep_for(std::chrono::milliseconds(3));
     }
 
 error:
     if (!mHandler && frame) {
-        mpp_frame_deinit(&frame);
+        ignore = mpp_frame_deinit(&frame);
     }
 
     return ret;

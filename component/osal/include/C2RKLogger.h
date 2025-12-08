@@ -48,7 +48,6 @@ public:
     // Log at ERROR level if condition is true.
     void PostErrorIf(bool condition, const char *msg, int32_t line = __builtin_LINE()) const;
 
-
     // Log at function enter/leave, default to calling function name if not specified.
     void Enter(const char* func = __builtin_FUNCTION()) const;
     void Leave(const char* func = __builtin_FUNCTION()) const;

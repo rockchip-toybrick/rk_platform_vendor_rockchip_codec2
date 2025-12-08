@@ -72,7 +72,7 @@ int main(int /* argc */, char** /* argv */) {
     LOG(INFO) << "android.hardware.media.c2@1.1-service starting...";
 
     // Set up minijail to limit system calls.
-    signal(SIGPIPE, SIG_IGN);
+    std::ignore = signal(SIGPIPE, SIG_IGN);
     SetUpMinijail(kBaseSeccompPolicyPath, kExtSeccompPolicyPath);
 
     // Enable vndbinder to allow vendor-to-vendor binder calls.

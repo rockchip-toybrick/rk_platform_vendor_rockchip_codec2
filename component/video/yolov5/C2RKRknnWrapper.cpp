@@ -16,6 +16,7 @@
 
 #include <dlfcn.h>
 #include <string.h>
+#include <tuple>
 
 #include "C2RKRknnWrapper.h"
 
@@ -28,7 +29,7 @@ C2RKRknnWrapper::C2RKRknnWrapper() {
 
 C2RKRknnWrapper::~C2RKRknnWrapper() {
     if (mLibFd != nullptr) {
-        dlclose(mLibFd);
+        std::ignore = dlclose(mLibFd);
         mLibFd = nullptr;
     }
 }
@@ -61,14 +62,10 @@ bool C2RKRknnWrapper::initCheck() {
 
     if (!mInitFunc || !mDestroyFunc || !mQueryFunc || !mSetInputsFunc ||
         !mGetOutputsFunc || !mRunFunc || !mReleaseOutputsFunc ||
-        !mSetCoreMaskFunc || !mCreateMemFunc || !mDestroyMemFunc) {
-        dlclose(mLibFd);
-        return false;
-    }
-
-    if (!mMatmulCreateShapeFunc || !mMatmulDestroyFunc ||
-        !mMatmulSetShapeFunc || !mMatmulRunFunc || !mMatmulSetIOMemFunc) {
-        dlclose(mLibFd);
+        !mSetCoreMaskFunc || !mCreateMemFunc || !mDestroyMemFunc ||
+        !mMatmulCreateShapeFunc || !mMatmulDestroyFunc || !mMatmulSetShapeFunc ||
+        !mMatmulRunFunc || !mMatmulSetIOMemFunc) {
+        std::ignore = dlclose(mLibFd);
         return false;
     }
 

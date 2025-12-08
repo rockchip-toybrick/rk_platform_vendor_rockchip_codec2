@@ -22,18 +22,11 @@
 
 namespace android {
 
-int C2RKVdecExtendFeature::configFrameHdrDynamicMeta(buffer_handle_t hnd, int64_t offset) {
-    return C2RKGraphicBufferMapper::get()->setDynamicHdrMeta(hnd, offset);
-}
+int32_t C2RKVdecExtendFeature::checkNeedScale(buffer_handle_t hnd) {
+    int32_t need = 0;
+    rkvdec_scaling_metadata_t* metadata = nullptr;
 
-int C2RKVdecExtendFeature::checkNeedScale(buffer_handle_t hnd) {
-    int ret = 0;
-    int need = 0;
-    uint64_t bufId = 0;
-
-    rkvdec_scaling_metadata_t* metadata = NULL;
-    bufId = C2RKGraphicBufferMapper::get()->getBufferId(hnd);
-    ret = C2RKGraphicBufferMapper::get()->mapScaleMeta(hnd, &metadata);
+    int32_t ret = C2RKGraphicBufferMapper::get()->mapScaleMeta(hnd, &metadata);
     if (!ret) {
         /*
          * NOTE: After info change realloc buf, buf has not processed by hwc,
@@ -53,16 +46,20 @@ int C2RKVdecExtendFeature::checkNeedScale(buffer_handle_t hnd) {
             need = -1;
             break;
         }
-        C2RKGraphicBufferMapper::get()->unmapScaleMeta(hnd);
+        std::ignore = C2RKGraphicBufferMapper::get()->unmapScaleMeta(hnd);
     }
 
     return need;
 }
 
-int C2RKVdecExtendFeature::configFrameScaleMeta(
+bool C2RKVdecExtendFeature::configFrameHdrDynamicMeta(buffer_handle_t hnd, int64_t offset) {
+    return C2RKGraphicBufferMapper::get()->setDynamicHdrMeta(hnd, offset);
+}
+
+bool C2RKVdecExtendFeature::configFrameScaleMeta(
         buffer_handle_t hnd, C2PreScaleParam *scaleParam) {
-    int ret = 0;
-    rkvdec_scaling_metadata_t* metadata = NULL;
+    int32_t ret = 0;
+    rkvdec_scaling_metadata_t* metadata = nullptr;
 
     ret = C2RKGraphicBufferMapper::get()->mapScaleMeta(hnd, &metadata);
     if (!ret) {
@@ -99,7 +96,7 @@ int C2RKVdecExtendFeature::configFrameScaleMeta(
 
     ret = C2RKGraphicBufferMapper::get()->unmapScaleMeta(hnd);
 
-    return ret;
+    return (ret == 0);
 }
 
 }

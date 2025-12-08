@@ -35,6 +35,8 @@
 
 namespace android {
 
+using std::ignore;
+
 C2_LOGGER_ENABLE("C2RKPostProcess");
 
 // post-process output seg mask dump
@@ -134,8 +136,8 @@ void _resize_by_rga_uint8(
     im_handle_param_t rgaDstParam;
 
     for (int b = 0; b < boxesNum; b++) {
-        memset(&rgaSrc, 0, sizeof(rgaSrc));
-        memset(&rgaDst, 0, sizeof(rgaDst));
+        ignore = memset(&rgaSrc, 0, sizeof(rgaSrc));
+        ignore = memset(&rgaDst, 0, sizeof(rgaDst));
 
         rgaSrcParam.width  = inputW;
         rgaSrcParam.height = inputH;
@@ -161,8 +163,8 @@ void _resize_by_rga_uint8(
             Log.E("failed imresize");
         }
 
-        releasebuffer_handle(rgaSrcHdl);
-        releasebuffer_handle(rgaDstHdl);
+        ignore = releasebuffer_handle(rgaSrcHdl);
+        ignore = releasebuffer_handle(rgaDstHdl);
     }
 }
 
@@ -171,7 +173,7 @@ void _seg_reverse(
         int modelH, int modelW, int croppedH, int croppedW,
         int oriInH, int oriInW, int yPad, int xPad) {
     if (yPad == 0 && xPad == 0 && oriInH == modelH && oriInW == modelW) {
-        memcpy(segMaskReal, segMask, oriInH * oriInW);
+        ignore = memcpy(segMaskReal, segMask, oriInH * oriInW);
         return;
     }
 
@@ -302,8 +304,8 @@ static int _process_fp32(
         int gridW, int height, int width, int stride, std::vector<float> &boxes,
         std::vector<float> &segments, float *proto, std::vector<float> &objProbs,
         std::vector<int> &classId, float threshold) {
-    (void)width;
-    (void)height;
+    ignore = width;
+    ignore = height;
 
     int validCount = 0;
 
@@ -378,7 +380,7 @@ static int _process_fp32(
     return validCount;
 }
 
-static int _quick_sort_indice_inverse(
+static void _quick_sort_indice_inverse(
         std::vector<float> &input, int left, int right, std::vector<int> &indices) {
     float key;
     int key_index;
@@ -405,8 +407,6 @@ static int _quick_sort_indice_inverse(
         _quick_sort_indice_inverse(input, left, low - 1, indices);
         _quick_sort_indice_inverse(input, low + 1, right, indices);
     }
-
-    return low;
 }
 
 static float _calculateOverlap(
@@ -421,7 +421,7 @@ static float _calculateOverlap(
     return u <= 0.f ? 0.f : (i / u);
 }
 
-static int _nms(int validCount, std::vector<float> &outputLocations,
+static void _nms(int validCount, std::vector<float> &outputLocations,
                std::vector<int> classIds, std::vector<int> &order,
                int filterId, float threshold) {
     for (int i = 0; i < validCount; ++i) {
@@ -452,7 +452,6 @@ static int _nms(int validCount, std::vector<float> &outputLocations,
             }
         }
     }
-    return 0;
 }
 
 void _crop_mask_fp(
@@ -480,6 +479,7 @@ void _crop_mask_fp(
     }
 }
 
+/*
 static void _crop_mask_uint8(
         uint8_t *segMask, uint8_t *allMaskInOne, float *boxes,
         int boxesNum, int *clsId, int height, int width) {
@@ -502,6 +502,7 @@ static void _crop_mask_uint8(
         }
     }
 }
+*/
 
 static void _crop_mask_uint8_merge(
         uint8_t *segMask, uint8_t *allMaskInOne, float *boxes,
@@ -543,14 +544,14 @@ void _matmul_by_npu_fp(
         int8VectorA[i] = (rknpu2::float16)AInput[i];
     }
 
-    memcpy(impl->tensorA->virt_addr, int8VectorA, ioAttr->A.size);
-    memcpy(impl->tensorB->virt_addr, impl->vectorB, ioAttr->B.size);
+    ignore = memcpy(impl->tensorA->virt_addr, int8VectorA, ioAttr->A.size);
+    ignore = memcpy(impl->tensorB->virt_addr, impl->vectorB, ioAttr->B.size);
 
-    ret = C2RKRknnWrapper::get()->rknnMatmulSetIOMem(matCtx, impl->tensorA, &ioAttr->A);
-    ret = C2RKRknnWrapper::get()->rknnMatmulSetIOMem(matCtx, impl->tensorB, &ioAttr->B);
-    ret = C2RKRknnWrapper::get()->rknnMatmulSetIOMem(matCtx, impl->tensorC, &ioAttr->C);
+    ignore = C2RKRknnWrapper::get()->rknnMatmulSetIOMem(matCtx, impl->tensorA, &ioAttr->A);
+    ignore = C2RKRknnWrapper::get()->rknnMatmulSetIOMem(matCtx, impl->tensorB, &ioAttr->B);
+    ignore = C2RKRknnWrapper::get()->rknnMatmulSetIOMem(matCtx, impl->tensorC, &ioAttr->C);
 
-    ret = C2RKRknnWrapper::get()->rknnMatmulRun(matCtx);
+    ignore = C2RKRknnWrapper::get()->rknnMatmulRun(matCtx);
 
     int boxesNum = ROWSA;
     int tensorCLen = ioAttr->C.size / sizeof(float);
@@ -582,7 +583,7 @@ static void _get_blk_object(
     blkEndX = _MIN(blkPosX + 15, picWidth - 1);
     blkEndY = _MIN(blkPosY + 15, picHeight - 1);
 
-    memset(&roiCalcList, 0, sizeof(int) * 6);
+    ignore = memset(&roiCalcList, 0, sizeof(int) * 6);
     // calculate the number of pixels (in a 16x16 block) in each category
     for (k = blkPosY; k <= blkEndY; k += 2) {
         for (l = blkPosX; l <= blkEndX; l += 2) {
@@ -622,7 +623,7 @@ ImageBuffer* _alloc_seg_buffer(int32_t width, int32_t height) {
         usage |= RK_GRALLOC_USAGE_WITHIN_4G;
     }
 
-    GraphicBufferAllocator::get().allocate(
+    ignore = GraphicBufferAllocator::get().allocate(
             width, height, 538982489 /* HAL_PIXEL_FORMAT_Y8 */, 1u,
             usage, &bufferHandle, &stride, "c2_yolov5_seg_buf");
 
@@ -644,10 +645,10 @@ ImageBuffer* _alloc_seg_buffer(int32_t width, int32_t height) {
 void _free_seg_buffer(ImageBuffer *image) {
     if (image) {
         if (image->virAddr) {
-            munmap(image->virAddr, image->size);
+            ignore = munmap(image->virAddr, image->size);
         }
         if (image->handle) {
-            GraphicBufferAllocator::get().free((buffer_handle_t)image->handle);
+            ignore = GraphicBufferAllocator::get().free((buffer_handle_t)image->handle);
         }
         C2_SAFE_DELETE(image)
     }
@@ -683,8 +684,8 @@ bool c2_postprocess_init_context(
         int err = 0;
         int maxSizeA = 0, maxSizeB = 0, maxSizeC = 0;
 
-        memset(impl->ioAttr, 0, sizeof(rknn_matmul_io_attr) * SEG_NUMB_MAX_SIZE);
-        memset(&info, 0, sizeof(rknn_matmul_info));
+        ignore = memset(impl->ioAttr, 0, sizeof(rknn_matmul_io_attr) * SEG_NUMB_MAX_SIZE);
+        ignore = memset(&info, 0, sizeof(rknn_matmul_info));
 
         info.type = RKNN_FLOAT16_MM_FLOAT16_TO_FLOAT32;
         info.B_layout = RKNN_MM_LAYOUT_NORM;
@@ -748,16 +749,16 @@ bool c2_postprocess_deinit_context(PostProcessContext ctx) {
         _free_seg_buffer(impl->segMaskReal);
 
         if (impl->tensorA) {
-            C2RKRknnWrapper::get()->rknnDestroyMem(impl->matmulCtx, impl->tensorA);
+            ignore = C2RKRknnWrapper::get()->rknnDestroyMem(impl->matmulCtx, impl->tensorA);
         }
         if (impl->tensorB) {
-            C2RKRknnWrapper::get()->rknnDestroyMem(impl->matmulCtx, impl->tensorB);
+            ignore = C2RKRknnWrapper::get()->rknnDestroyMem(impl->matmulCtx, impl->tensorB);
         }
         if (impl->tensorC) {
-            C2RKRknnWrapper::get()->rknnDestroyMem(impl->matmulCtx, impl->tensorC);
+            ignore = C2RKRknnWrapper::get()->rknnDestroyMem(impl->matmulCtx, impl->tensorC);
         }
         if (impl->matmulCtx) {
-            C2RKRknnWrapper::get()->rknnMatmulDestroy(impl->matmulCtx);
+            ignore = C2RKRknnWrapper::get()->rknnMatmulDestroy(impl->matmulCtx);
         }
         C2_SAFE_DELETE(impl);
     }
@@ -773,7 +774,7 @@ int c2_preprocess_convert_image_with_rga(
     int srcFmt = _toRgaFormat(src->format);
     int dstFmt = _toRgaFormat(dst->format);
 
-    memset(&prect, 0, sizeof(im_rect));
+    ignore = memset(&prect, 0, sizeof(im_rect));
 
     srect.x = srcRect->left;
     srect.y = srcRect->top;
@@ -794,7 +795,7 @@ int c2_preprocess_convert_image_with_rga(
     rga_buffer_handle_t rgaSrcHdl = 0;
     rga_buffer_handle_t rgaDstHdl = 0;
 
-    memset(&rgaPat, 0, sizeof(rga_buffer_t));
+    ignore = memset(&rgaPat, 0, sizeof(rga_buffer_t));
 
     rgaSrcParam.width  = src->width;
     rgaSrcParam.height = src->height;
@@ -859,11 +860,11 @@ int c2_preprocess_convert_image_with_rga(
 
 cleanUp:
     if (rgaSrcHdl > 0) {
-        releasebuffer_handle(rgaSrcHdl);
+        ignore = releasebuffer_handle(rgaSrcHdl);
     }
 
     if (rgaDstHdl > 0) {
-        releasebuffer_handle(rgaDstHdl);
+        ignore = releasebuffer_handle(rgaDstHdl);
     }
 
     return (err > 0);
@@ -1109,10 +1110,10 @@ bool c2_postprocess_output_model_image(
     uint8_t *croppedSegMask = impl->croppedSegMask->virAddr;
     uint8_t *segMaskReal    = impl->segMaskReal->virAddr;
 
-    memset(matmulOut, 0, finalBoxNum * PROTO_HEIGHT * PROTO_WEIGHT);
-    memset(allMaskInOne, 0, modelWidth * modelHeight * sizeof(uint8_t));
-    memset(segMask, 0, SEG_NUMB_MAX_SIZE * SEG_MODEL_WIDTH * SEG_MODEL_HEIGHT);
-    memset(croppedSegMask, 0, SEG_MODEL_WIDTH * SEG_MODEL_HEIGHT);
+    ignore = memset(matmulOut, 0, finalBoxNum * PROTO_HEIGHT * PROTO_WEIGHT);
+    ignore = memset(allMaskInOne, 0, modelWidth * modelHeight * sizeof(uint8_t));
+    ignore = memset(segMask, 0, SEG_NUMB_MAX_SIZE * SEG_MODEL_WIDTH * SEG_MODEL_HEIGHT);
+    ignore = memset(croppedSegMask, 0, SEG_MODEL_WIDTH * SEG_MODEL_HEIGHT);
 
     int rowsA = finalBoxNum;
     int colsA = PROTO_CHANNEL;
@@ -1141,7 +1142,7 @@ bool c2_postprocess_output_model_image(
             modelHeight, modelWidth, croppedH, croppedW,
             oriInH, oriInW, yPad, xPad);
 
-    memcpy(odResults->resultsSeg[0].segMask, segMaskReal, oriInW * oriInH);
+    ignore = memcpy(odResults->resultsSeg[0].segMask, segMaskReal, oriInW * oriInH);
 
     C2_SAFE_FREE(filterBoxesByNms)
 
@@ -1192,10 +1193,10 @@ bool c2_postprocess_seg_mask_to_class_map(
                     // dump output seg mask line after line
                     if (impl->dumpSegMask) {
                         if (objectMap[blockNum] == 0) {
-                            dumpResult.append("  ");
+                            ignore = dumpResult.append("  ");
                         } else {
-                            sprintf(dumpBuffer, "%d ", objectMap[blockNum]);
-                            dumpResult.append(dumpBuffer);
+                            ignore = sprintf(dumpBuffer, "%d ", objectMap[blockNum]);
+                            ignore = dumpResult.append(dumpBuffer);
                         }
                     }
                     blockNum++;
@@ -1253,8 +1254,8 @@ bool c2_postprocess_copy_image_buffer(ImageBuffer *srcImage, ImageBuffer *dstIma
 
     rga_buffer_t src, dst;
 
-    memset(&src, 0, sizeof(src));
-    memset(&dst, 0, sizeof(dst));
+    ignore = memset(&src, 0, sizeof(src));
+    ignore = memset(&dst, 0, sizeof(dst));
 
     src = wrapbuffer_handle(
             srcHandle, srcImage->width, srcImage->height,
@@ -1265,8 +1266,8 @@ bool c2_postprocess_copy_image_buffer(ImageBuffer *srcImage, ImageBuffer *dstIma
 
     int err = imcopy(src, dst);
 
-    releasebuffer_handle(srcHandle);
-    releasebuffer_handle(dstHandle);
+    ignore = releasebuffer_handle(srcHandle);
+    ignore = releasebuffer_handle(dstHandle);
 
     return (err > 0);
 }
@@ -1291,7 +1292,7 @@ bool c2_postprocess_draw_rect_array(
     }
 
     rga_buffer_t src;
-    memset(&src, 0, sizeof(src));
+    ignore = memset(&src, 0, sizeof(src));
 
     im_handle_param_t param;
     rga_buffer_handle_t handle;
@@ -1317,7 +1318,7 @@ bool c2_postprocess_draw_rect_array(
 
     int err = imrectangleArray(src, faceRect, odResults->count, 0x0000ff, 2);
 
-    releasebuffer_handle(handle);
+    ignore = releasebuffer_handle(handle);
 
     return (err > 0);
 }

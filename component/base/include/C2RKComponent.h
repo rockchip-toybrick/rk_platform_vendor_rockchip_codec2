@@ -54,6 +54,8 @@ public:
     // for handler
     bool processQueue();
 
+    std::shared_ptr<C2RKComponent> sharedFromComponent();
+
 protected:
     /**
      * Initialize internal states of the component according to the config set

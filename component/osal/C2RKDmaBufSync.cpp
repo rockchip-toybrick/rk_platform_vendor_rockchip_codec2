@@ -49,16 +49,16 @@ struct dma_buf_sync {
 #define DMA_BUF_IOCTL_SYNC	    _IOW(DMA_BUF_BASE, 0, struct dma_buf_sync)
 
 
-int dma_sync_device_to_cpu(int fd) {
+bool dma_sync_device_to_cpu(int fd) {
     struct dma_buf_sync sync = {0};
 
     sync.flags = DMA_BUF_SYNC_START | DMA_BUF_SYNC_RW;
-    return ioctl(fd, DMA_BUF_IOCTL_SYNC, &sync);
+    return (ioctl(fd, DMA_BUF_IOCTL_SYNC, &sync) >= 0) ? true : false;
 }
 
-int dma_sync_cpu_to_device(int fd) {
+bool dma_sync_cpu_to_device(int fd) {
     struct dma_buf_sync sync = {0};
 
     sync.flags = DMA_BUF_SYNC_END | DMA_BUF_SYNC_RW;
-    return ioctl(fd, DMA_BUF_IOCTL_SYNC, &sync);
+    return (ioctl(fd, DMA_BUF_IOCTL_SYNC, &sync) >= 0) ? true : false;
 }

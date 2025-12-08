@@ -70,7 +70,7 @@ static void Reply(const sp<AMessage> &msg, int32_t *err = nullptr) {
     if (err) {
         reply->setInt32("err", *err);
     }
-    reply->postReply(replyId);
+    CHECK(reply->postReply(replyId) == OK);
 }
 
 void C2RKComponent::WorkHandler::onMessageReceived(const sp<AMessage> &msg) {
@@ -81,7 +81,8 @@ void C2RKComponent::WorkHandler::onMessageReceived(const sp<AMessage> &msg) {
         if (msg->senderAwaitsResponse(&replyId)) {
             sp<AMessage> reply = new AMessage;
             reply->setInt32("err", C2_CORRUPTED);
-            reply->postReply(replyId);
+
+            CHECK(reply->postReply(replyId) == OK);
         }
         return;
     }
@@ -90,7 +91,7 @@ void C2RKComponent::WorkHandler::onMessageReceived(const sp<AMessage> &msg) {
         case kWhatProcess: {
             if (mRunning) {
                 if (thiz->processQueue()) {
-                    (new AMessage(kWhatProcess, this))->post();
+                    CHECK((new AMessage(kWhatProcess, this))->post() == OK);
                 }
             } else {
                 Log.D("Ignore process message as we're not running");
@@ -200,13 +201,14 @@ C2RKComponent::C2RKComponent(
       mLooper(new ALooper),
       mHandler(new WorkHandler) {
     mLooper->setName(intf->getName().c_str());
-    (void)mLooper->registerHandler(mHandler);
-    mLooper->start(false, false, ANDROID_PRIORITY_VIDEO);
+
+    CHECK(mLooper->registerHandler(mHandler) > 0);
+    CHECK(mLooper->start(false, false, ANDROID_PRIORITY_VIDEO) == OK);
 }
 
 C2RKComponent::~C2RKComponent() {
     mLooper->unregisterHandler(mHandler->id());
-    (void)mLooper->stop();
+    CHECK(mLooper->stop() == OK);
 }
 
 c2_status_t C2RKComponent::setListener_vb(
@@ -228,6 +230,10 @@ c2_status_t C2RKComponent::setListener_vb(
     return C2_OK;
 }
 
+std::shared_ptr<C2RKComponent> C2RKComponent::sharedFromComponent() {
+    return shared_from_this();
+}
+
 c2_status_t C2RKComponent::queue_nb(std::list<std::unique_ptr<C2Work>> * const items) {
     {
         Mutexed<ExecState>::Locked state(mExecState);
@@ -245,7 +251,7 @@ c2_status_t C2RKComponent::queue_nb(std::list<std::unique_ptr<C2Work>> * const i
         }
     }
     if (queueWasEmpty) {
-        (new AMessage(WorkHandler::kWhatProcess, mHandler))->post();
+        CHECK((new AMessage(WorkHandler::kWhatProcess, mHandler))->post() == OK);
     }
 
     return C2_OK;
@@ -283,7 +289,7 @@ c2_status_t C2RKComponent::flush_sm(
         }
         while (!queue->pending().empty()) {
             flushedWork->push_back(std::move(queue->pending().begin()->second));
-            queue->pending().erase(queue->pending().begin());
+            std::ignore = queue->pending().erase(queue->pending().begin());
         }
     }
 
@@ -308,7 +314,7 @@ c2_status_t C2RKComponent::drain_nb(drain_mode_t drainMode) {
         queue->markDrain(drainMode);
     }
     if (queueWasEmpty) {
-        (new AMessage(WorkHandler::kWhatProcess, mHandler))->post();
+        CHECK((new AMessage(WorkHandler::kWhatProcess, mHandler))->post() == OK);
     }
     return C2_OK;
 }
@@ -319,19 +325,22 @@ c2_status_t C2RKComponent::start() {
     if (state->mState == RUNNING) {
         return C2_BAD_STATE;
     }
+
     bool needsInit = (state->mState == UNINITIALIZED);
     state.unlock();
 
     if (needsInit) {
         sp<AMessage> reply;
-        (new AMessage(WorkHandler::kWhatInit, mHandler))->postAndAwaitResponse(&reply);
-        int32_t err;
-        CHECK(reply->findInt32("err", &err));
-        if (err != C2_OK) {
-            return (c2_status_t)err;
+        sp<AMessage> msg = new AMessage(WorkHandler::kWhatInit, mHandler);
+        status_t err = msg->postAndAwaitResponse(&reply);
+        if (err == OK && reply != nullptr) {
+            CHECK(reply->findInt32("err", &err));
+            if (err != OK) {
+                return (c2_status_t)err;
+            }
         }
     } else {
-        (new AMessage(WorkHandler::kWhatStart, mHandler))->post();
+        CHECK((new AMessage(WorkHandler::kWhatStart, mHandler))->post() == OK);
     }
     state.lock();
     state->mState = RUNNING;
@@ -341,6 +350,11 @@ c2_status_t C2RKComponent::start() {
 
 c2_status_t C2RKComponent::stop() {
     Log.TraceEnter();
+
+    // since stop process is time-consuming, set flushing state
+    // to discard all work output during process.
+    setFlushingState();
+
     {
         Mutexed<ExecState>::Locked state(mExecState);
         if (state->mState != RUNNING) {
@@ -349,46 +363,44 @@ c2_status_t C2RKComponent::stop() {
         state->mState = STOPPED;
     }
     {
-        // since stop process is time-consuming, set flushing state
-        // to discard all work output during process.
-        setFlushingState();
-
         Mutexed<WorkQueue>::Locked queue(mWorkQueue);
         queue->clear();
         queue->pending().clear();
     }
     sp<AMessage> reply;
-    (new AMessage(WorkHandler::kWhatStop, mHandler))->postAndAwaitResponse(&reply);
-    int32_t err;
-    CHECK(reply->findInt32("err", &err));
-    if (err != C2_OK) {
-        return (c2_status_t)err;
+    status_t err = (new AMessage(
+            WorkHandler::kWhatStop, mHandler))->postAndAwaitResponse(&reply);
+    if (err == OK && reply != nullptr) {
+        CHECK(reply->findInt32("err", &err));
     }
 
     stopFlushingState();
-    return C2_OK;
+    return (c2_status_t)err;;
 }
 
 c2_status_t C2RKComponent::reset() {
     Log.TraceEnter();
+
+    // since reset process is time-consuming, set flushing state
+    // to discard all work output during process.
+    setFlushingState();
+
     {
         Mutexed<ExecState>::Locked state(mExecState);
         state->mState = UNINITIALIZED;
     }
     {
-        // since reset process is time-consuming, set flushing state
-        // to discard all work output during process.
-        setFlushingState();
-
         Mutexed<WorkQueue>::Locked queue(mWorkQueue);
         queue->clear();
         queue->pending().clear();
     }
     sp<AMessage> reply;
-    (new AMessage(WorkHandler::kWhatReset, mHandler))->postAndAwaitResponse(&reply);
+    status_t err = (new AMessage(
+            WorkHandler::kWhatReset, mHandler))->postAndAwaitResponse(&reply);
+    Log.PostErrorIf(err != OK, "postReset");
 
     stopFlushingState();
-    return C2_OK;
+    return (c2_status_t)err;
 }
 
 c2_status_t C2RKComponent::release() {
@@ -399,10 +411,12 @@ c2_status_t C2RKComponent::release() {
     setFlushingState();
 
     sp<AMessage> reply;
-    (new AMessage(WorkHandler::kWhatRelease, mHandler))->postAndAwaitResponse(&reply);
+    status_t err = (new AMessage(
+            WorkHandler::kWhatRelease, mHandler))->postAndAwaitResponse(&reply);
+    Log.PostErrorIf(err != OK, "postRelease");
 
     stopFlushingState();
-    return C2_OK;
+    return (c2_status_t)err;
 }
 
 std::shared_ptr<C2ComponentInterface> C2RKComponent::intf() {
@@ -463,7 +477,7 @@ void C2RKComponent::finishAllPendingWorks() {
         listener->onWorkDone_nb(shared_from_this(), vec(work));
         Log.D("flush pending work, index %lld", queue->pending().begin()->first);
 
-        queue->pending().erase(queue->pending().begin());
+        std::ignore = queue->pending().erase(queue->pending().begin());
     }
 }
 
@@ -487,7 +501,7 @@ void C2RKComponent::finish(
             return;
         }
         work = std::move(queue->pending().at(frameIndex));
-        queue->pending().erase(frameIndex);
+        std::ignore = queue->pending().erase(frameIndex);
     }
 
     finish(work, fillWork);
@@ -529,7 +543,7 @@ void C2RKComponent::cloneAndSend(
         work->input.flags = queue->pending().at(frameIndex)->input.flags;
         work->input.ordinal = queue->pending().at(frameIndex)->input.ordinal;
     }
-    work->worklets.emplace_back(new C2Worklet);
+    std::ignore = work->worklets.emplace_back(new C2Worklet);
     if (work) {
         fillWork(work);
         std::shared_ptr<C2Component::Listener> listener = mExecState.lock()->mListener;
@@ -627,7 +641,7 @@ bool C2RKComponent::processQueue() {
         std::vector<C2Param *> updates;
         for (const std::unique_ptr<C2Param> &param: work->input.configUpdate) {
             if (param) {
-                updates.emplace_back(param.get());
+                std::ignore = updates.emplace_back(param.get());
             }
         }
         if (!updates.empty()) {
@@ -674,9 +688,9 @@ bool C2RKComponent::processQueue() {
         uint64_t frameIndex = work->input.ordinal.frameIndex.peeku();
         if (queue->pending().count(frameIndex) != 0) {
             unexpected = std::move(queue->pending().at(frameIndex));
-            queue->pending().erase(frameIndex);
+            std::ignore = queue->pending().erase(frameIndex);
         }
-        (void)queue->pending().insert({ frameIndex, std::move(work) });
+        std::ignore = queue->pending().emplace(frameIndex, std::move(work));
 
         queue.unlock();
         if (unexpected) {

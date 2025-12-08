@@ -68,8 +68,8 @@ private:
     typedef struct {
         int32_t  fd;
         int32_t  size;
-        void    *handler; /* buffer_handle_t */
         void    *npuMaps;
+        const void *handler; /* buffer_handle_t */
     } MyDmaBuffer_t;
 
     /* Supported lists for InputFormat */
@@ -96,10 +96,10 @@ private:
             kWhatStop,
         };
 
-        WorkHandler() { mRunning = true; }
+        WorkHandler(const std::shared_ptr<C2RKMpiEnc> &thiz)
+                : mThiz(thiz), mRunning(true) {}
         ~WorkHandler() override = default;
 
-        void setComponent(C2RKMpiEnc *thiz);
         void startWork();
         void stopWork();
         void waitDrainEOS();
@@ -108,7 +108,7 @@ private:
         void onMessageReceived(const sp<AMessage> &msg) override;
 
     private:
-        C2RKMpiEnc *mThiz;
+        std::weak_ptr<C2RKMpiEnc> mThiz;
         bool mRunning;
     };
 
@@ -194,8 +194,6 @@ private:
             const std::unique_ptr<C2Work> &work, MyDmaBuffer_t dbuffer);
 
     bool needRgaConvert(uint32_t width, uint32_t height, MppFrameFormat fmt);
-    // get RGA color space mode for rgba->yuv conversion
-    int32_t getRgaColorSpaceMode();
     int32_t getCtuSize();
 
     c2_status_t drainEOS(const std::unique_ptr<C2Work> &work);

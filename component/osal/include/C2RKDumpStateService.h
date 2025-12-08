@@ -97,10 +97,9 @@ public:
 
     void setListener(const std::shared_ptr<C2NodeInfoListener> &listener);
 
-    const char* getNodeSummary();
+    std::string getNodeSummary();
 
 public:
-    std::string mNodeSummary;
     std::shared_ptr<C2NodeInfoListener> mListener;
 
     /* codec basic information */
@@ -140,11 +139,11 @@ public:
     bool hasFeatures(int32_t feature);
 
     /* Node management */
-    std::shared_ptr<C2NodeInfo> findNodeItem(void *nodeId);
+    std::shared_ptr<C2NodeInfo> getNodeInfo(void *nodeId);
     bool addNode(std::shared_ptr<C2NodeInfo> node);
-    bool removeNode(void *nodeId);
-    bool resetNode(void *nodeId);
-    bool updateNode(void *nodeId, uint32_t width, uint32_t height, float frameRate = .0f);
+    void removeNode(void *nodeId);
+    void resetNode(void *nodeId);
+    void updateNode(void *nodeId, uint32_t width, uint32_t height, float frameRate = .0f);
     bool getNodePortFrameCount(
             void *nodeId, int64_t *inFrames, int64_t *outFrames, int64_t *errFrames = nullptr);
 
@@ -158,7 +157,8 @@ public:
     void showFrameTiming(void *nodeId, int64_t frameIndex);
 
     /* Node summary */
-    std::string dumpNodesSummary(bool logging = true);
+    std::string dumpNodesSummary();
+    void logNodesSummary();
 
 private:
     C2RKDumpStateService();

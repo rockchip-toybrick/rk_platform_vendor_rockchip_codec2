@@ -68,7 +68,8 @@ private:
             kWhatFlushMessage,
         };
 
-        WorkHandler() : mRunning(true) {}
+        WorkHandler(const std::shared_ptr<C2RKMpiDec> &thiz)
+                : mThiz(thiz), mRunning(true) {}
         ~WorkHandler() override = default;
 
         void flushAllMessages();
@@ -78,6 +79,7 @@ private:
         void onMessageReceived(const sp<AMessage> &msg) override;
 
     private:
+        std::weak_ptr<C2RKMpiDec> mThiz;
         bool mRunning;
     };
 
@@ -138,6 +140,7 @@ private:
     MppCtx           mMppCtx;
     MppApi          *mMppMpi;
     MppCodingType    mCodingType;
+    MppDecCfg        mDecCfg;
     MppFrameFormat   mColorFormat;
     MppBufferGroup   mBufferGroup;
     // Indicates that these buffers should be decoded but not rendered.
@@ -198,7 +201,7 @@ private:
     } mBitstreamColorAspects;
 
     c2_status_t setupAndStartLooper();
-    void stopAndReleaseLooper();
+    c2_status_t stopAndReleaseLooper();
 
     c2_status_t drainEOS(const std::unique_ptr<C2Work> &work);
 

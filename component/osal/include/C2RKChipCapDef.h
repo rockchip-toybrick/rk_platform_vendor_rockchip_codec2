@@ -130,7 +130,7 @@ public:
 
     int32_t getFbcOutputMode(MppCodingType codecId = MPP_VIDEO_CodingUnused);
     int32_t getFbcMinStride(int32_t fbcMode);
-    int32_t getFbcOutputOffset(MppCodingType codecId, int32_t *offsetX, int32_t *offsetY);
+    void    getFbcOutputOffset(MppCodingType codecId, int32_t *offsetX, int32_t *offsetY);
 
     bool preferDureCoreEncoding(int64_t load);
     bool is10bitSupport(MppCodingType codecId);
