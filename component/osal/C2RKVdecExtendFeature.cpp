@@ -35,7 +35,7 @@ int C2RKVdecExtendFeature::checkNeedScale(buffer_handle_t hnd) {
     int need = 0;
     uint64_t bufId = 0;
 
-    metadata_for_rkvdec_scaling_t* metadata = NULL;
+    rkvdec_scaling_metadata_t* metadata = NULL;
     bufId = C2RKGraphicBufferMapper::get()->getBufferId(hnd);
     ret = C2RKGraphicBufferMapper::get()->mapScaleMeta(hnd, &metadata);
     if (!ret) {
@@ -68,7 +68,7 @@ int C2RKVdecExtendFeature::checkNeedScale(buffer_handle_t hnd) {
 int C2RKVdecExtendFeature::configFrameScaleMeta(
         buffer_handle_t hnd, C2PreScaleParam *scaleParam) {
     int ret = 0;
-    metadata_for_rkvdec_scaling_t* metadata = NULL;
+    rkvdec_scaling_metadata_t* metadata = NULL;
 
     ret = C2RKGraphicBufferMapper::get()->mapScaleMeta(hnd, &metadata);
     if (!ret) {

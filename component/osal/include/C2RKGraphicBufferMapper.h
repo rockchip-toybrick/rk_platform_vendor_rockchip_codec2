@@ -26,8 +26,7 @@
 
 using namespace android;
 
-#ifndef GRALLOC_MODULE_PERFORM_LOCK_RKVDEC_SCALING_METADATA
-typedef struct metadata_for_rkvdec_scaling_t {
+typedef struct rkvdec_scaling_metadata_t {
     uint64_t version;
     // mask
     uint64_t requestMask;
@@ -52,8 +51,7 @@ typedef struct metadata_for_rkvdec_scaling_t {
     uint32_t fd[4];
     uint32_t offset[4];
     uint32_t byteStride[4];
-} metadata_for_rkvdec_scaling_t;
-#endif
+} rkvdec_scaling_metadata_t;
 
 class C2RKGraphicBufferMapper {
 public:
@@ -81,7 +79,7 @@ public:
     /* rk mapper metadata */
     int32_t  setDynamicHdrMeta(buffer_handle_t handle, int64_t offset);
     int64_t  getDynamicHdrMeta(buffer_handle_t handle);
-    int32_t  mapScaleMeta(buffer_handle_t handle, metadata_for_rkvdec_scaling_t** metadata);
+    int32_t  mapScaleMeta(buffer_handle_t handle, rkvdec_scaling_metadata_t** metadata);
     int32_t  unmapScaleMeta(buffer_handle_t handle);
 
 private:

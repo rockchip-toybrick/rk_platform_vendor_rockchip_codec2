@@ -391,7 +391,7 @@ int64_t C2RKGraphicBufferMapper::getDynamicHdrMeta(buffer_handle_t handle) {
 }
 
 int32_t C2RKGraphicBufferMapper::mapScaleMeta(
-        buffer_handle_t handle, metadata_for_rkvdec_scaling_t** metadata) {
+        buffer_handle_t handle, rkvdec_scaling_metadata_t** metadata) {
     int32_t err = 0;
 
     if (mMapperVersion == 5) {
