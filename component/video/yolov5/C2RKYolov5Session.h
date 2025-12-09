@@ -27,8 +27,8 @@
 
 namespace android {
 
-#define C2_SAFE_FREE(p)             { if (p) {free(p); (p)=NULL;} }
-#define C2_SAFE_DELETE(p)           { if (p) {delete(p); (p)=NULL;} }
+#define C2_SAFE_FREE(p)             { if (p) {free(p); (p)=nullptr;} }
+#define C2_SAFE_DELETE(p)           { if (p) {delete(p); (p)=nullptr;} }
 
 #define SEG_OUT_CHN_NUM             (7)         /* rknn yolov5 seg output number */
 #define SEG_OUT_BUF_SIZE            (1632000)   /* rknn yolov5 seg output size */

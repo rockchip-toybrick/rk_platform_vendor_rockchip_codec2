@@ -55,8 +55,8 @@ extern "C" bool UpdateComponentDump(int fd, void* argsPtr, size_t argsSize) {
 }
 
 extern "C" ::C2ComponentFactory* CreateRKCodec2Factory(std::string componentName) {
-    C2RKComponentEntry *entry = NULL;
-    C2ComponentFactory *factory = NULL;
+    C2RKComponentEntry *entry = nullptr;
+    C2ComponentFactory *factory = nullptr;
 
     entry = GetRKComponentEntry(componentName);
     if (!entry) {
@@ -77,7 +77,7 @@ extern "C" ::C2ComponentFactory* CreateRKCodec2Factory(std::string componentName
 
     return factory;
 __FAILED:
-    return NULL;
+    return nullptr;
 }
 
 extern "C" void DestroyRKCodec2Factory(::C2ComponentFactory* factory) {

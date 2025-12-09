@@ -54,9 +54,9 @@ const static IMapper::MetadataType RkMetadataType_OFFSET_OF_DYNAMIC_HDR_METADATA
 
 
 static const gralloc_module_t* getGrallocModule() {
-    static const gralloc_module_t *cachedModule = NULL;
-    if (cachedModule == NULL) {
-        const hw_module_t* module = NULL;
+    static const gralloc_module_t *cachedModule = nullptr;
+    if (cachedModule == nullptr) {
+        const hw_module_t* module = nullptr;
         if (hw_get_module(GRALLOC_HARDWARE_MODULE_ID, &module) != 0) {
             Log.E("Failed to open gralloc module");
         }

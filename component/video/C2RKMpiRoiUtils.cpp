@@ -28,7 +28,7 @@ namespace android {
 C2_LOGGER_ENABLE("C2RKMpiRoiUtils");
 
 #define _ALIGN(x, a)            (((x)+(a)-1)&~((a)-1))
-#define _FREE(ptr)              do { if(ptr) free(ptr); ptr = NULL; } while (0)
+#define _FREE(ptr)              do { if(ptr) free(ptr); ptr = nullptr; } while (0)
 #define _MALLOC(type, count)    (type*) malloc(sizeof(type) * (count));
 #define _CALLOC(type, count)    (type*) calloc(count, sizeof(type));
 
@@ -526,7 +526,7 @@ static MPP_RET gen_vepu580_roi_h265(MppEncRoiImpl *ctx) {
                     int32_t cu16_y;
                     int32_t cu16_addr_in_frame;
                     uint32_t zindex = 0;
-                    Vepu541RoiCfg *cu16_cfg = NULL;
+                    Vepu541RoiCfg *cu16_cfg = nullptr;
                     Vepu580RoiH265BsCfg val;
 
                     std::ignore = memset(&val, 0, sizeof(val));
@@ -600,7 +600,7 @@ static MPP_RET gen_vepu580_roi_h265(MppEncRoiImpl *ctx) {
 MPP_RET mpp_enc_roi_init(MppEncRoiCtx *ctx, int32_t w, int32_t h, MppCodingType type) {
     C2ChipType chip_type = C2RKChipCapDef::get()->getChipType();
     RoiType roi_type = ROI_TYPE_AUTO;
-    MppEncRoiImpl *impl = NULL;
+    MppEncRoiImpl *impl = nullptr;
     MPP_RET err = MPP_NOK;
 
     switch (chip_type) {
@@ -754,7 +754,7 @@ done:
     if (err) {
         if (impl) {
             mpp_enc_roi_deinit(impl);
-            impl = NULL;
+            impl = nullptr;
         }
     }
 
@@ -770,25 +770,25 @@ void mpp_enc_roi_deinit(MppEncRoiCtx ctx) {
 
     if (impl->roi_cfg.base_cfg_buf) {
         std::ignore = mpp_buffer_put(impl->roi_cfg.base_cfg_buf);
-        impl->roi_cfg.base_cfg_buf = NULL;
+        impl->roi_cfg.base_cfg_buf = nullptr;
     }
 
     if (impl->roi_cfg.qp_cfg_buf) {
         std::ignore = mpp_buffer_put(impl->roi_cfg.qp_cfg_buf);
-        impl->roi_cfg.qp_cfg_buf = NULL;
+        impl->roi_cfg.qp_cfg_buf = nullptr;
     }
     if (impl->roi_cfg.amv_cfg_buf) {
         std::ignore = mpp_buffer_put(impl->roi_cfg.amv_cfg_buf);
-        impl->roi_cfg.amv_cfg_buf = NULL;
+        impl->roi_cfg.amv_cfg_buf = nullptr;
     }
     if (impl->roi_cfg.mv_cfg_buf) {
         std::ignore = mpp_buffer_put(impl->roi_cfg.mv_cfg_buf);
-        impl->roi_cfg.mv_cfg_buf = NULL;
+        impl->roi_cfg.mv_cfg_buf = nullptr;
     }
 
     if (impl->roi_grp) {
         std::ignore = mpp_buffer_group_put(impl->roi_grp);
-        impl->roi_grp = NULL;
+        impl->roi_grp = nullptr;
     }
     _FREE(impl->cu_map);
     _FREE(impl->legacy_roi_region);
