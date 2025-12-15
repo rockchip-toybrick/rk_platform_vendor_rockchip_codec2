@@ -44,9 +44,15 @@ public:
     void E(const char* fmt, ...) const;
 
     // Log at ERROR level with detailed error information.
-    void PostError(const char* func, int32_t errCode, int32_t line = __builtin_LINE()) const;
+    void PostError(
+            const char* msg, int32_t errCode,
+            const char* func = __builtin_FUNCTION(),
+            const int32_t line = __builtin_LINE()) const;
     // Log at ERROR level if condition is true.
-    void PostErrorIf(bool condition, const char *msg, int32_t line = __builtin_LINE()) const;
+    void PostErrorIf(
+            bool condition, const char *msg,
+            const char* func = __builtin_FUNCTION(),
+            const int32_t line = __builtin_LINE()) const;
 
     // Log at function enter/leave, default to calling function name if not specified.
     void Enter(const char* func = __builtin_FUNCTION()) const;

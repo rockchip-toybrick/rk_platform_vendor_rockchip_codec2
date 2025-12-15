@@ -75,13 +75,15 @@ void C2RKLogger::TraceLeave(const char* func) const {
     D("%s leave", func);
 }
 
-void C2RKLogger::PostError(const char* func, int32_t errCode, int32_t line) const {
-    E("Failed to %s @errno:%d @line:%d", func, errCode, line);
+void C2RKLogger::PostError(
+        const char* msg, int32_t errCode, const char* func, int32_t line) const {
+    E("failed to %s with err %d (@%s:%d)", msg, errCode, func, line);
 }
 
-void C2RKLogger::PostErrorIf(bool condition, const char *msg, int32_t line) const {
+void C2RKLogger::PostErrorIf(
+        bool condition, const char *msg, const char* func, int32_t line) const {
     if (condition) {
-        E("Failed to %s @line:%d", msg, line);
+        E("failed to %s (@%s:%d)", msg, func, line);
     }
 }
 

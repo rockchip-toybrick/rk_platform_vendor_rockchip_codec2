@@ -186,7 +186,14 @@ private:
 
 public:
     FrameRateCalculator(std::string tag, float windowSeconds = 1.0)
-            : mTag(tag), mWindowSeconds(windowSeconds) {}
+            : mTag(tag), mWindowSeconds(windowSeconds) {
+        mTotalInputFrames = 0;
+        mTotalOutputFrames = 0;
+        mLogging = false;
+        mLogInterval = 0;
+        mLastInputLogTime = 0;
+        mLastOutputLogTime = 0;
+    }
 
     void updateLogging(bool enable, float intervalSeconds) {
         int64_t now = _getCurrentTimeMs();
