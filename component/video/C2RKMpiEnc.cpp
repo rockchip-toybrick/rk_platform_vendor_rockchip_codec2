@@ -1356,8 +1356,8 @@ void C2RKMpiEnc::onNodeSummaryRequest(std::string &summary) {
     std::ostringstream oss;
 
     oss << "| Component   : " << mName << "\n"
-        << "| Media Format: " << mMime << ", " << mFrameRate->value << " fps\n"
-        << "| Resolution  : " << mSize->width << "x" << mSize->height
+        << "| Media Format: " << mMime << ", " << mIntf->getFrameRate_l()->value << " fps\n"
+        << "| Resolution  : " << mIntf->getSize_l()->width << "x" << mIntf->getSize_l()->height
         << " (Stride " << mHorStride << "x" << mVerStride << ")\n"
         << "| Pixel Format: " << toStr_Format(mInputMppFmt) << "\n"
         << "| Profile     : "
