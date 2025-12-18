@@ -1696,7 +1696,7 @@ c2_status_t C2RKMpiEnc::setupFrameRate() {
     // Photography/Video at the ISP level?
     float captureRate = frameRate * c2Stretch->value;
 
-    if (captureRate > frameRate) {
+    if (captureRate < frameRate) {
         c2Stretch->value = 1;
         Log.I("setupFrameRate: unexpected captureRate %.1f", captureRate);
     }
