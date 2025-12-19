@@ -19,9 +19,10 @@
 #include "C2RKLogger.h"
 
 #include <hardware/hardware_rockchip.h>
-#include <ui/GraphicBufferMapper.h>
 #include <hardware/gralloc.h>
 #include <android/hardware/graphics/mapper/4.0/IMapper.h>
+
+namespace android {
 
 C2_LOGGER_ENABLE("C2RKGraphicBufferMapper");
 
@@ -51,7 +52,6 @@ const static IMapper::MetadataType RkMetadataType_OFFSET_OF_DYNAMIC_HDR_METADATA
     GRALLOC_RK_METADATA_TYPE_NAME,
     OFFSET_OF_DYNAMIC_HDR_METADATA
 };
-
 
 static const gralloc_module_t* getGrallocModule() {
     static const gralloc_module_t *cachedModule = nullptr;
@@ -108,7 +108,7 @@ int32_t C2RKGraphicBufferMapper::getWidth(buffer_handle_t handle) {
     uint64_t width = 0;
 
     status_t err = GraphicBufferMapper::get().getWidth(handle, &width);
-    if (err != OK && mMapperVersion == 2) {
+    if (err != OK && mMapperVersion == GRALLOC_2) {
         const gralloc_module_t* module = getGrallocModule();
         err = module->perform(module, PERFORM_GET_HADNLE_WIDTH, handle, &width);
     }
@@ -125,7 +125,7 @@ int32_t C2RKGraphicBufferMapper::getHeight(buffer_handle_t handle) {
     uint64_t height = 0;
 
     int err = GraphicBufferMapper::get().getHeight(handle, &height);
-    if (err != OK && mMapperVersion == 2) {
+    if (err != OK && mMapperVersion == GRALLOC_2) {
         const gralloc_module_t* module = getGrallocModule();
         err = module->perform(module, PERFORM_GET_HADNLE_HEIGHT, handle, &height);
     }
@@ -142,7 +142,7 @@ int32_t C2RKGraphicBufferMapper::getFormatRequested(buffer_handle_t handle) {
     android::ui::PixelFormat format;
 
     int err = GraphicBufferMapper::get().getPixelFormatRequested(handle, &format);
-    if (err != OK && mMapperVersion == 2) {
+    if (err != OK && mMapperVersion == GRALLOC_2) {
         const gralloc_module_t* module = getGrallocModule();
         err = module->perform(module, PERFORM_GET_HADNLE_FORMAT, handle, &format);
     }
@@ -159,7 +159,7 @@ int32_t C2RKGraphicBufferMapper::getAllocationSize(buffer_handle_t handle) {
     uint64_t size = 0;
 
     int err = GraphicBufferMapper::get().getAllocationSize(handle, &size);
-    if (err != OK && mMapperVersion == 2) {
+    if (err != OK && mMapperVersion == GRALLOC_2) {
         const gralloc_module_t* module = getGrallocModule();
         err = module->perform(module, PERFORM_GET_SIZE, handle, &size);
     }
@@ -242,7 +242,7 @@ uint64_t C2RKGraphicBufferMapper::getUsage(buffer_handle_t handle) {
     uint64_t usage = 0;
 
     int err = GraphicBufferMapper::get().getUsage(handle, &usage);
-    if (err != OK && mMapperVersion == 2) {
+    if (err != OK && mMapperVersion == GRALLOC_2) {
         const gralloc_module_t* module = getGrallocModule();
         err = module->perform(module, PERFORM_GET_USAGE, handle, &usage);
     }
@@ -259,7 +259,7 @@ uint64_t C2RKGraphicBufferMapper::getBufferId(buffer_handle_t handle) {
     uint64_t id = 0;
 
     int err = GraphicBufferMapper::get().getBufferId(handle, &id);
-    if (err != OK && mMapperVersion == 2) {
+    if (err != OK && mMapperVersion == GRALLOC_2) {
         const gralloc_module_t* module = getGrallocModule();
         err = module->perform(module, PERFORM_GET_BUFFER_ID, handle, &id);
     }
@@ -308,9 +308,9 @@ status_t C2RKGraphicBufferMapper::freeBuffer(buffer_handle_t handle) {
 int32_t C2RKGraphicBufferMapper::setDynamicHdrMeta(buffer_handle_t handle, int64_t offset) {
     int err = 0;
 
-    if (mMapperVersion == 5) {
+    if (mMapperVersion == GRALLOC_5) {
         Log.D("not implement");
-    } else if (mMapperVersion == 4) {
+    } else if (mMapperVersion == GRALLOC_4) {
         auto &mapper = getGralloc4Mapper();
         hidl_vec<uint8_t> encodedOffset;
 
@@ -359,9 +359,9 @@ int64_t C2RKGraphicBufferMapper::getDynamicHdrMeta(buffer_handle_t handle) {
     int err = 0;
     int64_t offset = -1;
 
-    if (mMapperVersion == 5) {
+    if (mMapperVersion == GRALLOC_5) {
         Log.D("not implement");
-    } else if (mMapperVersion == 4) {
+    } else if (mMapperVersion == GRALLOC_4) {
         auto &mapper = getGralloc4Mapper();
 
         auto ret = mapper.get(const_cast<native_handle_t *>(handle),
@@ -396,9 +396,9 @@ int32_t C2RKGraphicBufferMapper::mapScaleMeta(
         buffer_handle_t handle, rkvdec_scaling_metadata_t** metadata) {
     int32_t err = 0;
 
-    if (mMapperVersion == 5) {
+    if (mMapperVersion == GRALLOC_5) {
         Log.E("not implement");
-    } else if (mMapperVersion == 4) {
+    } else if (mMapperVersion == GRALLOC_4) {
         Log.E("not implement");
     } else {
         const gralloc_module_t* module = getGrallocModule();
@@ -415,9 +415,9 @@ int32_t C2RKGraphicBufferMapper::mapScaleMeta(
 int32_t C2RKGraphicBufferMapper::unmapScaleMeta(buffer_handle_t handle) {
     int32_t err = 0;
 
-    if (mMapperVersion == 5) {
+    if (mMapperVersion == GRALLOC_5) {
         Log.E("not implement");
-    } else if (mMapperVersion == 4) {
+    } else if (mMapperVersion == GRALLOC_4) {
         Log.E("not implement");
     } else {
         const gralloc_module_t* module = getGrallocModule();
@@ -429,3 +429,5 @@ int32_t C2RKGraphicBufferMapper::unmapScaleMeta(buffer_handle_t handle) {
 
     return err;
 }
+
+} // namespace android

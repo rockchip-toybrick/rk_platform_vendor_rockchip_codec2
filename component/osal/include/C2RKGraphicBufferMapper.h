@@ -23,8 +23,16 @@
 #include <utils/Errors.h>
 
 #include <C2AllocatorGralloc.h>
+#include <ui/GraphicBufferMapper.h>
 
-using namespace android;
+namespace android {
+
+enum MapperVersion {
+    GRALLOC_2 = GraphicBufferMapper::Version::GRALLOC_2,
+    GRALLOC_3 = GraphicBufferMapper::Version::GRALLOC_3,
+    GRALLOC_4 = GraphicBufferMapper::Version::GRALLOC_4,
+    GRALLOC_5 = 5
+};
 
 typedef struct rkvdec_scaling_metadata_t {
     uint64_t version;
@@ -88,5 +96,7 @@ private:
 
     int32_t mMapperVersion;
 };
+
+} // namepsace android
 
 #endif /* ANDROID_C2_RK_GRAPHIC_BUFFER_MAPPER_H__ */

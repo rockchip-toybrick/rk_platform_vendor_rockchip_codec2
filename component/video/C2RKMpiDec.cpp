@@ -1502,7 +1502,7 @@ c2_status_t C2RKMpiDec::updateAllocParams() {
 
         // NOTE: private gralloc stride usage only support in 4.0.
         // Update use stride usage if we are able config available stride.
-        if (!mGraphicSourceMode && grallocVersion >= 4) {
+        if (!mGraphicSourceMode && grallocVersion >= GRALLOC_4) {
             uint64_t horUsage = 0, verUsage = 0;
 
             // 10bit video calculate stride base on (width * 10 / 8)
@@ -1520,7 +1520,7 @@ c2_status_t C2RKMpiDec::updateAllocParams() {
                 allocUsage |= (horUsage | verUsage);
                 Log.I("update use stride usage 0x%llx", allocUsage);
             }
-        } else if (mCodingType == MPP_VIDEO_CodingVP9 && grallocVersion < 4) {
+        } else if (mCodingType == MPP_VIDEO_CodingVP9 && grallocVersion < GRALLOC_4) {
             allocWidth = C2_ALIGN_ODD(videoWidth, 256);
         }
     }
@@ -1554,7 +1554,7 @@ c2_status_t C2RKMpiDec::updateAllocParams() {
     // otherwise, gralloc 3 will check high 32bit is empty,
     // if not empty, will alloc buffer failed and return
     // error. So we need clear high 32 bit.
-    if (C2RKGraphicBufferMapper::get()->getMapperVersion() < 4) {
+    if (C2RKGraphicBufferMapper::get()->getMapperVersion() < GRALLOC_4) {
         allocUsage &= 0xffffffff;
     }
 
