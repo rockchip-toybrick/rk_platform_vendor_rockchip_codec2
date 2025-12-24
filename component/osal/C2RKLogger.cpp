@@ -22,8 +22,6 @@
 
 namespace android {
 
-const constexpr int ANDROID_LOG_TRACE = -1;
-
 void logger(int logLevel, const char* tag, const char* fmt, va_list args) {
     if (logLevel == ANDROID_LOG_DEBUG) {
         if (!C2RKDumpStateService::hasDebugFlags(C2_DUMP_LOG_TRACE) &&

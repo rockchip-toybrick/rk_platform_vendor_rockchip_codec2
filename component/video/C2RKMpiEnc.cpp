@@ -27,6 +27,7 @@
 
 #include "C2RKMpiEnc.h"
 #include "C2RKLogger.h"
+#include "C2RKMppErrorTrap.h"
 #include "C2RKPlatformSupport.h"
 #include "C2RKMediaUtils.h"
 #include "C2RKRgaDef.h"
@@ -42,8 +43,6 @@
 #include "C2RKVersion.h"
 
 namespace android {
-
-using std::ignore;
 
 C2_LOGGER_ENABLE("C2RKMpiEnc");
 
@@ -1201,14 +1200,14 @@ void postReplyWithError(const sp<AMessage> &msg, int32_t err) {
 
     sp<AMessage> response = new AMessage;
     response->setInt32("err", err);
-    CHECK_EQ(response->postReply(replyID), OK);
+    CHECK(response->postReply(replyID) == OK);
 }
 
-void C2RKMpiEnc::WorkHandler::startWork() {
+void C2RKMpiEnc::WorkHandler::startWorkLooper() {
     mRunning = true;
 }
 
-void C2RKMpiEnc::WorkHandler::stopWork() {
+void C2RKMpiEnc::WorkHandler::stopWorkLooper() {
     mRunning = false;
 
     sp<AMessage> msg = new AMessage(WorkHandler::kWhatStop, this);
@@ -1251,7 +1250,10 @@ public:
 
     void onResultReady(ImageBuffer *srcImage, void *result) override {
         if (auto thiz = mThiz.lock()) {
-            ignore = thiz->onDetectResultReady(srcImage, result);
+            c2_status_t err = thiz->onDetectResultReady(srcImage, result);
+            if (err != C2_OK) {
+                Log.D("onDetectResultReady error: %d", err);
+            }
         }
     }
 
@@ -1327,7 +1329,7 @@ c2_status_t C2RKMpiEnc::setupAndStartLooper() {
         err = mLooper->start();
         if (err == OK) {
             ALooper::handler_id id = mLooper->registerHandler(mHandler);
-            Log.D("registerHandler: %d", id);
+            Log.D("register work handler with id: %d", id);
         }
     }
     return (c2_status_t)err;
@@ -1338,7 +1340,7 @@ c2_status_t C2RKMpiEnc::stopAndReleaseLooper() {
 
     if (mLooper != nullptr) {
         if (mHandler != nullptr) {
-            mHandler->stopWork();
+            mHandler->stopWorkLooper();
             mLooper->unregisterHandler(mHandler->id());
             mHandler.clear();
         }
@@ -1371,20 +1373,25 @@ void C2RKMpiEnc::onNodeSummaryRequest(std::string &summary) {
         int32_t pMin = 0, pMax = 0, iMin = 0, iMax = 0;
         int32_t primaries, transfer, coeffs, range;
 
+        MppErrorTrap err;
         ColorAspects sfAspects;
 
-        ignore = mpp_enc_cfg_get_s32(mEncCfg, "rc:gop", &gop);
-        ignore = mpp_enc_cfg_get_s32(mEncCfg, "rc:mode", &rcMode);
-        ignore = mpp_enc_cfg_get_s32(mEncCfg, "rc:bps_target", &bps);
-        ignore = mpp_enc_cfg_get_s32(mEncCfg, "rc:qp_min", &pMin);
-        ignore = mpp_enc_cfg_get_s32(mEncCfg, "rc:qp_max", &pMax);
-        ignore = mpp_enc_cfg_get_s32(mEncCfg, "rc:qp_min_i", &iMin);
-        ignore = mpp_enc_cfg_get_s32(mEncCfg, "rc:qp_max_i", &iMax);
-        ignore = mpp_enc_cfg_get_s32(mEncCfg, "rc:qp_init", &qpInit);
-        ignore = mpp_enc_cfg_get_s32(mEncCfg, "prep:range", &range);
-        ignore = mpp_enc_cfg_get_s32(mEncCfg, "prep:colorprim", &primaries);
-        ignore = mpp_enc_cfg_get_s32(mEncCfg, "prep:colortrc", &transfer);
-        ignore = mpp_enc_cfg_get_s32(mEncCfg, "prep:colorspace", &coeffs);
+        err = mpp_enc_cfg_get_s32(mEncCfg, "rc:gop", &gop);
+        err = mpp_enc_cfg_get_s32(mEncCfg, "rc:mode", &rcMode);
+        err = mpp_enc_cfg_get_s32(mEncCfg, "rc:bps_target", &bps);
+        err = mpp_enc_cfg_get_s32(mEncCfg, "rc:qp_min", &pMin);
+        err = mpp_enc_cfg_get_s32(mEncCfg, "rc:qp_max", &pMax);
+        err = mpp_enc_cfg_get_s32(mEncCfg, "rc:qp_min_i", &iMin);
+        err = mpp_enc_cfg_get_s32(mEncCfg, "rc:qp_max_i", &iMax);
+        err = mpp_enc_cfg_get_s32(mEncCfg, "rc:qp_init", &qpInit);
+        err = mpp_enc_cfg_get_s32(mEncCfg, "prep:range", &range);
+        err = mpp_enc_cfg_get_s32(mEncCfg, "prep:colorprim", &primaries);
+        err = mpp_enc_cfg_get_s32(mEncCfg, "prep:colortrc", &transfer);
+        err = mpp_enc_cfg_get_s32(mEncCfg, "prep:colorspace", &coeffs);
+
+        if (err != MPP_OK) {
+            Log.W("unexpected error on get encoder config");
+        }
 
         ColorUtils::convertIsoColorAspectsToCodecAspects(
                 primaries, transfer, coeffs, range == 2, sfAspects);
@@ -1518,6 +1525,8 @@ void C2RKMpiEnc::onRelease() {
 }
 
 c2_status_t C2RKMpiEnc::setupBaseCodec() {
+    MppErrorTrap err;
+
     /* default stride */
     mHorStride = C2_ALIGN(mSize->width, 16);
     if (mCodingType == MPP_VIDEO_CodingVP8) {
@@ -1529,67 +1538,65 @@ c2_status_t C2RKMpiEnc::setupBaseCodec() {
     Log.I("setupBaseCodec: coding %s w %d h %d hor %d ver %d", toStr_Coding(mCodingType),
            mSize->width, mSize->height, mHorStride, mVerStride);
 
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "codec:type", mCodingType);
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "vp8:disable_ivf", 1);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "codec:type", mCodingType);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "vp8:disable_ivf", 1);
 
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:width", mSize->width);
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:height", mSize->height);
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:ver_stride", mVerStride);
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:format", mInputMppFmt);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "prep:width", mSize->width);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "prep:height", mSize->height);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "prep:ver_stride", mVerStride);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "prep:format", mInputMppFmt);
 
     if (mInputMppFmt == MPP_FMT_RGBA8888) {
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:hor_stride", mHorStride * 4);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "prep:hor_stride", mHorStride * 4);
     } else {
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:hor_stride", mHorStride);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "prep:hor_stride", mHorStride);
     }
 
-    return C2_OK;
+    return (c2_status_t)err;
 }
 
 c2_status_t C2RKMpiEnc::setupInputScalar() {
+    c2_status_t err = C2_OK;
+
     IntfImpl::Lock lock = mIntf->lock();
-    std::shared_ptr<C2StreamEncInputScalar::input> c2Scalar
-            = mIntf->getInputScalar_l();
+    std::shared_ptr<C2StreamEncInputScalar::input> scalar = mIntf->getInputScalar_l();
 
-    if (c2Scalar && c2Scalar->width > 0 && c2Scalar->height > 0 &&
-        c2Scalar->width != mSize->width && c2Scalar->height != mSize->height) {
+    if (scalar && scalar->width > 0 && scalar->height > 0 &&
+        scalar->width != mSize->width && scalar->height != mSize->height) {
         Log.I("setupInputScalar: get request [%d %d] -> [%d %d]",
-               mSize->width, mSize->height, c2Scalar->width, c2Scalar->height);
-        mSize->width  = c2Scalar->width;
-        mSize->height = c2Scalar->height;
+               mSize->width, mSize->height, scalar->width, scalar->height);
+        mSize->width  = scalar->width;
+        mSize->height = scalar->height;
 
-        // set encoder to new size config
-        ignore = setupBaseCodec();
-
-        mInputScalar  = true;
+        err = setupBaseCodec();
+        if (err == C2_OK) {
+            mInputScalar  = true;
+        }
     }
 
-    return C2_OK;
+    return err;
 }
 
 c2_status_t C2RKMpiEnc::setupPreProcess() {
     IntfImpl::Lock lock = mIntf->lock();
-    std::shared_ptr<C2StreamRotationInfo::output> c2Rotation
-            = mIntf->getRotation_l();
-    std::shared_ptr<C2StreamEncPreProcess::input> c2PreProcess
-            = mIntf->getPreProcess_l();
 
-    int32_t degrees = c2Rotation->value;
-    int32_t mirror = c2PreProcess->mirror;
-    int32_t flip = c2PreProcess->flip;
+    int32_t degrees = mIntf->getRotation_l()->value;
+    int32_t mirror = mIntf->getPreProcess_l()->mirror;
+    int32_t flip = mIntf->getPreProcess_l()->flip;
+    MppErrorTrap err;
 
     if (degrees > 0) {
         Log.I("setupPreProcess: rotation degrees %d", degrees);
 
         switch (degrees) {
         case 90:
-            ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:rotation", MPP_ENC_ROT_90);
+            err = mpp_enc_cfg_set_s32(mEncCfg, "prep:rotation", MPP_ENC_ROT_90);
             break;
         case 180:
-            ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:rotation", MPP_ENC_ROT_180);
+            err = mpp_enc_cfg_set_s32(mEncCfg, "prep:rotation", MPP_ENC_ROT_180);
             break;
         case 270:
-            ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:rotation", MPP_ENC_ROT_270);
+            err = mpp_enc_cfg_set_s32(mEncCfg, "prep:rotation", MPP_ENC_ROT_270);
             break;
         default:
             Log.W("We only support 0,90,180,270 degree rotation");
@@ -1599,14 +1606,14 @@ c2_status_t C2RKMpiEnc::setupPreProcess() {
 
     if (mirror > 0) {
         Log.I("setupPreProcess: mirroring");
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:mirroring", 1);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "prep:mirroring", 1);
     }
     if (flip > 0) {
         Log.I("setupPreProcess: flip");
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:flip", 1);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "prep:flip", 1);
     }
 
-    return C2_OK;
+    return (c2_status_t)err;
 }
 
 c2_status_t C2RKMpiEnc::setupSuperProcess() {
@@ -1628,26 +1635,28 @@ c2_status_t C2RKMpiEnc::setupSuperProcess() {
     int32_t iThd = c2SuperProcess->iThd;
     int32_t pThd = c2SuperProcess->pThd;
     int32_t reencTimes = c2SuperProcess->reencTimes;
+    MppErrorTrap err;
 
     if (mode > 0 && iThd > 0 && pThd > 0) {
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:super_mode",  mode);
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:super_i_thd", iThd);
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:super_p_thd", pThd);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "rc:super_mode",  mode);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "rc:super_i_thd", iThd);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "rc:super_p_thd", pThd);
 
         if (reencTimes > 0) {
-            ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:max_reenc_times", reencTimes);
+            err = mpp_enc_cfg_set_s32(mEncCfg, "rc:max_reenc_times", reencTimes);
         }
 
         Log.I("setupSuperProcess, mode %d iThd %d pThd %d reencTimes %d",
                mode, iThd, pThd, reencTimes);
     }
 
-    return C2_OK;
+    return (c2_status_t)err;
 }
 
 c2_status_t C2RKMpiEnc::setupSceneMode() {
     IntfImpl::Lock lock = mIntf->lock();
 
+    MppErrorTrap err;
     std::shared_ptr<C2StreamEncSceneModeInfo::input> c2Mode = mIntf->getSceneMode_l();
 
     /*
@@ -1657,29 +1666,31 @@ c2_status_t C2RKMpiEnc::setupSceneMode() {
      */
     if (c2Mode->value > 0) {
         Log.I("setupSceneMode: scene-mode %d", c2Mode->value);
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "tune:scene_mode", c2Mode->value);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "tune:scene_mode", c2Mode->value);
     }
 
-    return C2_OK;
+    return (c2_status_t)err;
 }
 
 c2_status_t C2RKMpiEnc::setupSliceSize() {
     IntfImpl::Lock lock = mIntf->lock();
 
+    MppErrorTrap err;
     std::shared_ptr<C2StreamEncSliceSizeInfo::input> c2Size = mIntf->getSliceSize_l();
 
     if (c2Size->value > 0) {
         Log.I("setupSliceSize: slice-size %d", c2Size->value);
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "split:mode", MPP_ENC_SPLIT_BY_BYTE);
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "split:arg", c2Size->value);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "split:mode", MPP_ENC_SPLIT_BY_BYTE);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "split:arg", c2Size->value);
     }
 
-    return C2_OK;
+    return (c2_status_t)err;
 }
 
 c2_status_t C2RKMpiEnc::setupFrameRate() {
     IntfImpl::Lock lock = mIntf->lock();
 
+    MppErrorTrap err;
     std::shared_ptr<C2StreamGopTuning::output> c2Gop = mIntf->getGop_l();
     std::shared_ptr<C2StreamFrameRateInfo::output> c2FrameRate = mIntf->getFrameRate_l();
     std::shared_ptr<C2PortTimeStretchInfo::output> c2Stretch = mIntf->getTimeStretch_l();
@@ -1718,24 +1729,25 @@ c2_status_t C2RKMpiEnc::setupFrameRate() {
 
     if (gop >= 0xFFFFFF) {
         // Disable IDR in Infinite GOP Mode
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_chg_no_idr", 1);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_chg_no_idr", 1);
         gop = 0;
     }
 
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:gop", gop);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "rc:gop", gop);
 
     /* fix input / output frame rate */
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_in_flex", 0);
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_in_num", frameRate / c2Stretch->value);
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_in_denorm", 1);
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_out_flex", 0);
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_out_num", frameRate);
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_out_denorm", 1);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_in_flex", 0);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_in_num", frameRate / c2Stretch->value);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_in_denorm", 1);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_out_flex", 0);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_out_num", frameRate);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "rc:fps_out_denorm", 1);
 
-    return C2_OK;
+    return (c2_status_t)err;
 }
 
 c2_status_t C2RKMpiEnc::setupBitRate() {
+    MppErrorTrap err;
     uint32_t bitrate = 0;
     uint32_t bitrateMode = 0;
     uint32_t bpsTarget = 0, bpsMax = 0, bpsMin = 0;
@@ -1775,52 +1787,53 @@ c2_status_t C2RKMpiEnc::setupBitRate() {
     Log.I("setupBitRate: mode %s bps %d range [%d:%d:%d]",
            toStr_BitrateMode(bitrateMode), bitrate, bpsMin, bpsTarget, bpsMax);
 
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_target", bpsTarget);
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_max", bpsMax);
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_min", bpsMin);
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_min", bpsMin);
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:mode", bitrateMode);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_target", bpsTarget);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_max", bpsMax);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_min", bpsMin);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_min", bpsMin);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "rc:mode", bitrateMode);
 
-    return C2_OK;
+    return (c2_status_t)err;
 }
 
 c2_status_t C2RKMpiEnc::setupProfileParams() {
-    uint32_t profile, level;
+    MppErrorTrap err;
 
     IntfImpl::Lock lock = mIntf->lock();
-
-    profile = mIntf->getProfile_l(mCodingType);
-    level = mIntf->getLevel_l(mCodingType);
+    uint32_t profile = mIntf->getProfile_l(mCodingType);
+    uint32_t level = mIntf->getLevel_l(mCodingType);
 
     Log.I("setupProfileParams: profile %s level %s",
            toStr_Profile(profile, mCodingType), toStr_Level(level, mCodingType));
 
     switch (mCodingType) {
     case MPP_VIDEO_CodingAVC : {
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "h264:profile", profile);
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "h264:level", level);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "h264:profile", profile);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "h264:level", level);
         if (profile >= MPP_H264_HIGH) {
-            ignore = mpp_enc_cfg_set_s32(mEncCfg, "h264:cabac_en", 1);
-            ignore = mpp_enc_cfg_set_s32(mEncCfg, "h264:cabac_idc", 0);
-            ignore = mpp_enc_cfg_set_s32(mEncCfg, "h264:trans8x8", 1);
+            err = mpp_enc_cfg_set_s32(mEncCfg, "h264:cabac_en", 1);
+            err = mpp_enc_cfg_set_s32(mEncCfg, "h264:cabac_idc", 0);
+            err = mpp_enc_cfg_set_s32(mEncCfg, "h264:trans8x8", 1);
         }
     } break;
     case MPP_VIDEO_CodingHEVC : {
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "h265:profile", profile);
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "h265:level", level);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "h265:profile", profile);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "h265:level", level);
     } break;
     default : {
         Log.E("setupProfileParams: unsupport coding type %d", mCodingType);
     } break;
     }
 
-    return C2_OK;
+    return (c2_status_t)err;
 }
 
 c2_status_t C2RKMpiEnc::setupQp() {
     int32_t defaultIMin = 0, defaultIMax = 0;
     int32_t defaultPMin = 0, defaultPMax = 0;
     int32_t qpInit = -1;
+
+    MppErrorTrap err;
 
     if (mCodingType == MPP_VIDEO_CodingVP8) {
         defaultIMin = defaultPMin = 0;
@@ -1890,8 +1903,8 @@ c2_status_t C2RKMpiEnc::setupQp() {
 
     switch (mCodingType) {
     case MPP_VIDEO_CodingAVC:
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "h264:cb_qp_offset", 0);
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "h264:cr_qp_offset", 0);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "h264:cb_qp_offset", 0);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "h264:cr_qp_offset", 0);
         [[fallthrough]];
     case MPP_VIDEO_CodingHEVC: {
         /*
@@ -1900,20 +1913,20 @@ c2_status_t C2RKMpiEnc::setupQp() {
          */
         // mpp_enc_cfg_set_s32(mEncCfg, "hw:mb_rc_disable", 1);
 
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_min", pMin);
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_max", pMax);
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_min_i", iMin);
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_max_i", iMax);
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_init", qpInit);
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_ip", 2);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_min", pMin);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_max", pMax);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_min_i", iMin);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_max_i", iMax);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_init", qpInit);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_ip", 2);
     } break;
     case MPP_VIDEO_CodingVP8: {
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_min", pMin);
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_max", pMax);
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_min_i", iMin);
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_max_i", iMax);
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_init", qpInit);
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_ip", 6);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_min", pMin);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_max", pMax);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_min_i", iMin);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_max_i", iMax);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_init", qpInit);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "rc:qp_ip", 6);
     } break;
     default: {
         Log.E("setupQp: unsupport coding type %d", mCodingType);
@@ -1921,10 +1934,11 @@ c2_status_t C2RKMpiEnc::setupQp() {
     }
     }
 
-    return C2_OK;
+    return (c2_status_t)err;
 }
 
 c2_status_t C2RKMpiEnc::setupVuiParams() {
+    MppErrorTrap err;
     ColorAspects sfAspects;
     int32_t primaries, transfer, matrixCoeffs;
     bool range;
@@ -1957,12 +1971,12 @@ c2_status_t C2RKMpiEnc::setupVuiParams() {
            sfAspects.mMatrixCoeffs, asString(sfAspects.mMatrixCoeffs),
            sfAspects.mTransfer, asString(sfAspects.mTransfer));
 
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:range", range ? 2 : 0);
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:colorprim", primaries);
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:colortrc", transfer);
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:colorspace", matrixCoeffs);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "prep:range", range ? 2 : 0);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "prep:colorprim", primaries);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "prep:colortrc", transfer);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "prep:colorspace", matrixCoeffs);
 
-    return C2_OK;
+    return (c2_status_t)err;
 }
 
 c2_status_t C2RKMpiEnc::setupTemporalLayers() {
@@ -1988,15 +2002,13 @@ c2_status_t C2RKMpiEnc::setupTemporalLayers() {
      * 2. only support tsvc layer 2 ~ 4.
      */
 
-    int32_t err = MPP_OK;
+    MppErrorTrap err;
     MppEncRefCfg ref;
-    MppEncRefLtFrmCfg ltRef[4];
-    MppEncRefStFrmCfg stRef[16];
     RK_S32 ltCnt = 0;
     RK_S32 stCnt = 0;
 
-    ignore = memset(&ltRef, 0, sizeof(ltRef));
-    ignore = memset(&stRef, 0, sizeof(stRef));
+    MppEncRefLtFrmCfg ltRef[4] = {};
+    MppEncRefStFrmCfg stRef[16] = {};
 
     err = mpp_enc_ref_cfg_init(&ref);
     if (err != MPP_OK) {
@@ -2157,19 +2169,19 @@ c2_status_t C2RKMpiEnc::setupTemporalLayers() {
     }
 
     if (ltCnt || stCnt) {
-        err |= mpp_enc_ref_cfg_set_cfg_cnt(ref, ltCnt, stCnt);
+        err = mpp_enc_ref_cfg_set_cfg_cnt(ref, ltCnt, stCnt);
 
         if (ltCnt)
-            err |= mpp_enc_ref_cfg_add_lt_cfg(ref, ltCnt, ltRef);
+            err = mpp_enc_ref_cfg_add_lt_cfg(ref, ltCnt, ltRef);
 
         if (stCnt)
-            err |= mpp_enc_ref_cfg_add_st_cfg(ref, stCnt, stRef);
+            err = mpp_enc_ref_cfg_add_st_cfg(ref, stCnt, stRef);
 
         /* check and get dpb size */
-        err |= mpp_enc_ref_cfg_check(ref);
+        err = mpp_enc_ref_cfg_check(ref);
     }
 
-    err |= mMppMpi->control(mMppCtx, MPP_ENC_SET_REF_CFG, ref);
+    err = mMppMpi->control(mMppCtx, MPP_ENC_SET_REF_CFG, ref);
     if (err != MPP_OK) {
         Log.PostError("setRefCfg", static_cast<int32_t>(err));
         return C2_CORRUPTED;
@@ -2211,10 +2223,11 @@ c2_status_t C2RKMpiEnc::setupIntraRefresh() {
     std::shared_ptr<C2StreamIntraRefreshTuning::output> intraRefresh
             = mIntf->getIntraRefresh_l();
 
+    MppErrorTrap err;
     int32_t gop = 0;
-    ignore = mpp_enc_cfg_get_s32(mEncCfg, "rc:gop", &gop);
 
-    if (gop && intraRefresh->period > gop) {
+    err = mpp_enc_cfg_get_s32(mEncCfg, "rc:gop", &gop);
+    if (err == MPP_OK && gop > 0 && intraRefresh->period > gop) {
         Log.W("setupIntraRefresh: period %.1f is larger than gop %d, ignored",
                intraRefresh->period, gop);
         return C2_OK;
@@ -2224,15 +2237,15 @@ c2_status_t C2RKMpiEnc::setupIntraRefresh() {
         int32_t mbs = std::ceil(mSize->height / this->getCtuSize());
         int32_t refreshRowsPerFrame = std::ceil(mbs / intraRefresh->period);
 
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:refresh_en", 1);
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:refresh_mode", MPP_ENC_RC_INTRA_REFRESH_ROW);
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:refresh_num", refreshRowsPerFrame);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "rc:refresh_en", 1);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "rc:refresh_mode", MPP_ENC_RC_INTRA_REFRESH_ROW);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "rc:refresh_num", refreshRowsPerFrame);
 
         Log.I("setupIntraRefresh: period(frames) %.1f refreshRowsPerFrame %d",
                intraRefresh->period, refreshRowsPerFrame);
     }
 
-    return C2_OK;
+    return (c2_status_t)err;
 }
 
 c2_status_t C2RKMpiEnc::setupSuperModeIfNeeded() {
@@ -2283,8 +2296,10 @@ c2_status_t C2RKMpiEnc::setupSuperModeIfNeeded() {
         }
     }
 
+    MppErrorTrap err;
     RcApiBrief rcApiBrief;
-    MPP_RET err = mMppMpi->control(mMppCtx, MPP_ENC_GET_RC_API_CURRENT, &rcApiBrief);
+
+    err = mMppMpi->control(mMppCtx, MPP_ENC_GET_RC_API_CURRENT, &rcApiBrief);
     if (err != MPP_OK) {
         Log.PostError("getRcApiCurrent", static_cast<int32_t>(err));
         return C2_OK;
@@ -2293,32 +2308,28 @@ c2_status_t C2RKMpiEnc::setupSuperModeIfNeeded() {
     rcApiBrief.name = "smart";
     rcApiBrief.type = mCodingType;
     err = mMppMpi->control(mMppCtx, MPP_ENC_SET_RC_API_CURRENT, &rcApiBrief);
-    if (err != MPP_OK) {
-        Log.W("setupSuperMode: failed to set rcApi, err %d", err);
-        return C2_OK;
-    }
 
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:mode", isV3Mode ? 5 : 4);
-    ignore = mpp_enc_cfg_set_u32(mEncCfg, "rc:max_reenc_times", 0);
-    ignore = mpp_enc_cfg_set_u32(mEncCfg, "rc:super_mode", 0);
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "hw:qbias_i", 200);
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "hw:qbias_p", 100);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "rc:mode", isV3Mode ? 5 : 4);
+    err = mpp_enc_cfg_set_u32(mEncCfg, "rc:max_reenc_times", 0);
+    err = mpp_enc_cfg_set_u32(mEncCfg, "rc:super_mode", 0);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "hw:qbias_i", 200);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "hw:qbias_p", 100);
 
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "tune:deblur_en",   1);
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "tune:deblur_str",  3);
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "tune:lgt_chg_lvl", 0);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "tune:deblur_en",   1);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "tune:deblur_str",  3);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "tune:lgt_chg_lvl", 0);
 
-    ignore = mpp_enc_cfg_set_st(mEncCfg,  "hw:aq_thrd_i", aqThdSmart);
-    ignore = mpp_enc_cfg_set_st(mEncCfg,  "hw:aq_thrd_p", aqThdSmart);
-    ignore = mpp_enc_cfg_set_st(mEncCfg,  "hw:aq_step_i", aqStepSmart);
-    ignore = mpp_enc_cfg_set_st(mEncCfg,  "hw:aq_step_p", aqStepSmart);
+    err = mpp_enc_cfg_set_st(mEncCfg,  "hw:aq_thrd_i", aqThdSmart);
+    err = mpp_enc_cfg_set_st(mEncCfg,  "hw:aq_thrd_p", aqThdSmart);
+    err = mpp_enc_cfg_set_st(mEncCfg,  "hw:aq_step_i", aqStepSmart);
+    err = mpp_enc_cfg_set_st(mEncCfg,  "hw:aq_step_p", aqStepSmart);
     // default ipc mode
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "tune:scene_mode", 1);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "tune:scene_mode", 1);
 
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_min_i", 10);
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_min_p", 10);
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_max_p", 42);
-    ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_max_i", 42);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_min_i", 10);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_min_p", 10);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_max_p", 42);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "rc:fqp_max_i", 42);
 
     if (isV3Mode) {
         // bgDeltaQp: delta qp of background
@@ -2351,47 +2362,44 @@ c2_status_t C2RKMpiEnc::setupSuperModeIfNeeded() {
                bgDeltaQp, fgDeltaQp, mapMinQp, mapMaxQp);
 
         // 0:balance  1:quality_first  2:bitrate_first 3:external_se_mode
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "tune:se_mode", 3);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "tune:se_mode", 3);
 
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "tune:bg_delta_qp_i",  bgDeltaQp);
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "tune:bg_delta_qp_p",  bgDeltaQp);
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "tune:fg_delta_qp_i",  fgDeltaQp);
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "tune:fg_delta_qp_p",  fgDeltaQp);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "tune:bg_delta_qp_i",  bgDeltaQp);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "tune:bg_delta_qp_p",  bgDeltaQp);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "tune:fg_delta_qp_i",  fgDeltaQp);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "tune:fg_delta_qp_p",  fgDeltaQp);
 
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "tune:bmap_qpmin_i",   mapMinQp);
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "tune:bmap_qpmin_p",   mapMinQp);
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "tune:bmap_qpmax_i",   mapMaxQp);
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "tune:bmap_qpmax_p",   mapMaxQp);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "tune:bmap_qpmin_i",   mapMinQp);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "tune:bmap_qpmin_p",   mapMinQp);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "tune:bmap_qpmax_i",   mapMaxQp);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "tune:bmap_qpmax_p",   mapMaxQp);
     }  else {
         // smart v1 mode
         if (compressFirst) {
             uint32_t bitrate = mIntf->getBitrate_l()->value;
 
-            ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_target", bitrate * 13 / 10);
-            ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_max",    bitrate * 13 / 10);
-            ignore = mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_min",    bitrate * 13 / 10 / 2);
+            err = mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_target", bitrate * 13 / 10);
+            err = mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_max",    bitrate * 13 / 10);
+            err = mpp_enc_cfg_set_s32(mEncCfg, "rc:bps_min",    bitrate * 13 / 10 / 2);
         }
     }
 
     Log.I("setupSuperMode: setup super mode %d", superMode);
 
-    return C2_OK;
+    return (c2_status_t)err;
 }
 
 c2_status_t C2RKMpiEnc::setupMlvecIfNeeded() {
-    int32_t layerCount = 0;
-    int32_t spacing = 0;
-    int32_t numLTRFrms = 0;
+    int32_t spacing      = 0;
+    int32_t numLTRFrms   = 0;
     int32_t inputCtlMode = 0;
-    uint32_t sarWidth = 0, sarHeight = 0;
+    uint32_t sarWidth    = 0;
+    uint32_t sarHeight   = 0;
 
     IntfImpl::Lock lock = mIntf->lock();
 
     std::shared_ptr<MlvecParams> params = mIntf->getMlvecParams_l();
-    std::shared_ptr<C2StreamTemporalLayeringTuning::output> layering =
-            mIntf->getTemporalLayers_l();
-
-    layerCount = layering->m.layerCount;
+    int32_t layerCount = mIntf->getTemporalLayers_l()->m.layerCount;
 
     spacing      = params->sliceSpacing->spacing;
     numLTRFrms   = params->numLTRFrms->num;
@@ -2402,7 +2410,7 @@ c2_status_t C2RKMpiEnc::setupMlvecIfNeeded() {
     /* enable mlvec */
     if (spacing > 0 || numLTRFrms > 0 || sarWidth > 0 ||
         sarHeight > 0 || inputCtlMode > 0) {
-        C2RKMlvecLegacy::MStaticCfg stCfg;
+        C2RKMlvecLegacy::MStaticCfg stCfg = {};
 
         if (numLTRFrms > MLVEC_MAX_LTR_FRAMES_COUNT) {
             Log.W("not support LTRFrames num %d(max %d), quit mlvec mode",
@@ -2424,40 +2432,38 @@ c2_status_t C2RKMpiEnc::setupMlvecIfNeeded() {
 
         mMlvec = std::make_shared<C2RKMlvecLegacy>(mMppCtx, mMppMpi, mEncCfg);
 
-        ignore = memset(&stCfg, 0, sizeof(stCfg));
-
-        stCfg.magic = ((int32_t)'M') << 24;
-        stCfg.magic |= ((int32_t)'0') << 16;
-        stCfg.width  = mSize->width;
-        stCfg.height = mSize->height;
+        stCfg.magic     = ((int32_t)'M') << 24;
+        stCfg.magic    |= ((int32_t)'0') << 16;
+        stCfg.width     = mSize->width;
+        stCfg.height    = mSize->height;
         stCfg.sarWidth  = sarWidth;
         stCfg.sarHeight = sarHeight;
-        stCfg.maxTid = layerCount;
+        stCfg.maxTid    = layerCount;
         stCfg.ltrFrames = numLTRFrms;
         stCfg.addPrefix = (layerCount >= 1) ? 1 : 0;
-        stCfg.sliceMbs = spacing;
+        stCfg.sliceMbs  = spacing;
 
         if (!mMlvec->setupStaticConfig(&stCfg)) {
             Log.PostError("setupMlvecStaticConfig", -1);
-        } else {
-            mCurLayerCount = layerCount;
+            return C2_CORRUPTED;
         }
 
         if (mCodingType == MPP_VIDEO_CodingAVC) {
             // mlvec need pic_order_cnt_type equal to 2
-            ignore = mpp_enc_cfg_set_s32(mEncCfg, "h264:poc_type", 2);
+            std::ignore = mpp_enc_cfg_set_s32(mEncCfg, "h264:poc_type", 2);
         }
+
+        mCurLayerCount = layerCount;
     }
 
     return C2_OK;
 }
 
 c2_status_t C2RKMpiEnc::setupEncCfg() {
-    MPP_RET err = mpp_enc_cfg_init(&mEncCfg);
-    if (err != MPP_OK) {
-        Log.PostError("mpp_enc_cfg_init", static_cast<int32_t>(err));
-        return C2_NO_MEMORY;
-    }
+    MppErrorTrap err;
+
+    err = mpp_enc_cfg_init(&mEncCfg);
+    CHECK(err == MPP_OK);
 
     err = mMppMpi->control(mMppCtx, MPP_ENC_GET_CFG, mEncCfg);
     if (err != MPP_OK) {
@@ -2466,57 +2472,56 @@ c2_status_t C2RKMpiEnc::setupEncCfg() {
     }
 
     /* Video control Set Base Codec */
-    ignore = setupBaseCodec();
+    std::ignore = setupBaseCodec();
 
     /* Video control Ser input scaler */
-    ignore = setupInputScalar();
+    std::ignore = setupInputScalar();
 
     /* Video control PreProcess, rotation\mirror\flip */
-    ignore = setupPreProcess();
+    std::ignore = setupPreProcess();
 
     /* Video Large Frame Process, drop or reenc */
-    ignore = setupSuperProcess();
+    std::ignore = setupSuperProcess();
 
     /* Video control Set Scene Mode */
-    ignore = setupSceneMode();
+    std::ignore = setupSceneMode();
 
     /* Video control Set Slice Size */
-    ignore = setupSliceSize();
+    std::ignore = setupSliceSize();
 
     /* Video control Set FrameRates and gop */
-    ignore = setupFrameRate();
+    std::ignore = setupFrameRate();
 
     /* Video control Set Bitrate */
-    ignore = setupBitRate();
+    std::ignore = setupBitRate();
 
     /* Video control Set Profile params */
-    ignore = setupProfileParams();
+    std::ignore = setupProfileParams();
 
     /* Video control Set QP */
-    ignore = setupQp();
+    std::ignore = setupQp();
 
     /* Video control Set VUI params */
-    ignore = setupVuiParams();
+    std::ignore = setupVuiParams();
 
     /* Video control Set Temporal Layers */
-    ignore = setupTemporalLayers();
+    std::ignore = setupTemporalLayers();
 
     /* Video control Set Prepend Header Setting */
-    ignore = setupPrependHeaderSetting();
+    std::ignore = setupPrependHeaderSetting();
 
     /*  Video control Set Intra Refresh */
-    ignore = setupIntraRefresh();
+    std::ignore = setupIntraRefresh();
 
     /* Video control Set Super Encoding Mode */
-    ignore = setupSuperModeIfNeeded();
+    std::ignore = setupSuperModeIfNeeded();
 
     /* Video control Set MLVEC encoder */
-    ignore = setupMlvecIfNeeded();
+    std::ignore = setupMlvecIfNeeded();
 
     err = mMppMpi->control(mMppCtx, MPP_ENC_SET_CFG, mEncCfg);
     if (err != MPP_OK) {
         Log.PostError("setCodecCfg", static_cast<int32_t>(err));
-        return C2_CORRUPTED;
     } else {
         /* Video control Set SEI config */
         IntfImpl::Lock lock = mIntf->lock();
@@ -2532,15 +2537,14 @@ c2_status_t C2RKMpiEnc::setupEncCfg() {
         err = mMppMpi->control(mMppCtx, MPP_ENC_SET_SEI_CFG, &seiMode);
         if (err != MPP_OK) {
             Log.PostError("setSeiCfg", static_cast<int32_t>(err));
-            return C2_CORRUPTED;
         }
     }
 
-    return C2_OK;
+    return (c2_status_t)err;
 }
 
 c2_status_t C2RKMpiEnc::initEncoder() {
-    MPP_RET err = MPP_OK;
+    MppErrorTrap err;
 
     Log.Enter();
 
@@ -2573,10 +2577,7 @@ c2_status_t C2RKMpiEnc::initEncoder() {
             C2_ALIGN(mSize->width, 16), C2_ALIGN(mSize->height, 16),
             0x15 /* NV12 */, 1u /* layer count */,
             usage, &bufferHandle, &stride, "C2RKMpiEnc");
-    if (status) {
-        Log.PostError("allocateDmaMem", static_cast<int32_t>(status));
-        goto error;
-    }
+    CHECK(status == OK) << "Failed to allocate DMA memory";
 
     mDmaMem = std::make_unique<MyDmaBuffer_t>();
     mDmaMem->fd = C2RKGraphicBufferMapper::get()->getShareFd(bufferHandle);
@@ -2586,7 +2587,8 @@ c2_status_t C2RKMpiEnc::initEncoder() {
     Log.I("alloc temporary DmaMem fd %d size %d", mDmaMem->fd, mDmaMem->size);
 
     // create mpp and init mpp
-    CHECK(mpp_create(&mMppCtx, &mMppMpi) == MPP_OK);
+    err = mpp_create(&mMppCtx, &mMppMpi);
+    CHECK(err == MPP_OK) << "Failed to create mpp context";
 
     {
         // Update the block timeout settings for output.
@@ -2669,21 +2671,12 @@ void C2RKMpiEnc::finishWork(
         C2MemoryUsage usage = { C2MemoryUsage::CPU_READ, C2MemoryUsage::CPU_WRITE };
 
         c2_status_t ret = mBlockPool->fetchLinearBlock(size, usage, &block);
-        if (ret != C2_OK) {
-            Log.PostError("fetchLinearBlock", static_cast<int32_t>(ret));
-            mSignalledError = true;
-            return;
-        }
+        CHECK(ret == C2_OK) << "Failed to get linear memory";
 
         C2WriteView wView = block->map().get();
-        if (C2_OK != wView.error()) {
-            Log.PostError("mapBlock", static_cast<int32_t>(wView.error()));
-            mSignalledError = true;
-            return;
-        }
 
         // copy mpp output to c2 output
-        ignore = memcpy(wView.data(), data, len);
+        (void)memcpy(wView.data(), data, len);
 
         buffer = createLinearBuffer(block, 0, len);
         MppMeta meta = mpp_packet_get_meta(entry);
@@ -2691,24 +2684,24 @@ void C2RKMpiEnc::finishWork(
             int32_t isIntra = 0;
             MppFrame frame = nullptr;
 
-            ignore = mpp_meta_get_s32(meta, KEY_OUTPUT_INTRA, &isIntra);
+            std::ignore = mpp_meta_get_s32(meta, KEY_OUTPUT_INTRA, &isIntra);
             if (isIntra) {
                 Log.I("IDR frame produced");
-                ignore = buffer->setInfo(
+                std::ignore = buffer->setInfo(
                         std::make_shared<C2StreamPictureTypeMaskInfo::output>(
                         0u /* stream id */, C2Config::SYNC_FRAME));
             }
 
-            ignore = mpp_meta_get_frame(meta, KEY_INPUT_FRAME, &frame);
+            std::ignore = mpp_meta_get_frame(meta, KEY_INPUT_FRAME, &frame);
             if (frame != nullptr) {
-                ignore = mpp_frame_deinit(&frame);
+                std::ignore = mpp_frame_deinit(&frame);
             } else if (mHandler) {
-                Log.W("unexpected null frame pointer");
+                Log.W("unexpected null frame from input");
             }
         }
     }
 
-    ignore = mpp_packet_deinit(&entry);
+    std::ignore = mpp_packet_deinit(&entry);
 
     auto fillWork = [buffer](const std::unique_ptr<C2Work> &work) {
         work->worklets.front()->output.flags = (C2FrameData::flags_t)0;
@@ -2732,7 +2725,7 @@ void C2RKMpiEnc::finishWork(
 
 c2_status_t C2RKMpiEnc::drainEOS(const std::unique_ptr<C2Work> &work) {
     if (mHandler) {
-        mHandler->stopWork();
+        mHandler->stopWorkLooper();
     }
 
     int64_t maxTimeUs = 2000000; /* 2s */
@@ -2774,10 +2767,11 @@ c2_status_t C2RKMpiEnc::drain(
 }
 
 c2_status_t C2RKMpiEnc::onDrainWork(const std::unique_ptr<C2Work> &work) {
-    if (mSignalledError) return C2_BAD_STATE;
+    if (mSignalledError) {
+        return C2_BAD_STATE;
+    }
 
-    MppPacket entry;
-    ignore = memset(&entry, 0, sizeof(entry));
+    MppPacket entry = {};
 
     c2_status_t err = getoutpacket(&entry);
     if (err == C2_OK) {
@@ -2810,7 +2804,7 @@ void C2RKMpiEnc::process(
         }
         // start output looper
         if (mHandler) {
-            mHandler->startWork();
+            mHandler->startWorkLooper();
         }
         mBlockPool = pool;
         mStarted = true;
@@ -2846,43 +2840,32 @@ void C2RKMpiEnc::process(
            timestamp, frameIndex, flags);
 
     if (!mSpsPpsHeaderReceived) {
-        MppPacket hdrPkt   = nullptr;
-        void     *hdrBuf   = nullptr;
-        void     *data     = nullptr;
-        uint32_t  hdrSize  = 1024;
-        uint32_t  dataSize = 0;
+        constexpr uint32_t hdrSize = 1024;
+        std::unique_ptr<uint8_t[]> hdrBuffer(new (std::nothrow) uint8_t[hdrSize]);
+        CHECK(hdrBuffer != nullptr) << "Failed to allocate header buffer";
 
-        hdrBuf = malloc(hdrSize * sizeof(uint8_t));
-        if (hdrBuf)
-            ignore = mpp_packet_init(&hdrPkt, hdrBuf, hdrSize);
-
-        if (hdrPkt) {
-            MPP_RET err = mMppMpi->control(mMppCtx, MPP_ENC_GET_HDR_SYNC, hdrPkt);
+        MppPacket hdrPkt = nullptr;
+        MPP_RET err = mpp_packet_init(&hdrPkt, hdrBuffer.get(), hdrSize);
+        if (err == MPP_OK) {
+            err = mMppMpi->control(mMppCtx, MPP_ENC_GET_HDR_SYNC, hdrPkt);
             if (err == MPP_OK) {
-                data = mpp_packet_get_data(hdrPkt);
-                dataSize = mpp_packet_get_length(hdrPkt);
+                void *data = mpp_packet_get_data(hdrPkt);
+                size_t dataSize = mpp_packet_get_length(hdrPkt);
+
+                if (data && dataSize > 0) {
+                    auto csd = C2StreamInitDataInfo::output::AllocUnique(dataSize, 0u);
+                    (void)memcpy(csd->m.value, data, dataSize);
+                    work->worklets.front()->output.configUpdate.push_back(std::move(csd));
+                    // record output packet buffer
+                    mDumpService->recordFrame(this, data, dataSize, true /* skipStats */);
+                    mSpsPpsHeaderReceived = true;
+                }
             }
         }
-
-        if (data) {
-            std::unique_ptr<C2StreamInitDataInfo::output> csd =
-                    C2StreamInitDataInfo::output::AllocUnique(dataSize, 0u);
-
-            ignore = memcpy(csd->m.value, data, dataSize);
-            work->worklets.front()->output.configUpdate.push_back(std::move(csd));
-
-            /* record output packet buffer */
-            mDumpService->recordFrame(this, data, dataSize, true /* skipStats */);
-
-            mSpsPpsHeaderReceived = true;
-        }
-
         if (hdrPkt) {
-            ignore = mpp_packet_deinit(&hdrPkt);
+            std::ignore = mpp_packet_deinit(&hdrPkt);
         }
-        if (hdrBuf) {
-            free(hdrBuf);
-        }
+        CHECK(err == MPP_OK) << "Failed to get header sync";
     }
 
     // handle common dynamic config change
@@ -2893,8 +2876,7 @@ void C2RKMpiEnc::process(
         return;
     }
 
-    MyDmaBuffer_t dmaBuf;
-    ignore = memset(&dmaBuf, 0, sizeof(MyDmaBuffer_t));
+    MyDmaBuffer_t dmaBuf = {};
 
     err = getInBufferFromWork(work, &dmaBuf);
     if (err != C2_OK) {
@@ -2917,7 +2899,7 @@ void C2RKMpiEnc::process(
 
     /* send frame to mpp */
     err = sendframe(dmaBuf, frameIndex, flags);
-    if (C2_OK != err) {
+    if (err != C2_OK) {
         Log.PostError("sendFrame", static_cast<int32_t>(err));
         mSignalledError = true;
         work->result = C2_CORRUPTED;
@@ -2929,10 +2911,11 @@ void C2RKMpiEnc::process(
     // it later in output looper.
     if (mHandler) {
         sp<AMessage> msg = new AMessage(WorkHandler::kWhatDrainWork, mHandler);
-        ignore = msg->post();
+        CHECK(msg->post() == OK);
 
         if (mSawInputEOS) {
-            ignore = drainEOS(work);
+            err = drainEOS(work);
+            Log.PostErrorIf(err != C2_OK, "drainEOS");
         }
     } else {
         err = onDrainWork(work);
@@ -2943,63 +2926,57 @@ void C2RKMpiEnc::process(
 }
 
 c2_status_t C2RKMpiEnc::handleCommonDynamicCfg() {
-    bool configChanged = false;
+    bool configUpdated = false;
 
     IntfImpl::Lock lock = mIntf->lock();
-    std::shared_ptr<C2StreamPictureSizeInfo::input> size = mIntf->getSize_l();
-    std::shared_ptr<C2StreamBitrateInfo::output> bitrate = mIntf->getBitrate_l();
-    std::shared_ptr<C2StreamFrameRateInfo::output> frameRate = mIntf->getFrameRate_l();
-    std::shared_ptr<C2StreamIntraRefreshTuning::output> intraRefresh = mIntf->getIntraRefresh_l();
-    uint32_t profile = mIntf->getProfile_l(mCodingType);
+    auto size         = mIntf->getSize_l();
+    auto bitrate      = mIntf->getBitrate_l();
+    auto frameRate    = mIntf->getFrameRate_l();
+    auto intraRefresh = mIntf->getIntraRefresh_l();
+    auto profile      = mIntf->getProfile_l(mCodingType);
     lock.unlock();
 
     // handle dynamic size config.
     if (size != mSize) {
         Log.I("new size request, w %d h %d", size->width, size->height);
         mSize = size;
-        ignore = setupBaseCodec();
-        configChanged = true;
+        configUpdated = (setupBaseCodec() == C2_OK);
     }
 
     // handle dynamic bitrate config.
     if (bitrate != mBitrate) {
         Log.I("new bitrate request, value %d", bitrate->value);
         mBitrate = bitrate;
-        ignore = setupBitRate();
-        configChanged = true;
+        configUpdated = (setupBitRate() == C2_OK);
     }
 
     // handle dynamic frameRate config.
     if (frameRate != mFrameRate) {
         Log.I("new frameRate request, value %.2f", frameRate->value);
         mFrameRate = frameRate;
-        ignore = setupFrameRate();
-        configChanged = true;
+        configUpdated = (setupFrameRate() == C2_OK);
     }
 
     // handle dynamic profile config.
     if (profile != mProfile) {
         Log.I("new profile request, value %s", toStr_Profile(profile, mCodingType));
         mProfile = profile;
-        ignore = setupProfileParams();
-        configChanged = true;
+        configUpdated = (setupProfileParams() == C2_OK);
     }
 
     // handle dynamic intra refresh config.
     if (intraRefresh != mIntraRefresh) {
         Log.I("new intra refresh request, period %.1f", intraRefresh->period);
         mIntraRefresh = intraRefresh;
-        ignore = setupIntraRefresh();
-        configChanged = true;
+        configUpdated = (setupIntraRefresh() == C2_OK);
     }
 
-    if (configChanged) {
+    if (configUpdated) {
         MPP_RET err = mMppMpi->control(mMppCtx, MPP_ENC_SET_CFG, mEncCfg);
         if (err != MPP_OK) {
-            Log.PostError("setupDynamicConfig", static_cast<int32_t>(err));
+            Log.PostError("update dynamic config", static_cast<int32_t>(err));
             return C2_CORRUPTED;
         }
-
         // update node params of service
         mDumpService->updateNode(this, mSize->width, mSize->height, mFrameRate->value);
     }
@@ -3025,12 +3002,13 @@ c2_status_t C2RKMpiEnc::handleRequestSyncFrame() {
         // we can handle IDR immediately
         if (requestSync->value) {
             Log.I("got sync request");
+            // force set IDR frame
+            std::ignore = mMppMpi->control(mMppCtx, MPP_ENC_SET_IDR_FRAME, nullptr);
             // unset request
             C2StreamRequestSyncFrameTuning::output clearSync(0u, C2_FALSE);
             std::vector<std::unique_ptr<C2SettingResult>> failures;
-            ignore = mIntf->config({ &clearSync }, C2_MAY_BLOCK, &failures);
-            // force set IDR frame
-            ignore = mMppMpi->control(mMppCtx, MPP_ENC_SET_IDR_FRAME, nullptr);
+            return mIntf->config({ &clearSync }, C2_MAY_BLOCK, &failures);
+
         }
     }
 
@@ -3038,23 +3016,17 @@ c2_status_t C2RKMpiEnc::handleRequestSyncFrame() {
 }
 
 c2_status_t C2RKMpiEnc::handleMlvecDynamicCfg(MppMeta meta) {
-    int32_t layerCount = 0;
-    int32_t layerPos = 0;
-
     if (!mMlvec) {
         return C2_OK;
     }
 
     IntfImpl::Lock lock = mIntf->lock();
 
-    C2RKMlvecLegacy::MDynamicCfg cfg;
+    C2RKMlvecLegacy::MDynamicCfg cfg = {};
     std::shared_ptr<MlvecParams> params = mIntf->getMlvecParams_l();
-    std::shared_ptr<C2StreamTemporalLayeringTuning::output> layering =
-            mIntf->getTemporalLayers_l();
 
-    layerCount = layering->m.layerCount;
-
-    ignore = memset(&cfg, 0, sizeof(cfg));
+    int32_t layerPos = 0;
+    int32_t layerCount = mIntf->getTemporalLayers_l()->m.layerCount;
 
     /* count layer position */
     if (layerCount >= 2) {
@@ -3064,11 +3036,11 @@ c2_status_t C2RKMpiEnc::handleMlvecDynamicCfg(MppMeta meta) {
 
     if (layerPos == 0) {
         if (mCurLayerCount != layerCount) {
+            Log.I("temporalLayers change, %d to %d", mCurLayerCount, layerCount);
             if (!mMlvec->setupMaxTid(layerCount)) {
-                Log.PostError("setupMlvecMaxTid", -1);
+                Log.PostError("setupMaxTid", -1);
                 return C2_CORRUPTED;
             }
-            Log.I("temporalLayers change, %d to %d", mCurLayerCount, layerCount);
             mCurLayerCount = layerCount;
         }
 
@@ -3123,7 +3095,7 @@ c2_status_t C2RKMpiEnc::handleRoiRegionRequest(
     if (regions.size() == 0)
         return C2_OK;
 
-    MPP_RET err = MPP_OK;
+    MppErrorTrap err;
 
     if (mRoiCtx == nullptr) {
         err = mpp_enc_roi_init(&mRoiCtx, mSize->width, mSize->height, mCodingType);
@@ -3134,7 +3106,7 @@ c2_status_t C2RKMpiEnc::handleRoiRegionRequest(
         Log.I("setup roi done, ctx %p", mRoiCtx);
     }
 
-    for (int i = 0; i < regions.size(); i++) {
+    for (size_t i = 0; i < regions.size(); i++) {
         RoiRegionCfg *region = &regions.editItemAt(i);
         if ((region->x > mSize->width) || (region->y > mSize->height) ||
             (region->w > mSize->width) || (region->h > mSize->height) ||
@@ -3145,7 +3117,7 @@ c2_status_t C2RKMpiEnc::handleRoiRegionRequest(
                    region->x, region->y, region->w, region->h,
                    region->force_intra, region->qp_mode, region->qp_val);
         } else {
-            ignore = mpp_enc_roi_add_region(mRoiCtx, region);
+            err = mpp_enc_roi_add_region(mRoiCtx, region);
             Log.D("setup roi region[%d] rect [%d,%d,%d,%d] intra %d mode %d qp %d",
                    i, region->x, region->y, region->w, region->h,
                    region->force_intra, region->qp_mode, region->qp_val);
@@ -3155,7 +3127,7 @@ c2_status_t C2RKMpiEnc::handleRoiRegionRequest(
     // send roi info by metadata
     err = mpp_enc_roi_setup_meta(mRoiCtx, meta);
 
-    return (err == MPP_OK) ? C2_OK : C2_CORRUPTED;
+    return (c2_status_t)err;
 }
 
 c2_status_t C2RKMpiEnc::onDetectResultReady(ImageBuffer *srcImage, void *result) {
@@ -3169,23 +3141,23 @@ c2_status_t C2RKMpiEnc::onDetectResultReady(ImageBuffer *srcImage, void *result)
         return C2_OK;
     }
 
-    MyDmaBuffer_t dmaBuf;
-    ignore = memset(&dmaBuf, 0, sizeof(MyDmaBuffer_t));
-
-    dmaBuf.fd   = srcImage->fd;
-    dmaBuf.size = srcImage->size;
-    dmaBuf.npuMaps = result;
+    MyDmaBuffer_t dmaBuf = {
+        .fd   = srcImage->fd,
+        .size = srcImage->size,
+        .npuMaps = result,
+        .handler = nullptr,
+    };
 
     /* send frame to mpp */
     c2_status_t err = sendframe(dmaBuf, srcImage->pts, srcImage->flags);
-    if (err != C2_OK) {
-        Log.PostError("sendFrame", static_cast<int32_t>(err));
-        mSignalledError = true;
-        return C2_CORRUPTED;
+    if (err == C2_OK) {
+        /* get and drain output work */
+        err = onDrainWork();
     }
 
-    /* get and drain output work */
-    err = onDrainWork();
+    if (err != C2_OK) {
+        mSignalledError = true;
+    }
 
     return err;
 }
@@ -3223,29 +3195,23 @@ c2_status_t C2RKMpiEnc::handleRknnDetection(
 
 // Note: Check if the input can be received by mpp driver directly
 bool C2RKMpiEnc::needRgaConvert(uint32_t width, uint32_t height, MppFrameFormat fmt) {
-    bool needsRga = true;
+    bool needsRga = false;
 
     if (mInputScalar) {
         needsRga = true;
-        goto cleanUp;
-    }
+    } else if (fmt == MPP_FMT_RGBA8888 && !C2RKChipCapDef::get()->hasRkVenc()) {
+        // rgba8888 and no RKVenc: force RGA, do not try to bypass
+        needsRga = true;
+    } else {
+        if (C2RKChipCapDef::get()->isFreeAlignEncoder()) {
+            needsRga = (mCodingType == MPP_VIDEO_CodingVP8);
+        }
 
-    if (fmt == MPP_FMT_RGBA8888) {
-        if (!C2RKChipCapDef::get()->hasRkVenc()) {
-            needsRga = true;
-            goto cleanUp;
+        if (needsRga && C2_IS_ALIGNED(width, 16) && C2_IS_ALIGNED(height, 16)) {
+            needsRga = false;
         }
     }
 
-    if (C2RKChipCapDef::get()->isFreeAlignEncoder()) {
-        needsRga = (mCodingType == MPP_VIDEO_CodingVP8);
-    }
-
-    if (needsRga && C2_IS_ALIGNED(width, 16) && C2_IS_ALIGNED(height, 16)) {
-        needsRga = false;
-    }
-
-cleanUp:
     if (mInputCount == 0) {
         Log.I("check: hor %d ver %d fmt %s %s extra convert",
                width, height, toStr_Format(fmt), needsRga ? "need" : "no need");
@@ -3258,7 +3224,7 @@ int32_t C2RKMpiEnc::getCtuSize() {
 
     if (mCodingType == MPP_VIDEO_CodingHEVC) {
         int32_t hevcLcuSize = 0;
-        ignore = mpp_enc_cfg_get_s32(mEncCfg, "h265:lcu_size", &hevcLcuSize);
+        std::ignore = mpp_enc_cfg_get_s32(mEncCfg, "h265:lcu_size", &hevcLcuSize);
         if (hevcLcuSize > 0) {
             ctuSize = hevcLcuSize;
         } else {
@@ -3315,8 +3281,8 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
             Log.E("layouts[0].sampleIncrementInBits = 0");
             stride = mHorStride;
         }
-        ignore = gm.freeBuffer(bufferHandle);
-        ignore = native_handle_delete(grallocHandle);
+        std::ignore = gm.freeBuffer(bufferHandle);
+        std::ignore = native_handle_delete(grallocHandle);
     }
 
     /* dump frame time consuming if neccessary */
@@ -3420,15 +3386,17 @@ c2_status_t C2RKMpiEnc::getInBufferFromWork(
     }
 
     if (configChanged) {
-        if (mInputMppFmt == MPP_FMT_RGBA8888) {
-            ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:hor_stride", mHorStride * 4);
-        } else {
-            ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:hor_stride", mHorStride);
-        }
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:ver_stride", mVerStride);
-        ignore = mpp_enc_cfg_set_s32(mEncCfg, "prep:format", mInputMppFmt);
+        MppErrorTrap err;
 
-        MPP_RET err = mMppMpi->control(mMppCtx, MPP_ENC_SET_CFG, mEncCfg);
+        if (mInputMppFmt == MPP_FMT_RGBA8888) {
+            err = mpp_enc_cfg_set_s32(mEncCfg, "prep:hor_stride", mHorStride * 4);
+        } else {
+            err = mpp_enc_cfg_set_s32(mEncCfg, "prep:hor_stride", mHorStride);
+        }
+        err = mpp_enc_cfg_set_s32(mEncCfg, "prep:ver_stride", mVerStride);
+        err = mpp_enc_cfg_set_s32(mEncCfg, "prep:format", mInputMppFmt);
+
+        err = mMppMpi->control(mMppCtx, MPP_ENC_SET_CFG, mEncCfg);
         if (err != MPP_OK) {
             Log.E("failed to setup new mpp config.");
             ret = C2_CORRUPTED;
@@ -3449,10 +3417,7 @@ c2_status_t C2RKMpiEnc::sendframe(
     static uint32_t kMaxRetryCnt = 1000;
 
     err = mpp_frame_init(&frame);
-    if (err != MPP_OK) {
-        Log.PostError("mpp_frame_init", static_cast<int32_t>(err));
-        return C2_NO_MEMORY;
-    }
+    CHECK(err == MPP_OK) << "Failed to initialize frame";
 
     meta = mpp_frame_get_meta(frame);
 
@@ -3463,22 +3428,19 @@ c2_status_t C2RKMpiEnc::sendframe(
 
     if (dBuffer.fd > 0) {
         MppBuffer buffer = nullptr;
-        MppBufferInfo commit;
-
-        ignore = memset(&commit, 0, sizeof(commit));
+        MppBufferInfo commit = {};
 
         commit.type = MPP_BUFFER_TYPE_ION;
         commit.fd   = dBuffer.fd;
         commit.size = dBuffer.size;
 
         err = mpp_buffer_import(&buffer, &commit);
-        if (err != MPP_OK) {
-            Log.PostError("mpp_buffer_import", static_cast<int32_t>(err));
-            ret = C2_NOT_FOUND;
-            goto error;
-        }
+        CHECK(err == MPP_OK) << "Failed to import buffer";
+
         mpp_frame_set_buffer(frame, buffer);
-        ignore = mpp_buffer_put(buffer);
+
+        err = mpp_buffer_put(buffer);
+        CHECK(err == MPP_OK) << "Failed to put buffer";
     } else {
         mpp_frame_set_buffer(frame, nullptr);
     }
@@ -3501,22 +3463,28 @@ c2_status_t C2RKMpiEnc::sendframe(
          break;
     }
 
-    ignore = mpp_meta_set_buffer(meta, KEY_MOTION_INFO, mMdInfo);
+    std::ignore = mpp_meta_set_buffer(meta, KEY_MOTION_INFO, mMdInfo);
 
     /* handle dynamic configurations from teams mlvec */
     if (mMlvec) {
-        ignore = handleMlvecDynamicCfg(meta);
+        ret = handleMlvecDynamicCfg(meta);
+        if (ret != C2_OK) {
+            goto error;
+        }
     }
 
     /* handle IDR request */
-    ignore = handleRequestSyncFrame();
+    std::ignore = handleRequestSyncFrame();
 
     /* handle ROI region setup from user */
     {
         IntfImpl::Lock lock = mIntf->lock();
         Vector<RoiRegionCfg> regions = mIntf->getRoiRegionCfg();
         if (regions.size() > 0) {
-            ignore = handleRoiRegionRequest(meta, regions);
+            ret = handleRoiRegionRequest(meta, regions);
+            if (ret != C2_OK) {
+                goto error;
+            }
         }
     }
 
@@ -3525,7 +3493,7 @@ c2_status_t C2RKMpiEnc::sendframe(
         if (mRknnSession->isMaskResultType()) {
             err = mpp_meta_set_ptr(meta, KEY_NPU_OBJ_FLAG, dBuffer.npuMaps);
             if (err != MPP_OK) {
-                Log.W("failed to set rknn object, err %d", err);
+                Log.W("failed to set npu obj, ignore smart detection result");
             }
         } else {
             DetectRegions *dRegions = reinterpret_cast<DetectRegions*>(dBuffer.npuMaps);
@@ -3545,7 +3513,10 @@ c2_status_t C2RKMpiEnc::sendframe(
                 };
                 regions.push(region);
             }
-            ignore = handleRoiRegionRequest(meta, regions);
+            ret = handleRoiRegionRequest(meta, regions);
+            if (ret != C2_OK) {
+                goto error;
+            }
         }
     }
 
@@ -3566,8 +3537,8 @@ c2_status_t C2RKMpiEnc::sendframe(
     }
 
 error:
-    if (!mHandler && frame) {
-        ignore = mpp_frame_deinit(&frame);
+    if (!mHandler && frame != nullptr) {
+        std::ignore = mpp_frame_deinit(&frame);
     }
 
     return ret;

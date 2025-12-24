@@ -100,8 +100,8 @@ private:
                 : mThiz(thiz), mRunning(true) {}
         ~WorkHandler() override = default;
 
-        void startWork();
-        void stopWork();
+        void startWorkLooper();
+        void stopWorkLooper();
         void waitDrainEOS();
 
     protected:

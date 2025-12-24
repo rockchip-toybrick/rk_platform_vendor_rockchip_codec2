@@ -42,8 +42,6 @@
 
 namespace android {
 
-using std::ignore;
-
 C2_LOGGER_ENABLE("C2RKMpiDec");
 
 /* max support video resolution */
@@ -306,7 +304,7 @@ public:
         std::shared_ptr<C2StreamColorInfo::output> defaultColorInfo =
             C2StreamColorInfo::output::AllocShared(
                     1u, 0u, 8u /* bitDepth */, C2Color::YUV_420);
-        ignore = memcpy(defaultColorInfo->m.locations, locations, sizeof(locations));
+        std::ignore = memcpy(defaultColorInfo->m.locations, locations, sizeof(locations));
 
         defaultColorInfo =
             C2StreamColorInfo::output::AllocShared(
@@ -1193,7 +1191,7 @@ c2_status_t C2RKMpiDec::getSurfaceFeatures(const std::shared_ptr<C2BlockPool> &p
     }
 
 cleanUp:
-    (void)C2RKGraphicBufferMapper::get()->freeBuffer(handle);
+    std::ignore = C2RKGraphicBufferMapper::get()->freeBuffer(handle);
     return err;
 }
 
@@ -1209,14 +1207,17 @@ c2_status_t C2RKMpiDec::checkUseScaleMeta(buffer_handle_t handle) {
         return C2_OK;
     }
 
-    ignore = mpp_dec_cfg_set_u32(mDecCfg, "base:enable_thumbnail", scaleMode);
+    MPP_RET err = mpp_dec_cfg_set_u32(mDecCfg, "base:enable_thumbnail", scaleMode);
+    if (err == MPP_OK) {
+        err = mMppMpi->control(mMppCtx, MPP_DEC_SET_CFG, mDecCfg);
+    }
 
-    if (mMppMpi->control(mMppCtx, MPP_DEC_SET_CFG, mDecCfg) == MPP_OK) {
+    if (err == MPP_OK) {
         Log.I("enable scale meta mode");
         mScaleMode = scaleMode;
         return C2_OK;
     } else {
-        Log.PostError("setEnableThumbnail", -1);
+        Log.PostError("setEnableThumbnail", static_cast<int32_t>(err));
         return C2_CORRUPTED;
     }
 }
@@ -1229,14 +1230,18 @@ c2_status_t C2RKMpiDec::checkUseScaleDown(buffer_handle_t handle) {
         return C2_OK;
     }
 
-    ignore = mpp_dec_cfg_set_u32(mDecCfg, "base:enable_thumbnail", C2_SCALE_MODE_DOWN_SCALE);
+    MPP_RET err = mpp_dec_cfg_set_u32(
+            mDecCfg, "base:enable_thumbnail", C2_SCALE_MODE_DOWN_SCALE);
+    if (err == MPP_OK) {
+        err = mMppMpi->control(mMppCtx, MPP_DEC_SET_CFG, mDecCfg);
+    }
 
-    if (mMppMpi->control(mMppCtx, MPP_DEC_SET_CFG, mDecCfg) == MPP_OK) {
+    if (err == MPP_OK) {
         Log.I("enable scale down mode");
         mScaleMode = C2_SCALE_MODE_DOWN_SCALE;
         return C2_OK;
     } else {
-        Log.PostError("setEnableThumbnail", -1);
+        Log.PostError("setEnableThumbnail", static_cast<int32_t>(err));
         return C2_CORRUPTED;
     }
 }
@@ -1254,10 +1259,10 @@ c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
         width  = mIntf->getSize_l()->width;
         height = mIntf->getSize_l()->height;
         level  = mIntf->getProfileLevel_l() ? mIntf->getProfileLevel_l()->level : 0;
-        lowMemoryMode |= mIntf->getIsLowMemoryMode();
-        lowMemoryMode |= mDumpService->hasFeatures(C2_FEATURE_DEC_LOW_MEMORY_MODE);
-        if (lowMemoryMode) {
+        if (mIntf->getIsLowMemoryMode() ||
+                mDumpService->hasFeatures(C2_FEATURE_DEC_LOW_MEMORY_MODE)) {
             Log.I("in low memory mode, reduce output ref count");
+            lowMemoryMode = true;
         }
     }
 
@@ -1345,7 +1350,7 @@ c2_status_t C2RKMpiDec::configTunneledPlayback(const std::unique_ptr<C2Work> &wo
 
     void *sideband = mTunneledSession->getTunnelSideband();
 
-    ignore = memcpy(tunnelHandle->m.values, sideband, sizeof(SidebandHandler));
+    (void)memcpy(tunnelHandle->m.values, sideband, sizeof(SidebandHandler));
 
     // 1. When codec2 plugin start update stream sideband to native window, the
     //    decoder has not yet received format information.
@@ -1360,7 +1365,7 @@ c2_status_t C2RKMpiDec::configTunneledPlayback(const std::unique_ptr<C2Work> &wo
 
         // enable fast out in tunnel mode
         uint32_t fastOut = 1;
-        ignore = mMppMpi->control(mMppCtx, MPP_DEC_SET_IMMEDIATE_OUT, &fastOut);
+        std::ignore = mMppMpi->control(mMppCtx, MPP_DEC_SET_IMMEDIATE_OUT, &fastOut);
     } else {
         Log.PostError("configTunnelRender", static_cast<int32_t>(err));
     }
@@ -1477,7 +1482,7 @@ c2_status_t C2RKMpiDec::updateAllocParams() {
             Log.PostError("getThumbnailFrameInfo", static_cast<int32_t>(ret));
         }
 
-        ignore = mpp_frame_deinit(&frame);
+        std::ignore = mpp_frame_deinit(&frame);
     }
 
     allocWidth  = frameWidth;
@@ -1636,7 +1641,7 @@ c2_status_t C2RKMpiDec::updateMppFrameInfo(int32_t fbcMode) {
         Log.PostError("setFrameInfo", static_cast<int32_t>(err));
     }
 
-    ignore = mpp_frame_deinit(&frame);
+    std::ignore = mpp_frame_deinit(&frame);
     return (c2_status_t)err;
 }
 
@@ -1745,22 +1750,17 @@ c2_status_t C2RKMpiDec::initDecoder(const std::unique_ptr<C2Work> &work) {
 
     {
         /* set output frame callback  */
+        CHECK(mpp_dec_cfg_init(&mDecCfg) == MPP_OK);
 
-        err = mpp_dec_cfg_init(&mDecCfg);
-        if (err != MPP_OK) {
-            Log.PostError("mpp_dec_cfg_init", static_cast<int32_t>(err));
-            goto error;
-        }
-
-        ignore = mpp_dec_cfg_set_ptr(mDecCfg, "cb:frm_rdy_cb", (void *)frameReadyCb);
-        ignore = mpp_dec_cfg_set_ptr(mDecCfg, "cb:frm_rdy_ctx", this);
+        CHECK(mpp_dec_cfg_set_ptr(mDecCfg, "cb:frm_rdy_cb", (void *)frameReadyCb) == MPP_OK);
+        CHECK(mpp_dec_cfg_set_ptr(mDecCfg, "cb:frm_rdy_ctx", this) == MPP_OK);
 
         /* check HDR Vivid support */
         if (C2RKChipCapDef::get()->getHdrMetaCap()
                 && !C2RKPropsDef::getHdrDisable() && !mBufferMode) {
             Log.I("enable hdr meta");
             mHdrMetaEnabled = true;
-            ignore = mpp_dec_cfg_set_u32(mDecCfg, "base:enable_hdr_meta", 1);
+            std::ignore = mpp_dec_cfg_set_u32(mDecCfg, "base:enable_hdr_meta", 1);
         }
 
         err = mMppMpi->control(mMppCtx, MPP_DEC_SET_CFG, mDecCfg);
@@ -1826,7 +1826,7 @@ void C2RKMpiDec::setMppPerformance(bool on) {
                    written, oss.str().length());
         }
         if (!on) {
-            ignore = close(mFdPerf);
+            std::ignore = close(mFdPerf);
             mFdPerf = -1;
         }
     }
@@ -1869,7 +1869,7 @@ void C2RKMpiDec::finishWork(
             mCodingType == MPP_VIDEO_CodingAV1 ||
             mCodingType == MPP_VIDEO_CodingMPEG2) {
             IntfImpl::Lock lock = mIntf->lock();
-            ignore = c2Buffer->setInfo(mIntf->getColorAspects_l());
+            std::ignore = c2Buffer->setInfo(mIntf->getColorAspects_l());
         }
     }
 
@@ -1924,7 +1924,7 @@ void C2RKMpiDec::finishWork(
             // source, sent through new work pipeline.
             std::unique_ptr<C2Work> work(new C2Work);
             work->worklets.clear();
-            ignore = work->worklets.emplace_back(std::make_unique<C2Worklet>());
+            std::ignore = work->worklets.emplace_back(std::make_unique<C2Worklet>());
 
             // work flags set to incomplete to ignore frame index check
             work->input.ordinal.frameIndex = OUTPUT_WORK_INDEX;
@@ -2080,7 +2080,8 @@ void C2RKMpiDec::process(
     }
 
     if (mInputEOS) {
-        std::ignore = drainEOS(work);
+        err = drainEOS(work);
+        Log.PostErrorIf(err != C2_OK, "drainEOS");
     } else if ((flags & C2FrameData::FLAG_CODEC_CONFIG) || !inSize) {
         fillEmptyWork(work);
     } else if (!mStandardWorkFlow) {
@@ -2185,7 +2186,7 @@ void C2RKMpiDec::getVuiParams(MppFrame frame) {
         }
 
         std::vector<std::unique_ptr<C2SettingResult>> failures;
-        ignore = mIntf->config({&codedAspects}, C2_MAY_BLOCK, &failures);
+        std::ignore = mIntf->config({&codedAspects}, C2_MAY_BLOCK, &failures);
 
         Log.I("set colorAspects (R:%d(%s), P:%d(%s), M:%d(%s), T:%d(%s))",
                sfAspects.mRange, asString(sfAspects.mRange),
@@ -2269,14 +2270,14 @@ c2_status_t C2RKMpiDec::importBufferToDecoder(std::shared_ptr<C2GraphicBlock> bl
             }
         }
 
-        ignore = mBuffers.emplace(bufferId, std::move(newBuffer));
+        std::ignore = mBuffers.emplace(bufferId, std::move(newBuffer));
 
         Log.D("import this buffer, bufferId %d size %d listSize %d",
                bufferId, bufferInfo.size, mBuffers.size());
     }
 
 cleanUp:
-    ignore = C2RKGraphicBufferMapper::get()->freeBuffer(handle);
+    std::ignore = C2RKGraphicBufferMapper::get()->freeBuffer(handle);
     return (c2_status_t)err;
 }
 
@@ -2395,15 +2396,14 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
 void C2RKMpiDec::postFrameReady() {
     if (mHandler) {
         sp<AMessage> msg = new AMessage(WorkHandler::kWhatFrameReady, mHandler);
-        ignore = msg->post();
+        CHECK(msg->post() == OK);
     }
 }
 
 c2_status_t C2RKMpiDec::drainWork(const std::unique_ptr<C2Work> &work) {
     if (mSignalledError) return C2_BAD_STATE;
 
-    WorkEntry entry;
-    ignore = memset(&entry, 0, sizeof(entry));
+    WorkEntry entry = {};
 
 outframe:
     c2_status_t err = getoutframe(&entry);
@@ -2458,11 +2458,11 @@ c2_status_t C2RKMpiDec::sendpacket(
 
     if (flags & C2FrameData::FLAG_END_OF_STREAM) {
         Log.I("send input eos");
-        ignore = mpp_packet_set_eos(packet);
+        std::ignore = mpp_packet_set_eos(packet);
     }
 
     if (flags & C2FrameData::FLAG_CODEC_CONFIG) {
-        ignore = mpp_packet_set_extra_data(packet);
+        std::ignore = mpp_packet_set_extra_data(packet);
     } else if (flags & C2FrameData::FLAG_DROP_FRAME) {
         mDropFrames.push_back(pts);
     }
@@ -2508,7 +2508,7 @@ c2_status_t C2RKMpiDec::sendpacket(
         std::this_thread::sleep_for(std::chrono::milliseconds(3));
     }
 
-    ignore = mpp_packet_deinit(&packet);
+    std::ignore = mpp_packet_deinit(&packet);
     return ret;
 }
 
@@ -2710,7 +2710,7 @@ c2_status_t C2RKMpiDec::getoutframe(WorkEntry *entry) {
         }
 
         // scale/hdr frame meta config
-        ignore = configFrameMetaIfNeeded(frame, outBuffer->getBlock());
+        std::ignore = configFrameMetaIfNeeded(frame, outBuffer->getBlock());
 
         // signal buffer occupied by client
         outBuffer->setInusedByClient();
@@ -2751,7 +2751,7 @@ cleanUp:
     entry->frameIndex = frameIdx;
 
     if (frame) {
-        ignore = mpp_frame_deinit(&frame);
+        std::ignore = mpp_frame_deinit(&frame);
     }
 
     return ret;
@@ -2766,7 +2766,7 @@ void C2RKMpiDec::releaseAllBuffers() {
     mBuffers.clear();
 
     if (mBufferGroup) {
-        ignore = mpp_buffer_group_clear(mBufferGroup);
+        CHECK(mpp_buffer_group_clear(mBufferGroup) == MPP_OK);
     }
     if (mOutBlock) {
         mOutBlock.reset();
@@ -2798,20 +2798,20 @@ c2_status_t C2RKMpiDec::configFrameMetaIfNeeded(
     int32_t hdrMetaSize   = 0;
 
     if (mScaleMode && mpp_frame_get_thumbnail_en(frame)) {
-        ignore = mpp_meta_get_s32(meta, KEY_DEC_TBN_Y_OFFSET,  &scaleYOffset);
-        ignore = mpp_meta_get_s32(meta, KEY_DEC_TBN_UV_OFFSET, &scaleUVOffset);
+        (void)mpp_meta_get_s32(meta, KEY_DEC_TBN_Y_OFFSET,  &scaleYOffset);
+        (void)mpp_meta_get_s32(meta, KEY_DEC_TBN_UV_OFFSET, &scaleUVOffset);
 
-        if (!scaleYOffset || !scaleUVOffset) {
+        if (scaleYOffset == 0 || scaleUVOffset == 0) {
             Log.E("unexpected scale offset meta");
             return C2_CORRUPTED;
         }
     }
 
     if (mHdrMetaEnabled && MPP_FRAME_FMT_IS_HDR(mpp_frame_get_fmt(frame))) {
-        ignore = mpp_meta_get_s32(meta, KEY_HDR_META_OFFSET, &hdrMetaOffset);
-        ignore = mpp_meta_get_s32(meta, KEY_HDR_META_SIZE,   &hdrMetaSize);
+        (void)mpp_meta_get_s32(meta, KEY_HDR_META_OFFSET, &hdrMetaOffset);
+        (void)mpp_meta_get_s32(meta, KEY_HDR_META_SIZE,   &hdrMetaSize);
 
-        if (!hdrMetaOffset || !hdrMetaSize) {
+        if (hdrMetaOffset == 0 || hdrMetaSize == 0) {
             Log.E("unexpected hdr offset meta");
             return C2_CORRUPTED;
         }
@@ -2820,15 +2820,14 @@ c2_status_t C2RKMpiDec::configFrameMetaIfNeeded(
     buffer_handle_t handle = nullptr;
     auto c2Handle = block->handle();
 
-    status_t err = C2RKGraphicBufferMapper::get()->importBuffer(c2Handle, &handle);
-    if (err != OK) {
-        Log.PostError("importBuffer", static_cast<int32_t>(err));
+    status_t ret = C2RKGraphicBufferMapper::get()->importBuffer(c2Handle, &handle);
+    if (ret != OK) {
+        Log.PostError("importBuffer", static_cast<int32_t>(ret));
         return C2_CORRUPTED;
     }
 
     if (mScaleMode == C2_SCALE_MODE_META) {
-        C2PreScaleParam scaleParam;
-        ignore = memset(&scaleParam, 0, sizeof(C2PreScaleParam));
+        C2PreScaleParam scaleParam = {};
 
         scaleParam.thumbWidth     = mpp_frame_get_width(frame) >> 1;
         scaleParam.thumbHeight    = mpp_frame_get_height(frame) >> 1;
@@ -2842,18 +2841,16 @@ c2_status_t C2RKMpiDec::configFrameMetaIfNeeded(
             scaleParam.format = HAL_PIXEL_FORMAT_YCrCb_NV12;
         }
         if (C2RKVdecExtendFeature::configFrameScaleMeta(handle, &scaleParam)) {
-            ignore = memcpy((void *)&c2Handle->data, (void *)&handle->data,
+            (void)memcpy((void *)&c2Handle->data, (void *)&handle->data,
                     sizeof(int32_t) * (handle->numFds + handle->numInts));
         }
     }
 
     if (mHdrMetaEnabled) {
-        ignore = C2RKVdecExtendFeature::configFrameHdrDynamicMeta(handle, hdrMetaOffset);
+        (void)C2RKVdecExtendFeature::configFrameHdrDynamicMeta(handle, hdrMetaOffset);
     }
 
-    err = C2RKGraphicBufferMapper::get()->freeBuffer(handle);
-    Log.PostErrorIf(err != OK, "freeBuffer");
-
+    std::ignore = C2RKGraphicBufferMapper::get()->freeBuffer(handle);
     return C2_OK;
 }
 

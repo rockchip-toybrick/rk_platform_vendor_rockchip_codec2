@@ -18,6 +18,7 @@
 
 #include "C2RKMlvecLegacy.h"
 #include "C2RKLogger.h"
+#include "C2RKMppErrorTrap.h"
 
 namespace android {
 
@@ -35,16 +36,14 @@ C2RKMlvecLegacy::~C2RKMlvecLegacy() {
 }
 
 bool C2RKMlvecLegacy::setupMaxTid(int32_t maxTid) {
-    MppEncRefLtFrmCfg ltRef[16];
-    MppEncRefStFrmCfg stRef[16];
     int32_t ltCfgCnt = 0;
     int32_t stCfgCnt = 0;
     int32_t tid0Loop = 0;
     int32_t numLtrFrms = mStaticCfg.ltrFrames;
-    int ret = MPP_OK;
+    MppErrorTrap err;
 
-    std::ignore = memset(ltRef, 0, sizeof(ltRef));
-    std::ignore = memset(stRef, 0, sizeof(stRef));
+    MppEncRefLtFrmCfg ltRef[16] = {};
+    MppEncRefStFrmCfg stRef[16] = {};
 
     Log.I("max_tid %d numLtrFrms %d ", maxTid, numLtrFrms);
 
@@ -202,37 +201,34 @@ bool C2RKMlvecLegacy::setupMaxTid(int32_t maxTid) {
     }
 
     Log.I("ltCfgCnt %d stCfgCnt %d", ltCfgCnt, stCfgCnt);
-    if (ltCfgCnt || stCfgCnt) {
+    if (ltCfgCnt > 0 || stCfgCnt > 0) {
         MppEncRefCfg ref = nullptr;
 
-        ret |= mpp_enc_ref_cfg_init(&ref);
+        err = mpp_enc_ref_cfg_init(&ref);
 
-        ret |= mpp_enc_ref_cfg_set_cfg_cnt(ref, ltCfgCnt, stCfgCnt);
-        ret |= mpp_enc_ref_cfg_add_lt_cfg(ref, ltCfgCnt, ltRef);
-        ret |= mpp_enc_ref_cfg_add_st_cfg(ref, stCfgCnt, stRef);
-        ret |= mpp_enc_ref_cfg_set_keep_cpb(ref, 1);
-        ret |= mpp_enc_ref_cfg_check(ref);
+        err = mpp_enc_ref_cfg_set_cfg_cnt(ref, ltCfgCnt, stCfgCnt);
+        err = mpp_enc_ref_cfg_add_lt_cfg(ref, ltCfgCnt, ltRef);
+        err = mpp_enc_ref_cfg_add_st_cfg(ref, stCfgCnt, stRef);
+        err = mpp_enc_ref_cfg_set_keep_cpb(ref, 1);
+        err = mpp_enc_ref_cfg_check(ref);
 
-        ret |= mMppMpi->control(mMppCtx, MPP_ENC_SET_REF_CFG, ref);
+        err = mMppMpi->control(mMppCtx, MPP_ENC_SET_REF_CFG, ref);
 
-        ret |= mpp_enc_ref_cfg_deinit(&ref);
-        if (ret) {
-            Log.PostError("setRefCfg", static_cast<int32_t>(ret));
-            return false;
-        }
+        err = mpp_enc_ref_cfg_deinit(&ref);
     } else {
-        ret = mMppMpi->control(mMppCtx, MPP_ENC_SET_REF_CFG, nullptr);
-        if (ret) {
-            Log.PostError("setRefCfg", static_cast<int32_t>(ret));
-            return false;
-        }
+        err = mMppMpi->control(mMppCtx, MPP_ENC_SET_REF_CFG, nullptr);
+    }
+
+    if (err != MPP_OK) {
+        Log.PostError("setRefCfg", static_cast<int32_t>(err));
+        return false;
     }
 
     return true;
 }
 
 bool C2RKMlvecLegacy::setupStaticConfig(MStaticCfg *cfg) {
-    int32_t ret = MPP_OK;
+    MppErrorTrap err;
     int32_t magic = cfg->magic;
 
     if ((((magic >> 24) & 0xff) != MLVEC_MAGIC) ||
@@ -242,29 +238,29 @@ bool C2RKMlvecLegacy::setupStaticConfig(MStaticCfg *cfg) {
     }
 
     Log.I("add_prefix %d", cfg->addPrefix);
-    ret |= mpp_enc_cfg_set_s32(mEncCfg, "h264:prefix_mode", cfg->addPrefix);
+    err = mpp_enc_cfg_set_s32(mEncCfg, "h264:prefix_mode", cfg->addPrefix);
 
     Log.I("slice_mbs  %d", cfg->sliceMbs);
     if (cfg->sliceMbs) {
-        ret |= mpp_enc_cfg_set_u32(mEncCfg, "split:mode", MPP_ENC_SPLIT_BY_CTU);
-        ret |= mpp_enc_cfg_set_u32(mEncCfg, "split:arg", cfg->sliceMbs);
+        err = mpp_enc_cfg_set_u32(mEncCfg, "split:mode", MPP_ENC_SPLIT_BY_CTU);
+        err = mpp_enc_cfg_set_u32(mEncCfg, "split:arg", cfg->sliceMbs);
     } else {
-        ret |= mpp_enc_cfg_set_u32(mEncCfg, "split:mode", MPP_ENC_SPLIT_NONE);
-    }
-
-    if (ret) {
-        Log.PostError("mpp_enc_cfg_set_u32", static_cast<int32_t>(ret));
-        return false;
+        err = mpp_enc_cfg_set_u32(mEncCfg, "split:mode", MPP_ENC_SPLIT_NONE);
     }
 
     std::ignore = memcpy(&mStaticCfg, cfg, sizeof(mStaticCfg));
+
+    if (err != MPP_OK) {
+        Log.PostError("setStaticConfig", static_cast<int32_t>(err));
+        return false;
+    }
 
     /* NOTE: ltr_frames is already configured */
     return setupMaxTid(cfg->maxTid);
 }
 
 bool C2RKMlvecLegacy::setupDynamicConfig(MDynamicCfg *cfg, MppMeta meta) {
-    int32_t ret = MPP_OK;
+    MppErrorTrap err;
     MDynamicCfg *dst = &mDynamicCfg;
 
     /* clear non-sticky flag first */
@@ -300,7 +296,11 @@ bool C2RKMlvecLegacy::setupDynamicConfig(MDynamicCfg *cfg, MppMeta meta) {
                 sliceCfg.change = MPP_ENC_SPLIT_CFG_CHANGE_MODE;
                 sliceCfg.split_mode = MPP_ENC_SPLIT_BY_CTU;
                 sliceCfg.split_arg = cfg->sliceMbs;
-                mMppMpi->control(mMppCtx, MPP_ENC_SET_SPLIT, &sliceCfg);
+                MPP_RET ret = mMppMpi->control(mMppCtx, MPP_ENC_SET_SPLIT, &sliceCfg);
+                if (ret != MPP_OK) {
+                    Log.PostError("setSplitCfg", static_cast<int32_t>(ret));
+                    return false;
+                }
 
                 Log.I("got sliceMbs %d update", cfg->sliceMbs);
                 mStaticCfg.sliceMbs = cfg->sliceMbs;
@@ -315,19 +315,19 @@ bool C2RKMlvecLegacy::setupDynamicConfig(MDynamicCfg *cfg, MppMeta meta) {
 
     /* setup next frame configure */
     if (dst->markLtr >= 0)
-        ret |= mpp_meta_set_s32(meta, KEY_ENC_MARK_LTR, dst->markLtr);
+        err = mpp_meta_set_s32(meta, KEY_ENC_MARK_LTR, dst->markLtr);
 
     if (dst->useLtr >= 0)
-        ret |= mpp_meta_set_s32(meta, KEY_ENC_USE_LTR, dst->useLtr);
+        err = mpp_meta_set_s32(meta, KEY_ENC_USE_LTR, dst->useLtr);
 
     if (dst->frameQP >= 0)
-        ret |= mpp_meta_set_s32(meta, KEY_ENC_FRAME_QP, dst->frameQP);
+        err = mpp_meta_set_s32(meta, KEY_ENC_FRAME_QP, dst->frameQP);
 
     if (dst->baseLayerPid >= 0)
-        ret |= mpp_meta_set_s32(meta, KEY_ENC_BASE_LAYER_PID, dst->baseLayerPid);
+        err = mpp_meta_set_s32(meta, KEY_ENC_BASE_LAYER_PID, dst->baseLayerPid);
 
-    if (ret) {
-        Log.PostError("mpp_meta_set_s32", static_cast<int32_t>(ret));
+    if (err != MPP_OK) {
+        Log.PostError("setMeta", static_cast<int32_t>(err));
         return false;
     }
 

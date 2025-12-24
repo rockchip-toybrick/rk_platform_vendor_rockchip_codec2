@@ -14,7 +14,8 @@
  * limitations under the License.
  */
 
-#pragma once
+#ifndef ANDROID_C2_RK_LOGGGER_H_
+#define ANDROID_C2_RK_LOGGGER_H_
 
 #include <android-base/logging.h>
 
@@ -65,3 +66,5 @@ private:
 };
 
 } // namespace android
+
+#endif // ANDROID_C2_RK_LOGGGER_H_

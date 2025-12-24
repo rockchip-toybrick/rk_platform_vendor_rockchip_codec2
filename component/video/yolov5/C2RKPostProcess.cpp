@@ -561,7 +561,7 @@ void _matmul_by_npu_fp(
     for (int i = 0; i < tensorMergeLen; ++i) {
         mergeCResult = 0;
         for (int j = 0; j < boxesNum; ++j) {
-            mergeCResult += ((float *)impl->tensorC->virt_addr)[j * tensorMergeLen + i] > 0;
+            mergeCResult += ((float *)impl->tensorC->virt_addr)[j * tensorMergeLen + i] > 0 ? 1 : 0;
         }
         CInput[i] = mergeCResult > 0 ? 4 : 0;
     }

@@ -417,8 +417,10 @@ bool C2RKDumpStateService::addNode(std::shared_ptr<C2NodeInfo> node) {
     bool disableCapCheck = false;
     int loading = 0;
 
-    disableCapCheck |= C2RKPropsDef::getLoadingCheckDisable();
-    disableCapCheck |= (mFeatureFlags & C2_FEATURE_DISABLE_LOAD_CHECK);
+    if (C2RKPropsDef::getLoadingCheckDisable() ||
+            (mFeatureFlags & C2_FEATURE_DISABLE_LOAD_CHECK)) {
+        disableCapCheck = true;
+    }
 
     node->mPid = syscall(SYS_gettid);
     node->mBpsCalculator =
