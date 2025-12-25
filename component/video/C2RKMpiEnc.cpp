@@ -2361,8 +2361,8 @@ c2_status_t C2RKMpiEnc::setupSuperModeIfNeeded() {
         Log.I("setupSuperMode: bgDeltaQp %d fgDeltaQp %d mapMinQp %d mapMaxQp %d",
                bgDeltaQp, fgDeltaQp, mapMinQp, mapMaxQp);
 
-        // 0:balance  1:quality_first  2:bitrate_first 3:external_se_mode
-        err = mpp_enc_cfg_set_s32(mEncCfg, "tune:se_mode", 3);
+        // 1:balance 2:quality_first 3:bitrate_first 4:external_se_mode
+        err = mpp_enc_cfg_set_s32(mEncCfg, "tune:se_mode", 4);
 
         err = mpp_enc_cfg_set_s32(mEncCfg, "tune:bg_delta_qp_i",  bgDeltaQp);
         err = mpp_enc_cfg_set_s32(mEncCfg, "tune:bg_delta_qp_p",  bgDeltaQp);
@@ -3491,9 +3491,9 @@ c2_status_t C2RKMpiEnc::sendframe(
     /* set npu detection maps */
     if (dBuffer.npuMaps) {
         if (mRknnSession->isMaskResultType()) {
-            err = mpp_meta_set_ptr(meta, KEY_NPU_OBJ_FLAG, dBuffer.npuMaps);
+            err = mpp_meta_set_ptr(meta, KEY_NPU_UOBJ_FLAG, dBuffer.npuMaps);
             if (err != MPP_OK) {
-                Log.W("failed to set npu obj, ignore smart detection result");
+                Log.W("failed to set npu uobj, ignore smart detection result");
             }
         } else {
             DetectRegions *dRegions = reinterpret_cast<DetectRegions*>(dBuffer.npuMaps);
