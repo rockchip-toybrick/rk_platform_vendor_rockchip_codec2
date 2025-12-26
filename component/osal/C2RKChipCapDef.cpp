@@ -204,6 +204,18 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .reserved       = 0,
     },
     {
+        .chipName       = "rk3539",
+        .chipType       = RK_CHIP_3538,
+        .fbcCapNum      = 4,
+        .fbcCaps        = fbcCaps_rk3538,
+        .hdrMetaCap     = 1,
+        .scaleMode      = 0,
+        .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
+        .hasRga2        = 1,
+        .freeAlignEnc   = 0,
+        .reserved       = 0,
+    },
+    {
         .chipName       = "rk3588",
         .chipType       = RK_CHIP_3588,
         .fbcCapNum      = 4,
