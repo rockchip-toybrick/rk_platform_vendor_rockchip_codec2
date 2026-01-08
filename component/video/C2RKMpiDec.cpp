@@ -1283,7 +1283,9 @@ c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
         }
     }
 
-    // TODO: Codec2 sfplugin only accepts growing output slots
+    // limit output slots count
+    numOutputSlots = C2_MIN(numOutputSlots, C2_MAX_REF_FRAME_COUNT);
+
     if (numOutputSlots > mNumOutputSlots) {
         uint32_t slotsToReduce = 0;
         std::vector<std::unique_ptr<C2SettingResult>> failures;
@@ -1293,9 +1295,10 @@ c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
                (protocolRefCnt) ? "protocol" : "levelInfo");
 
         /*
-         * The kSmoothnessFactor on the framework is 4, and the ccodec_rendering-deep is 3.
-         * Under low memory conditions, the reported delayRef is reduced by 4, which is
-         * equivalent to occupying 3 buffer blocks of the framework.
+         * In low memory mode, reduce the reported output delay to minimize buffer
+         * usage. Framework uses kSmoothnessFactor(4) + ccodec_rendering_depth(3) = 7
+         * extra buffers. By reducing delay by (kRenderSmoothnessFactor - 1), we reclaim
+         * some buffer slots.
          */
         if (lowMemoryMode) {
             slotsToReduce = C2_MIN(numOutputSlots, kRenderSmoothnessFactor - 1);
@@ -1306,9 +1309,8 @@ c2_status_t C2RKMpiDec::configOutputDelay(const std::unique_ptr<C2Work> &work) {
         if (err != C2_OK) {
             Log.PostError("configDelayTuning", static_cast<int32_t>(err));
         } else {
-            if (work != nullptr) {
-                work->worklets.front()->output.configUpdate.push_back(C2Param::Copy(delay));
-            }
+            // Notify framework of the updated output delay configuration
+            finishConfigUpdate(C2Param::Copy(delay));
 
             mSlotsToReduce = slotsToReduce;
             mNumOutputSlots = numOutputSlots;
@@ -1841,6 +1843,20 @@ void C2RKMpiDec::fillEmptyWork(const std::unique_ptr<C2Work> &work) {
     work->worklets.front()->output.buffers.clear();
     work->worklets.front()->output.ordinal = work->input.ordinal;
     work->workletsProcessed = 1u;
+}
+
+void C2RKMpiDec::finishConfigUpdate(std::unique_ptr<C2Param> config) {
+    std::unique_ptr<C2Work> work(new C2Work);
+    work->worklets.clear();
+    work->worklets.emplace_back(new C2Worklet);
+    work->worklets.front()->output.configUpdate.push_back(std::move(config));
+
+    auto fillWork = [](const std::unique_ptr<C2Work> &work) {
+        work->workletsProcessed = 1u;
+        work->result = C2_OK;
+    };
+
+    finish(work, fillWork);
 }
 
 void C2RKMpiDec::finishWork(

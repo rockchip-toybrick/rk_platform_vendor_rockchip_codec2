@@ -210,6 +210,7 @@ private:
     c2_status_t configOutputDelay(const std::unique_ptr<C2Work> &work = nullptr);
     c2_status_t configTunneledPlayback(const std::unique_ptr<C2Work> &work);
     void fillEmptyWork(const std::unique_ptr<C2Work> &work);
+    void finishConfigUpdate(std::unique_ptr<C2Param> config);
     void finishWork(const std::unique_ptr<C2Work> &work, WorkEntry entry);
 
     c2_status_t initDecoder(const std::unique_ptr<C2Work> &work);
