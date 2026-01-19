@@ -1852,6 +1852,10 @@ void C2RKMpiDec::finishConfigUpdate(std::unique_ptr<C2Param> config) {
     work->worklets.front()->output.configUpdate.push_back(std::move(config));
 
     auto fillWork = [](const std::unique_ptr<C2Work> &work) {
+        // work flags set to incomplete to ignore frame index check
+        work->input.ordinal.frameIndex = OUTPUT_WORK_INDEX;
+        work->worklets.front()->output.flags = C2FrameData::FLAG_INCOMPLETE;
+
         work->workletsProcessed = 1u;
         work->result = C2_OK;
     };
