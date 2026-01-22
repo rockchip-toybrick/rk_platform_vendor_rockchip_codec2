@@ -2355,6 +2355,7 @@ c2_status_t C2RKMpiDec::ensureDecoderState() {
 
         // allocate buffer within 4G to avoid rga2 error.
         if (C2RKChipCapDef::get()->hasRga2()) {
+            usage |= RK_GRALLOC_USAGE_WITHIN_4G;
             bUsage |= RK_GRALLOC_USAGE_WITHIN_4G;
         }
 
