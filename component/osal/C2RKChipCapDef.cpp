@@ -58,6 +58,15 @@ static C2FbcCaps fbcCaps_rk3538[] = {
     { MPP_VIDEO_CodingAV1,  C2_COMPRESS_AFBC_16x16, 0, 0 },
 };
 
+static C2FbcCaps fbcCaps_rk3572[] = {
+    { MPP_VIDEO_CodingAVC,  C2_COMPRESS_AFBC_16x16, 0, 4 },
+    { MPP_VIDEO_CodingHEVC, C2_COMPRESS_AFBC_16x16, 0, 4 },
+    { MPP_VIDEO_CodingVP9,  C2_COMPRESS_AFBC_16x16, 0, 0 },
+    { MPP_VIDEO_CodingAVS2, C2_COMPRESS_AFBC_16x16, 0, 0 },
+    { MPP_VIDEO_CodingAV1,  C2_COMPRESS_AFBC_16x16, 0, 0 },
+};
+
+
 static C2ChipCapInfo sChipCapDefault = {
     .chipName       = "unknown",
     .chipType       = RK_CHIP_UNKOWN,
@@ -246,6 +255,18 @@ static C2ChipCapInfo sChipCapInfos[] = {
         .fbcCaps        = fbcCaps_rk3576,
         .hdrMetaCap     = 1,
         .scaleMode      = C2_SCALE_MODE_DOWN_SCALE,
+        .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
+        .hasRga2        = 0,
+        .freeAlignEnc   = 1,
+        .reserved       = 0,
+    },
+    {
+        .chipName       = "rk3572",
+        .chipType       = RK_CHIP_3572,
+        .fbcCapNum      = 5,
+        .fbcCaps        = fbcCaps_rk3576,
+        .hdrMetaCap     = 1,
+        .scaleMode      = 0,
         .cap10bit       = C2_CAP_10BIT_AVC | C2_CAP_10BIT_HEVC | C2_CAP_10BIT_VP9,
         .hasRga2        = 0,
         .freeAlignEnc   = 1,
